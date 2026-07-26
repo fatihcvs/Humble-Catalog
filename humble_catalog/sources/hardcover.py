@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta, timezone
 from humble_catalog.sources.base import Source, candidate
 
 QUERY = """
@@ -19,6 +20,19 @@ class Hardcover(Source):
         if token and token.lower().startswith("bearer "):
             token = token[len("bearer "):]
         self.token = token
+
+    def quota_resets_at(self, now=None):
+        # Hardcover documents 60 requests per *minute*, so the base class's
+        # one-hour fallback would idle the source about sixty times longer
+        # than the limit actually lasts. Two minutes, not one: the window
+        # is not stated to be a fixed bucket, so a full minute of margin
+        # costs a minute and removes the ambiguity.
+        #
+        # At delay=2.0 the harvest runs at 30/min, half the limit, so this
+        # should never fire from a single run. It would take a concurrent
+        # run or a lowered delay - which is exactly when guessing an hour
+        # would be most annoying.
+        return (now or datetime.now(timezone.utc)) + timedelta(minutes=2)
 
     def validate(self, data):
         errors = data.get("errors")

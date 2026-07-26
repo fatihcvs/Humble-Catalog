@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta, timezone
 from humble_catalog.sources.base import Source, candidate
 
 class ComicVine(Source):
@@ -9,6 +10,18 @@ class ComicVine(Source):
     def __init__(self, conn, http=None, key=None, offline=False):
         super().__init__(conn, http=http, offline=offline)
         self.key = key if key is not None else os.environ.get("COMICVINE_API_KEY")
+
+    def quota_resets_at(self, now=None):
+        # 200 requests per resource, per hour - so the hour is Comic Vine's
+        # own documented window, not the base class's fallback that happens
+        # to match it. Declared so a later change to that fallback cannot
+        # silently move it.
+        #
+        # This is the source most likely to hit its limit in normal use:
+        # delay=20.0 puts a run at 180/hr against a 200/hr cap. The limit
+        # being per *resource* means search/ and issue/ have separate
+        # budgets, so the --credits top-up does not spend the search one.
+        return (now or datetime.now(timezone.utc)) + timedelta(hours=1)
 
     def lookup(self, title):
         if not self.key:

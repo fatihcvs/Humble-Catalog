@@ -365,6 +365,41 @@ record present, a 429 still costs one live request and still switches
 the source to cache-only. If either needs editing, the change has gone
 further than intended.
 
+## Appendix: what each source's limit actually is
+
+Surveyed 2026-07-26, after the mechanism shipped, to decide which sources
+should declare a window rather than inherit the one-hour fallback.
+"Our rate" is the throttle in `Source.delay` for a single harvest run.
+
+| Source | Documented limit | Window | Our rate | Declares? |
+|---|---|---|---|---|
+| `google_books` | 10,000/day (keyless: 0) | daily, midnight Pacific | 0.5/s | yes — Pacific midnight |
+| `comicvine` | 200 per *resource*, per hour | rolling hour | 180/hr | yes — 1 hour |
+| `hardcover` | 60/minute | per minute | 30/min | yes — 2 minutes |
+| `open_library` | 1/s (3/s if identified) | per second | 0.5/s | no |
+| `oreilly` | none published | — | 0.5/s | no |
+| `audible` | none published | — | 0.5/s | no |
+
+Three findings changed the code:
+
+- **Hardcover's window is per-minute**, so the one-hour fallback would
+  idle it about sixty times longer than the limit lasts. This is the
+  failure the fallback's docstring warns about, and it turned out to be
+  real rather than hypothetical. It declares two minutes.
+- **Comic Vine's hour matches the fallback by coincidence**, and it is the
+  source most likely to 429 in normal use (180/hr against a 200/hr cap).
+  It declares the hour, so a later change to the fallback cannot move it.
+  Its limit being per *resource* also means `search/` and the `credits()`
+  top-up draw on separate budgets.
+- **Open Library rate-limits with 403, not 429**, so `_is_429` never sees
+  it and it falls through to the ordinary failure path. Left as-is and
+  documented in `open_library.py`: a 403 is ambiguous, and recording one
+  as a spent quota would idle the source over what may be a permanent
+  block.
+
+`oreilly` and `audible` are undocumented internal endpoints. They keep the
+fallback, which is the honest position — there is no window to declare.
+
 ## Out of scope
 
 - No change to `check`, `enrich`, or `SOURCE_ORDER`.

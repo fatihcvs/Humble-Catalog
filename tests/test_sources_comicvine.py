@@ -87,3 +87,17 @@ def test_split_credits_keeps_illustrator_narrow():
         {"name": "Jo Journo", "role": "journalist"}])
     assert writers == ["Bo Writer"]
     assert artists == ["Pat Pencil", "Ann Art"]
+
+def test_quota_resets_after_the_documented_hour(tmp_path, monkeypatch):
+    # 200 requests per resource per hour. The base class's fallback happens
+    # to be an hour too, so asserting the value alone would pass without
+    # the source declaring anything. Moving the fallback proves the hour is
+    # Comic Vine's own documented window rather than a coincidence - and it
+    # is the only source likely to 429 in normal use, at 180/hr of 200.
+    from datetime import datetime, timedelta, timezone
+    from humble_catalog.sources.base import Source
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(Source, "quota_resets_at",
+                        lambda self, now=None: now + timedelta(days=99))
+    src = ComicVine(db.connect(tmp_path / "t.db"), key="k")
+    assert src.quota_resets_at(now=now) == now + timedelta(hours=1)

@@ -57,3 +57,13 @@ def test_graphql_errors_raise_and_are_not_cached(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="Malformed"):
         src.lookup("Dune")
     assert conn.execute("SELECT COUNT(*) c FROM source_cache").fetchone()["c"] == 0
+
+
+def test_quota_resets_within_minutes_not_the_default_hour(tmp_path):
+    # Hardcover documents 60 requests per *minute*, so the base class's
+    # one-hour guess would idle the source ~60x longer than the limit
+    # actually lasts. Its own window is the only defensible number.
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+    src = Hardcover(db.connect(tmp_path / "t.db"), token="t")
+    assert src.quota_resets_at(now=now) == now + timedelta(minutes=2)
