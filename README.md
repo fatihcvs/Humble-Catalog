@@ -5,7 +5,7 @@ Local searchable catalog of HumbleBundle e-books, audiobooks, and comics.
 > **Unaffiliated with Humble Bundle.** This is an independent hobby
 > project, not endorsed by, sponsored by, or connected to Humble Bundle
 > in any way; "Humble Bundle" is their trademark, used here only to say
-> what the tool reads. It signs in to *your own* account in a browser
+> what the tool reads. It signs in to _your own_ account in a browser
 > window you drive yourself, to catalogue purchases you already made.
 > Nothing leaves your machine: the catalog, covers, and cached API
 > responses are all local files, no credentials are stored by this
@@ -13,14 +13,19 @@ Local searchable catalog of HumbleBundle e-books, audiobooks, and comics.
 
 Runs on Windows, macOS, and Linux. Python 3.12 or newer.
 
+![The catalog viewer: a sortable table of owned books with genre, author, publisher and bundle columns, filtered here to a single bundle](docs/screenshot-viewer.png)
+
+_The viewer, filtered to one bundle — search, the column filters and the
+status chips all narrow the same table._
+
 ## One-time setup
 
 Only this section differs by platform. Create and activate a virtual
 environment:
 
-| | Windows (PowerShell) | macOS / Linux |
-|---|---|---|
-| Create | `py -3.12 -m venv .venv` | `python3.12 -m venv .venv` |
+|          | Windows (PowerShell)         | macOS / Linux               |
+| -------- | ---------------------------- | --------------------------- |
+| Create   | `py -3.12 -m venv .venv`     | `python3.12 -m venv .venv`  |
 | Activate | `.venv\Scripts\Activate.ps1` | `source .venv/bin/activate` |
 
 Then, with it active, the rest is the same everywhere:
@@ -73,7 +78,7 @@ works without it — it just reports Steam titles as a store you have
 never imported rather than guessing.
 
 Steam's local files cannot answer "what do I own": `appmanifest_*.acf`
-lists only *installed* games, and a game from a Humble key is typically
+lists only _installed_ games, and a game from a Humble key is typically
 activated and never installed — precisely the ones a bundle is most
 likely to duplicate. So this goes through Steam's Web API, which needs
 three things.
@@ -85,7 +90,7 @@ for anything here, so `localhost` is fine. Set it as `STEAM_API_KEY`.
 
 **2. Your SteamID64** — the 17-digit numeric id, not your display name.
 If your profile URL looks like `steamcommunity.com/profiles/7656119…`,
-the number *is* your SteamID64. If it looks like
+the number _is_ your SteamID64. If it looks like
 `steamcommunity.com/id/somename`, you chose a custom URL and the number
 is hidden; with the key from step 1 you can resolve it:
 
@@ -109,6 +114,7 @@ With both variables set, `python -m humble_catalog import-games` reports
 stores normally.
 
 ## Usage
+
 - `python -m humble_catalog extract` - fetch your library.
   First run opens a normal browser window: log in to HumbleBundle
   (Google + TFA), then close the window when your library is visible.
@@ -138,8 +144,8 @@ stores normally.
     free). Run it once, fine to leave overnight.
     Each source shows its own counter and a state mark: `▸` still working,
     `✓` finished, `✗` gave up (falling back to `~ + x` on consoles that
-    cannot draw them). The counter is how many titles that source *has
-    data for*, so a source that gave up shows how far it got rather than
+    cannot draw them). The counter is how many titles that source _has
+    data for_, so a source that gave up shows how far it got rather than
     rounding itself up. A source that exhausts its daily quota is marked
     failed and keeps serving its cached titles to the end of the run; its
     remaining titles wait for the next `harvest`. Google Books has the
@@ -219,7 +225,7 @@ stores normally.
   tier adds over the cheaper ones. For books ownership is
   exact - the page names each item with the same internal id your
   catalog stores - so a re-run of a bundle you bought before reads as
-  owned rather than as a guess. Titles that merely *look* like something
+  owned rather than as a guess. Titles that merely _look_ like something
   you own (a Vol. 1-6 omnibus against a Vol. 1 you have) are listed
   separately as possible partial overlaps rather than counted either way.
   Read-only and needs no login: nothing is written to the catalog.
@@ -270,11 +276,11 @@ privacy checks. See [scripts/README.md](scripts/README.md).
 Three privacy checks guard the same rule — that nothing revealing the
 owner's actual library reaches the repo:
 
-- `scripts/check_no_data_tracked.py` asks whether a data *file* is
+- `scripts/check_no_data_tracked.py` asks whether a data _file_ is
   tracked — the catalog, a cover, a spreadsheet, an export — in the
   current tree or anywhere in history. Path names only, so it needs no
   catalog and is a real gate on any clone. Part of `verify`.
-- `scripts/leak_check.py` scans the working tree for private *terms*.
+- `scripts/leak_check.py` scans the working tree for private _terms_.
   Part of `verify`, so it runs constantly.
 - `scripts/leak_check_history.py` runs the same terms against every git
   object and commit message. Slower and not part of `verify`; run it
