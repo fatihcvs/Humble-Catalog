@@ -176,12 +176,22 @@ stores normally.
   you can review or clear the whole set before running enrich. Once a run
   replaces one, it reads "re-enriched" and `↩` gives your typed values
   back.
-- `python -m humble_catalog import-sheets` - one-shot import
-  of the reference spreadsheets: ratings go to "Mine", and genre/series/
-  narrator fill empty fields (never overwriting enrichment or your edits;
-  filled rows show the "edited" badge and can be reverted). Rows it can't
-  match with certainty are listed with a closest-title hint - fix those by
-  hand in the viewer. Safe to re-run any time.
+- `python -m humble_catalog import-sheets [file.xlsx ...]` - import
+  ratings and metadata you already keep in a spreadsheet. Ratings go to
+  "Mine", and genre/series/author/narrator fill empty fields (never
+  overwriting enrichment or your edits; filled rows show the "edited"
+  badge and can be reverted). Rows it can't match with certainty are
+  listed with a closest-title hint - fix those by hand in the viewer.
+  Safe to re-run any time.
+  Any `.xlsx` works, not just the author's own two files: row 1 holds
+  the headers, `Name` is the only required column, and columns it does
+  not recognise are now listed at the end of the run rather than
+  ignored in silence. One rule is easy to trip over — a workbook is
+  matched against audiobooks only if its **file name** contains
+  "audiobook", and against ebooks and comics otherwise.
+  [docs/SPREADSHEET-FORMAT.md](docs/SPREADSHEET-FORMAT.md) is the full
+  specification: accepted headers, value rules, matching, and what to
+  check when an import does nothing.
 - `python -m humble_catalog export [file]` - write the whole
   catalog for Excel/Sheets. The suffix picks the format: `catalog.csv`
   (the default) or `catalog.xlsx` for a styled workbook with a frozen

@@ -19,7 +19,7 @@ def test_read_workbook_headers_and_aliases(tmp_path):
         ("Axebearer", "The Elder Realm", "Alex Penner", "Sam Reader",
          "Epic Tales", 4.0),
     ]})
-    rows, skipped = import_sheets.read_workbook(p)
+    rows, skipped, _ = import_sheets.read_workbook(p)
     assert skipped == []
     (row,) = rows
     assert row["sheet"] == "Grimdark"
@@ -41,7 +41,7 @@ def test_read_workbook_skips_blank_rows_and_reports_bad_sheets(tmp_path):
         "Ark3": [],
         "Notes": [("Random", "Junk"), ("no", "title header")],
     })
-    rows, skipped = import_sheets.read_workbook(p)
+    rows, skipped, _ = import_sheets.read_workbook(p)
     assert [r["title"] for r in rows] == ["All Systems Red"]
     assert rows[0]["series_number"] == 1.0
     assert sorted(skipped) == ["Ark3", "Notes"]
@@ -137,7 +137,7 @@ def test_na_cells_and_bad_series_numbers_are_ignored(tmp_path):
         ("Name:", "Genre:", "Number in the series:", "Rating:"),
         ("How Sound Behaves", "N/A", "n/a", 0.0),
     ]})
-    rows, _ = import_sheets.read_workbook(p)
+    rows, _, _ = import_sheets.read_workbook(p)
     (row,) = rows
     assert "genre" not in row and "series_number" not in row
     # a stray non-numeric series_number that slips through must not crash
@@ -207,3 +207,52 @@ def test_run_without_a_terminal_does_not_name_every_row(tmp_path, capsys):
     assert "\x1b[" not in out
     assert "Row 1/1" not in out
     assert out.startswith("1 rows read, 1 matched")
+
+
+# --- unrecognized columns --------------------------------------------------
+
+def test_unrecognized_columns_are_collected_not_silently_dropped(tmp_path):
+    # The trap this closes: "Ratings" instead of "Rating" imports nothing
+    # and the run still reports success.
+    p = make_wb(tmp_path / "b.xlsx", {"Fiction": [
+        ("Name:", "Ratings:", "Authors", "Bundle:", None, "  "),
+        ("Axebearer", 4.0, "Alex Penner", "Epic Tales", None, None),
+    ]})
+    rows, skipped, unknown = import_sheets.read_workbook(p)
+    assert skipped == []
+    assert unknown == [("Fiction", ["Ratings", "Authors"])]
+    # Bundle is recognized-and-dropped, so it is not a mistake; blank
+    # header cells are ordinary trailing columns, not mistakes either.
+    (row,) = rows
+    assert "rating" not in row or row["rating"] is None
+    assert "authors" not in row
+
+
+def test_a_misspelled_name_column_is_reported_twice(tmp_path):
+    # Both facts are needed to diagnose it: the sheet was skipped, and
+    # "Title" is why -- neither alone points at the fix.
+    p = make_wb(tmp_path / "b.xlsx", {"Fiction": [
+        ("Title:", "Rating:"),
+        ("Axebearer", 4.0),
+    ]})
+    rows, skipped, unknown = import_sheets.read_workbook(p)
+    assert rows == []
+    assert skipped == ["Fiction"]
+    assert unknown == [("Fiction", ["Title"])]
+
+
+def test_run_reports_unrecognized_columns_and_the_vocabulary(tmp_path, capsys):
+    make_wb(tmp_path / "Audiobooks test.xlsx", {"Fiction": [
+        ("Name:", "Ratings:"),
+        ("All Systems Red", 5.0),
+    ]})
+    _catalog(tmp_path, [("All Systems Red", "audiobook")])
+    import_sheets.run([str(tmp_path / "Audiobooks test.xlsx")],
+                      db_path=tmp_path / "cat.db")
+    out = capsys.readouterr().out
+    assert "Unrecognized columns" in out
+    assert "Ratings" in out
+    # Naming the accepted spellings is the point: the fix has to be
+    # visible without going to the docs.
+    assert "Name" in out and "Rating" in out
+    assert "0 ratings set" in out

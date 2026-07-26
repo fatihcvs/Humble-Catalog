@@ -25,10 +25,31 @@ HEADERS = {
     "rating": "rating", "bundle": None, "humble": None, "publisher": None,
 }
 
-def _canon(cell):
+def _key(cell):
+    """The lookup form of a header cell, or None when it is not a header
+    at all (a number, or a blank trailing column)."""
     if not isinstance(cell, str):
         return None
-    return HEADERS.get(cell.strip().rstrip(":").strip().lower(), None)
+    return cell.strip().rstrip(":").strip().lower() or None
+
+def _canon(cell):
+    key = _key(cell)
+    return HEADERS.get(key) if key else None
+
+def unknown_headers(header):
+    """Header cells this importer does not know, in sheet order.
+
+    Distinct from `_canon` returning None, which conflates two different
+    things: "Bundle" is understood and deliberately dropped, while
+    "Ratings" is a typo that silently imports nothing. Only the second
+    is worth telling anyone about.
+    """
+    seen = []
+    for cell in header or ():
+        key = _key(cell)
+        if key and key not in HEADERS:
+            seen.append(cell.strip().rstrip(":").strip())
+    return seen
 
 def _cell(value):
     """Trimmed cell value, or None when effectively empty. "N/A" counts
@@ -42,13 +63,21 @@ def _cell(value):
     return value if value not in (None, "") else None
 
 def read_workbook(path):
-    """-> (rows, skipped_sheet_names). Row dicts carry sheet, title,
-    rating (may be None) and any non-empty canonical fields."""
+    """-> (rows, skipped_sheet_names, [(sheet, unknown_headers), ...]).
+
+    Row dicts carry sheet, title, rating (may be None) and any non-empty
+    canonical fields. Unknown headers are collected for skipped sheets
+    too: a sheet skipped because "Name" was spelled "Title" is exactly
+    the case where knowing the rejected header is the whole diagnosis.
+    """
     wb = load_workbook(path, data_only=True, read_only=True)
-    rows, skipped = [], []
+    rows, skipped, unknown = [], [], []
     for ws in wb.worksheets:
         header = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
         fields = [_canon(c) for c in header] if header else []
+        strays = unknown_headers(header)
+        if strays:
+            unknown.append((ws.title, strays))
         if "title" not in fields:
             skipped.append(ws.title)
             continue
@@ -65,7 +94,7 @@ def read_workbook(path):
                 continue
             rows.append(row)
     wb.close()
-    return rows, skipped
+    return rows, skipped, unknown
 
 _PUNCT = re.compile(r"[^\w\s]")
 
@@ -163,15 +192,18 @@ def run(paths=None, db_path="catalog.db"):
     paths = list(paths) if paths else [p for p in DEFAULT_FILES if Path(p).exists()]
     conn = db.connect(db_path)
     totals = {"rows": 0, "matched": 0, "ratings": 0, "filled": 0, "complete": 0}
-    unmatched, ambiguous, skipped_sheets = [], [], []
+    unmatched, ambiguous, skipped_sheets, stray_columns = [], [], [], []
     try:
         sheets = []
         reading = Progress(conn, "import-sheets", total=len(paths),
                            phase="Workbook", echo=False)
         for path in paths:
             reading.step(Path(path).name)  # named BEFORE the slow parse
-            rows, skipped = read_workbook(path)
+            rows, skipped, unknown = read_workbook(path)
             skipped_sheets += [f"{Path(path).name}/{s}" for s in skipped]
+            stray_columns += [
+                f"[{Path(path).name}/{sheet}] " + ", ".join(f'"{h}"' for h in heads)
+                for sheet, heads in unknown]
             sheets.append((path, rows))
         reading.detach()
         prog = Progress(conn, "import-sheets", phase="Row", echo=False,
@@ -208,9 +240,18 @@ def run(paths=None, db_path="catalog.db"):
     finally:
         conn.close()
     for label, entries in (("Skipped sheets (no Name: column)", skipped_sheets),
+                           ("Unrecognized columns (ignored)", stray_columns),
                            ("Ambiguous (several catalog matches)", ambiguous),
                            ("Unmatched", unmatched)):
         if entries:
             print(f"\n{label}:")
             for e in entries:
                 print(f"  {e}")
+    if stray_columns:
+        # The accepted spellings, so a typo can be fixed from the output
+        # alone. Ordered as a row would be, not alphabetically.
+        print("  Recognized: Name, Genre (or Setting), Series, "
+              "Number in the series, Author,\n              Narrator, "
+              "Rating. Bundle, Humble and Publisher are read and\n"
+              "              ignored; anything else is listed above.\n"
+              "  Full format: docs/SPREADSHEET-FORMAT.md")
