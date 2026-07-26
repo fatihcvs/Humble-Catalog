@@ -73,6 +73,12 @@ ALLOWED = {t.lower() for t in [
     "Alone", "Days", "Muse", "Omni", "Rest", "Rules", "Seven", "Symmetry",
     "The Score", "Unknown", "Void", "Wings",
     #
+    # Added 2026-07-26 (third pass). A timezone name, not a title: the
+    # harvest quota design has to say when Google's daily quota resets,
+    # and that instant is midnight Pacific. It appears only in that
+    # sense, in the spec and in the source that computes the time.
+    "Pacific",
+    #
     # House examples. "The Murderbot Diaries" is the article-carrying
     # variant of an entry already here, which the catalog stores in full.
     # Dune is famous public fiction used exactly as All Systems Red is —
