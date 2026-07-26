@@ -1,0 +1,53 @@
+{
+  "basic_data": {"human_name": "Humble Game Bundle: Story Sampler", "currency": "EUR"},
+  "tier_pricing_data": {
+    "initial": {"price|money": {"currency": "EUR", "amount": 4.99}},
+    "bt10": {"price|money": {"currency": "EUR", "amount": 10.95}}
+  },
+  "tier_display_data": {
+    "initial": {"tier_item_machine_names": [
+      "pixelharbor_examplegames", "lanternlockpick_examplegames"]},
+    "bt10": {"tier_item_machine_names": [
+      "pixelharbor_examplegames", "lanternlockpick_examplegames",
+      "widgetquest_de_examplegames", "widgetquest2_examplegames",
+      "neondrifter_examplegames", "groveofechoes_examplegames",
+      "starfallrallyturbo_examplegames", "quietharbor_examplepress"]}
+  },
+  "tier_item_data": {
+    "pixelharbor_examplegames": {
+      "human_name": "Pixel Harbor",
+      "item_content_type": "game",
+      "platforms_and_oses": {"game": {"steam": ["windows", "mac"]}}},
+    "lanternlockpick_examplegames": {
+      "human_name": "Lantern & Lockpick",
+      "item_content_type": "game",
+      "platforms_and_oses": {"game": {"steam": ["windows"]}}},
+    "widgetquest_de_examplegames": {
+      "human_name": "Widget Quest: Definitive Edition",
+      "item_content_type": "game",
+      "platforms_and_oses": {"game": {"steam": ["windows", "linux"]}}},
+    "widgetquest2_examplegames": {
+      "human_name": "Widget Quest II",
+      "item_content_type": "game",
+      "platforms_and_oses": {"game": {"steam": ["windows"]}}},
+    "neondrifter_examplegames": {
+      "human_name": "Neon Drifter",
+      "item_content_type": "game",
+      "platforms_and_oses": {"game": {"steam": ["windows"]}}},
+    "groveofechoes_examplegames": {
+      "human_name": "Grove of Echoes",
+      "item_content_type": "game",
+      "platforms_and_oses": {"game": {"gog": ["windows"]}}},
+    "starfallrallyturbo_examplegames": {
+      "human_name": "Starfall Rally Turbo",
+      "item_content_type": "game",
+      "platforms_and_oses": {"game": {"steam": ["windows"]}}},
+    "quietharbor_examplepress": {
+      "human_name": "The Quiet Harbor: A Novel",
+      "item_content_type": "ebook",
+      "platforms_and_oses": {}},
+    "bonuswallpaper_examplegames": {
+      "human_name": "Bonus Wallpaper",
+      "platforms_and_oses": {}}
+  }
+}

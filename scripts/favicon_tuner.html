@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Humble Catalog — favicon tuner</title>
+<!--
+  Design tool for the viewer favicon. Open this file directly in a
+  browser (file:// works — it fetches nothing) and drag the sliders;
+  the page installs the mark as its own favicon, so the browser tab is
+  a live preview. Paste the SPINES table over the one in
+  scripts/make_favicon.py when you like what you see.
+
+  Companion to docs/superpowers/specs/2026-07-20-favicon-design.md.
+-->
+<style>
+  :root {
+    --bg: #f4f4f6; --panel: #fff; --fg: #222; --muted: #667;
+    --border: #dcdce2; --accent: #558; --bad: #b3261e;
+    font-family: system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); }
+
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: .7rem 1.2rem; display: flex; align-items: center; gap: 1rem;
+    position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+  header .hint { color: var(--muted); font-size: .8rem; }
+  header .spacer { flex: 1; }
+
+  .layout { display: flex; gap: 1.2rem; padding: 1.2rem; align-items: flex-start; }
+  .col-controls { flex: 1 1 460px; min-width: 400px; }
+  .col-preview  { flex: 0 0 400px; position: sticky; top: 4.2rem; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1rem;
+  }
+  .card > h2 {
+    margin: 0 0 .8rem; font-size: .72rem; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  }
+
+  .row { display: grid; grid-template-columns: 5.5rem 1fr 3.2rem; gap: .6rem;
+         align-items: center; margin-bottom: .45rem; }
+  .row label { font-size: .8rem; color: var(--muted); }
+  .row output { font-size: .78rem; font-variant-numeric: tabular-nums;
+                text-align: right; color: var(--fg); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .spine { border: 1px solid var(--border); border-radius: 8px;
+           padding: .7rem .8rem; margin-bottom: .7rem; }
+  .spine-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .6rem; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); }
+  .spine-head strong { font-size: .82rem; font-weight: 600; flex: 1; }
+  .colors { display: flex; gap: 1.2rem; margin-top: .55rem; }
+  .colors label { font-size: .78rem; color: var(--muted);
+                  display: flex; align-items: center; gap: .4rem; }
+  input[type=color] { width: 34px; height: 24px; padding: 0; border: 1px solid var(--border);
+                      border-radius: 4px; background: none; cursor: pointer; }
+
+  .contrast { margin-top: .55rem; font-size: .72rem; color: var(--muted);
+              line-height: 1.6; font-variant-numeric: tabular-nums; }
+  .contrast b { font-weight: 600; color: var(--fg); }
+  .contrast .bad { color: var(--bad); font-weight: 600; }
+
+  button {
+    font: inherit; font-size: .8rem; padding: .35rem .7rem;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--fg); cursor: pointer;
+  }
+  button:hover { background: #eef; border-color: #ccd; }
+  button.danger { color: var(--bad); }
+  .btn-row { display: flex; gap: .5rem; margin-top: .3rem; }
+
+  .preview-panel { border-radius: 10px; padding: .9rem 1rem; margin-bottom: .8rem;
+                   border: 1px solid var(--border); }
+  .pv-light { background: #fafafa; }
+  .pv-dark  { background: #16181c; border-color: #2c3038; }
+  .pv-label { font-size: .68rem; letter-spacing: .07em; text-transform: uppercase;
+              margin-bottom: .7rem; opacity: .6; }
+  .pv-light .pv-label { color: #222; }
+  .pv-dark  .pv-label { color: #e6e6e6; }
+  .pv-row { display: flex; align-items: flex-end; gap: 1.3rem; }
+  .pv-cell { text-align: center; }
+  .pv-cap { font-size: .65rem; margin-top: .45rem; opacity: .5; }
+  .pv-light .pv-cap { color: #222; }
+  .pv-dark  .pv-cap { color: #e6e6e6; }
+
+  .tabmock { display: flex; align-items: center; gap: .45rem; margin-top: .9rem;
+             padding: .35rem .8rem .35rem .55rem; border-radius: 8px 8px 0 0;
+             font-size: .75rem; width: max-content; }
+  .pv-light .tabmock { background: #fff; color: #333; border: 1px solid #e0e0e0; border-bottom: none; }
+  .pv-dark  .tabmock { background: #282b31; color: #dcdcdc; border: 1px solid #34383f; border-bottom: none; }
+
+  canvas.zoom { image-rendering: pixelated; border: 1px solid var(--border);
+                border-radius: 4px; background: transparent; }
+  .zoom-pair { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+  .zoom-cell { text-align: center; }
+  .zoom-cell .pv-cap { color: var(--muted); }
+  .zoom-cell.on-dark  { background: #16181c; padding: .4rem; border-radius: 6px; }
+  .zoom-cell.on-light { background: #fafafa; padding: .4rem; border-radius: 6px; }
+
+  pre { margin: 0; font-size: .74rem; line-height: 1.45; overflow-x: auto;
+        background: #f7f7fa; border: 1px solid var(--border); border-radius: 6px;
+        padding: .7rem .8rem; font-family: ui-monospace, Consolas, monospace; }
+  .out-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; }
+  .out-head h2 { margin: 0; flex: 1; }
+  .note { font-size: .74rem; color: var(--muted); margin: .7rem 0 0; line-height: 1.55; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Favicon tuner</h1>
+  <span class="hint">This page wears the icon itself — watch the browser tab as you drag.</span>
+  <span class="spacer"></span>
+  <button id="reset">Reset to proposal</button>
+</header>
+
+<div class="layout">
+
+  <!-- ================= CONTROLS ================= -->
+  <div class="col-controls">
+
+    <div class="card">
+      <h2>Canvas</h2>
+      <div class="row">
+        <label for="g-baseline">Baseline y</label>
+        <input type="range" id="g-baseline" min="40" max="64" step="1">
+        <output id="o-baseline"></output>
+      </div>
+      <div class="row">
+        <label for="g-radius">Corner radius</label>
+        <input type="range" id="g-radius" min="0" max="6" step="0.5">
+        <output id="o-radius"></output>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Spines</h2>
+      <div id="spines"></div>
+      <div class="btn-row">
+        <button id="add">+ Add spine</button>
+      </div>
+      <p class="note">
+        Contrast is measured with the WCAG relative-luminance formula against
+        the two tab backgrounds a favicon actually sits on: white for light
+        chrome, <code>#282b31</code> for dark. <b>3.0</b> is the floor
+        (WCAG 1.4.11, non-text contrast); below it a spine starts dissolving
+        into the tab strip. The dark fill must also be <em>lighter</em> than
+        the light fill — that is the whole point of having two palettes.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="out-head">
+        <h2>Python — paste into scripts/make_favicon.py</h2>
+        <button data-copy="out-py">Copy</button>
+      </div>
+      <pre id="out-py"></pre>
+    </div>
+
+    <div class="card">
+      <div class="out-head">
+        <h2>Generated favicon.svg</h2>
+        <button data-copy="out-svg">Copy</button>
+      </div>
+      <pre id="out-svg"></pre>
+    </div>
+
+  </div>
+
+  <!-- ================= PREVIEW ================= -->
+  <div class="col-preview">
+
+    <div class="preview-panel pv-light">
+      <div class="pv-label">Light</div>
+      <div class="pv-row">
+        <div class="pv-cell"><div id="lt-64"></div><div class="pv-cap">64</div></div>
+        <div class="pv-cell"><div id="lt-32"></div><div class="pv-cap">32</div></div>
+        <div class="pv-cell"><div id="lt-16"></div><div class="pv-cap">16</div></div>
+      </div>
+      <div class="tabmock"><span id="lt-tab"></span><span>Humble Catalog</span></div>
+    </div>
+
+    <div class="preview-panel pv-dark">
+      <div class="pv-label">Dark</div>
+      <div class="pv-row">
+        <div class="pv-cell"><div id="dk-64"></div><div class="pv-cap">64</div></div>
+        <div class="pv-cell"><div id="dk-32"></div><div class="pv-cap">32</div></div>
+        <div class="pv-cell"><div id="dk-16"></div><div class="pv-cap">16</div></div>
+      </div>
+      <div class="tabmock"><span id="dk-tab"></span><span>Humble Catalog</span></div>
+    </div>
+
+    <div class="card">
+      <h2>True 16&times;16 rasterization &mdash; 8&times;</h2>
+      <div class="zoom-pair">
+        <div class="zoom-cell on-light">
+          <canvas class="zoom" id="zoom-light" width="128" height="128"></canvas>
+          <div class="pv-cap">light</div>
+        </div>
+        <div class="zoom-cell on-dark">
+          <canvas class="zoom" id="zoom-dark" width="128" height="128"></canvas>
+          <div class="pv-cap">dark</div>
+        </div>
+        <div class="zoom-cell on-light">
+          <canvas class="zoom" id="zoom-png" width="128" height="128"></canvas>
+          <div class="pv-cap">png fills</div>
+        </div>
+      </div>
+      <p class="note">
+        Rasterized at 16&times;16 then upscaled with smoothing off &mdash; these are
+        the actual pixels. If the gaps between spines vanish here, they
+        vanish in the tab strip too.
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const STORAGE_KEY = "hc-favicon-tuner";
+
+// Tab-strip backgrounds a favicon actually renders against.
+const BG_LIGHT = "#ffffff";
+const BG_DARK  = "#282b31";
+const CONTRAST_FLOOR = 3.0;   // WCAG 1.4.11, non-text contrast
+
+// Green / red / purple. Chosen by measuring minimum pairwise CIE Lab dE
+// under simulated deuteranopia, protanopia and tritanopia: this triad
+// never drops below dE 25 in any of them, beating both green/red/blue
+// and the Okabe-Ito reference palette. Purple works here because it
+// replaces the blue rather than the green -- sitting purple *between*
+// red and blue collapses to dE 10 under tritanopia.
+const DEFAULT_STATE = {
+  baseline: 58,
+  radius: 1.5,
+  spines: [
+    { x:  6, top: 12, w: 13, lean:  0, light: "#2f9e28", dark: "#63d452", png: "#3aa832" },
+    { x: 23, top:  4, w: 13, lean:  0, light: "#d13a1e", dark: "#ff8f70", png: "#d6431f" },
+    { x: 40, top: 16, w: 12, lean: 17, light: "#7c3aed", dark: "#c39cff", png: "#9a5ff0" },
+  ],
+};
+
+let state = load();
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const s = JSON.parse(raw);
+      // Older saves predate the separate PNG palette; fall back to the light fill.
+      for (const sp of s.spines) if (!sp.png) sp.png = sp.light;
+      return s;
+    }
+  } catch { /* fall through to defaults */ }
+  return structuredClone(DEFAULT_STATE);
+}
+
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+
+/* ---------- colour maths ---------- */
+
+function toRgb(hex) {
+  const h = hex.replace("#", "");
+  return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+}
+
+function luminance(hex) {
+  const f = c => {
+    c /= 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const [r, g, b] = toRgb(hex);
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function contrast(a, b) {
+  const la = luminance(a), lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/* ---------- SVG generation ----------
+   Every spine is a rect standing on the shared baseline. `lean` rotates it
+   about its own foot (x, baseline) so the book stays planted on the shelf
+   instead of floating. */
+
+function rects(theme) {
+  return state.spines.map((s, i) => {
+    const h = state.baseline - s.top;
+    const fill = theme === "class" ? null : s[theme];
+    const attrs = [
+      `x="${s.x}"`, `y="${s.top}"`,
+      `width="${s.w}"`, `height="${h}"`,
+      `rx="${state.radius}"`,
+      fill ? `fill="${fill}"` : `class="s${i}"`,
+    ];
+    if (s.lean) attrs.push(`transform="rotate(${s.lean} ${s.x} ${state.baseline})"`);
+    return `<rect ${attrs.join(" ")}/>`;
+  }).join("\n  ");
+}
+
+// Flat single-theme SVG, used for the side-by-side previews and rasterization.
+function flatSVG(theme, px) {
+  const size = px ? ` width="${px}" height="${px}"` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"${size}>\n  `
+       + rects(theme) + `\n</svg>`;
+}
+
+// The real deliverable: one file that recolours itself in dark mode.
+function themedSVG() {
+  const light = state.spines.map((s, i) => `.s${i}{fill:${s.light}}`).join("");
+  const dark  = state.spines.map((s, i) => `.s${i}{fill:${s.dark}}`).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    ${light}
+    @media (prefers-color-scheme:dark){${dark}}
+  </style>
+  ${rects("class")}
+</svg>`;
+}
+
+function pythonTable() {
+  const rows = state.spines
+    .map(s => `    (${s.x}, ${s.top}, ${s.w}, "${s.light}", "${s.dark}", ${s.lean}),`)
+    .join("\n");
+  const png = state.spines.map(s => `"${s.png}"`).join(", ");
+  return `# (x, top_y, width, fill_light, fill_dark, lean_degrees)\n`
+       + `# All spines stand on BASELINE; lean rotates about (x, BASELINE).\n`
+       + `SPINES = [\n${rows}\n]\nBASELINE = ${state.baseline}\n`
+       + `CORNER_RADIUS = ${state.radius}\n\n`
+       + `# The PNG cannot carry a media query, so this single palette has to\n`
+       + `# clear both a white and a dark tab strip.\n`
+       + `PNG_FILLS = [${png}]\n`;
+}
+
+/* ---------- rendering ---------- */
+
+function setSized(id, theme, px) {
+  document.getElementById(id).innerHTML = flatSVG(theme, px);
+}
+
+function drawZoom(canvasId, theme) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  const img = new Image();
+  img.onload = () => {
+    // Two-step: rasterize honestly at 16x16, then magnify with smoothing off.
+    const small = document.createElement("canvas");
+    small.width = small.height = 16;
+    small.getContext("2d").drawImage(img, 0, 0, 16, 16);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
+  };
+  img.src = "data:image/svg+xml," + encodeURIComponent(flatSVG(theme, 16));
+}
+
+function applyLiveFavicon() {
+  // Browsers cache favicons per element, so replace the link rather than
+  // mutating href in place.
+  const href = "data:image/svg+xml," + encodeURIComponent(themedSVG());
+  document.querySelectorAll("link[rel~='icon']").forEach(n => n.remove());
+  const link = document.createElement("link");
+  link.rel = "icon";
+  link.type = "image/svg+xml";
+  link.href = href;
+  document.head.appendChild(link);
+}
+
+function render() {
+  for (const px of [64, 32, 16]) {
+    setSized(`lt-${px}`, "light", px);
+    setSized(`dk-${px}`, "dark", px);
+  }
+  setSized("lt-tab", "light", 16);
+  setSized("dk-tab", "dark", 16);
+
+  drawZoom("zoom-light", "light");
+  drawZoom("zoom-dark", "dark");
+  drawZoom("zoom-png", "png");
+
+  document.getElementById("out-py").textContent = pythonTable();
+  document.getElementById("out-svg").textContent = themedSVG();
+
+  for (const s of state.spines) if (s._readout) s._readout();
+
+  applyLiveFavicon();
+  save();
+}
+
+/* ---------- control building ---------- */
+
+const SLIDERS = [
+  { key: "x",    label: "x",      min: 0,  max: 60, step: 1 },
+  { key: "top",  label: "top y",  min: 0,  max: 56, step: 1 },
+  { key: "w",    label: "width",  min: 2,  max: 26, step: 1 },
+  { key: "lean", label: "lean°", min: -30, max: 30, step: 1 },
+];
+
+const COLORS = [
+  { key: "light", label: "light", bg: BG_LIGHT },
+  { key: "dark",  label: "dark",  bg: BG_DARK  },
+  { key: "png",   label: "png",   bg: null     },  // judged against both
+];
+
+function num(v, ok) {
+  return `<span class="${ok ? "" : "bad"}">${v.toFixed(2)}</span>`;
+}
+
+function buildSpines() {
+  const host = document.getElementById("spines");
+  host.innerHTML = "";
+
+  state.spines.forEach((s, i) => {
+    const box = document.createElement("div");
+    box.className = "spine";
+
+    const head = document.createElement("div");
+    head.className = "spine-head";
+    head.innerHTML = `<span class="swatch" style="background:${s.light}"></span>`
+                   + `<strong>Spine ${i + 1}</strong>`;
+    const del = document.createElement("button");
+    del.className = "danger";
+    del.textContent = "Remove";
+    del.disabled = state.spines.length <= 1;
+    del.onclick = () => { state.spines.splice(i, 1); buildSpines(); render(); };
+    head.appendChild(del);
+    box.appendChild(head);
+
+    for (const cfg of SLIDERS) {
+      const row = document.createElement("div");
+      row.className = "row";
+
+      const lab = document.createElement("label");
+      lab.textContent = cfg.label;
+
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = cfg.min; input.max = cfg.max; input.step = cfg.step;
+      input.value = s[cfg.key];
+
+      const out = document.createElement("output");
+      out.textContent = s[cfg.key];
+
+      input.oninput = () => {
+        s[cfg.key] = Number(input.value);
+        out.textContent = input.value;
+        render();
+      };
+
+      lab.htmlFor = input.id = `sp${i}-${cfg.key}`;
+      row.append(lab, input, out);
+      box.appendChild(row);
+    }
+
+    const colors = document.createElement("div");
+    colors.className = "colors";
+    for (const cfg of COLORS) {
+      const lab = document.createElement("label");
+      lab.textContent = cfg.label;
+      const pick = document.createElement("input");
+      pick.type = "color";
+      pick.value = s[cfg.key];
+      pick.oninput = () => {
+        s[cfg.key] = pick.value;
+        if (cfg.key === "light") head.querySelector(".swatch").style.background = pick.value;
+        render();
+      };
+      lab.prepend(pick);
+      colors.appendChild(lab);
+    }
+    box.appendChild(colors);
+
+    const readout = document.createElement("div");
+    readout.className = "contrast";
+    box.appendChild(readout);
+
+    s._readout = () => {
+      const cl = contrast(s.light, BG_LIGHT);
+      const cd = contrast(s.dark, BG_DARK);
+      const pw = contrast(s.png, BG_LIGHT);
+      const pd = contrast(s.png, BG_DARK);
+      const dL = luminance(s.dark) - luminance(s.light);
+      readout.innerHTML =
+          `<b>light</b> on white ${num(cl, cl >= CONTRAST_FLOOR)} &nbsp;·&nbsp; `
+        + `<b>dark</b> on dark tab ${num(cd, cd >= CONTRAST_FLOOR)}<br>`
+        + `<b>png</b> on white ${num(pw, pw >= CONTRAST_FLOOR)} / `
+        + `on dark tab ${num(pd, pd >= CONTRAST_FLOOR)}<br>`
+        + `<b>ΔL</b> light→dark `
+        + `<span class="${dL > 0 ? "" : "bad"}">${dL >= 0 ? "+" : ""}${dL.toFixed(3)}</span>`
+        + (dL > 0 ? "" : ` — dark fill must be lighter`);
+    };
+
+    host.appendChild(box);
+  });
+}
+
+function bindGlobal(id, key, fmt) {
+  const input = document.getElementById(id);
+  const out = document.getElementById("o-" + key);
+  input.value = state[key];
+  out.textContent = fmt(state[key]);
+  input.oninput = () => {
+    state[key] = Number(input.value);
+    out.textContent = fmt(state[key]);
+    render();
+  };
+}
+
+document.getElementById("add").onclick = () => {
+  const last = state.spines[state.spines.length - 1];
+  state.spines.push({
+    x: Math.min(60, last ? last.x + last.w + 4 : 6),
+    top: 14, w: 12, lean: 0,
+    light: last ? last.light : "#2f9e28",
+    dark:  last ? last.dark  : "#63d452",
+    png:   last ? last.png   : "#3aa832",
+  });
+  buildSpines();
+  render();
+};
+
+document.getElementById("reset").onclick = () => {
+  state = structuredClone(DEFAULT_STATE);
+  init();
+};
+
+for (const btn of document.querySelectorAll("[data-copy]")) {
+  btn.onclick = async () => {
+    const text = document.getElementById(btn.dataset.copy).textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      const old = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    } catch {
+      btn.textContent = "Ctrl+C";
+    }
+  };
+}
+
+function init() {
+  bindGlobal("g-baseline", "baseline", v => v);
+  bindGlobal("g-radius", "radius", v => v.toFixed(1));
+  buildSpines();
+  render();
+}
+
+init();
+</script>
+</body>
+</html>

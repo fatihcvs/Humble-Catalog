@@ -1,0 +1,20 @@
+{
+  "gamekey": "apk456",
+  "created": "2021-03-01T09:00:00",
+  "product": {"human_name": "Humble Mobile Bundle: Indie Games",
+              "machine_name": "test_mobilebundle"},
+  "subproducts": [
+    {"machine_name": "cooltower_android",
+     "human_name": "Cool Tower Defense",
+     "icon": "https://hb.imgix.net/cooltower.jpg",
+     "payee": {"human_name": "Indie Dev Co"},
+     "downloads": [
+       {"platform": "android",
+        "download_struct": [
+          {"name": "APK", "url": {"web": "https://dl.humble.com/cool.apk?sig=x"}}]}]},
+    {"machine_name": "bonus_wallpaper",
+     "human_name": "Bonus Wallpaper",
+     "downloads": [{"platform": "other", "download_struct": []}]}
+  ],
+  "tpkd_dict": {"all_tpks": []}
+}

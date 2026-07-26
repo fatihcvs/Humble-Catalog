@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Humble Catalog</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/static/favicon-32.png" type="image/png" sizes="32x32">
+<script>
+  // Apply the saved theme before first paint so there is no flash of the
+  // wrong palette. No saved value → attribute absent → the CSS media query
+  // follows the OS setting.
+  (() => { const t = localStorage.getItem("hc-theme");
+           if (t) document.documentElement.dataset.theme = t; })();
+</script>
+</head>
+<body>
+<header>
+  <h1>Humble Catalog
+    <button id="theme-toggle" type="button" title="Toggle light/dark"
+            aria-label="Toggle light/dark theme">☾</button></h1>
+  <div id="run-banner" hidden></div>
+  <div id="controls">
+    <label id="search-label" for="search">Search</label>
+    <span id="search-wrap" class="ac-wrap"><input id="search" type="search" placeholder="Name..." autofocus></span>
+    <select id="f-type"><option value="">All types</option>
+      <option value="ebook">E-books</option><option value="audiobook">Audiobooks</option>
+      <option value="comic">Comics</option><option value="music">Music/Soundtracks</option>
+      <option value="android">Android apps</option></select>
+    <select id="f-rating" aria-label="Filter by my rating">
+      <option value="">Any rating</option>
+      <option value="5">★5</option><option value="4">★4</option>
+      <option value="3">★3</option><option value="2">★2</option>
+      <option value="1">★1</option></select>
+    <span class="chip-filter ac-wrap" data-field="genre"><input id="f-genre" placeholder="Genre..." size="14"></span>
+    <span class="chip-filter ac-wrap" data-field="series"><input id="f-series" placeholder="Series..." size="14"></span>
+    <span class="chip-filter ac-wrap" data-field="authors"><input id="f-authors" placeholder="Author..." size="16"></span>
+    <span class="chip-filter ac-wrap" data-field="narrator"><input id="f-narrator" placeholder="Narrator/Artist..." size="16"></span>
+    <span class="chip-filter ac-wrap" data-field="publisher"><input id="f-publisher" placeholder="Publisher..." size="16"></span>
+    <span class="chip-filter ac-wrap" data-field="bundle"><input id="f-bundle" placeholder="Bundle..." size="18"></span>
+    <span class="chip-filter ac-wrap" data-field="user_tags"><input id="f-user-tags" placeholder="My tags..." size="14"></span>
+    <span class="chip-filter ac-wrap" data-field="user_comment"><input id="f-notes" placeholder="Notes..." size="16"></span>
+    <select id="f-flag"><option value="">No flag filter</option>
+      <option value="multi">In multiple bundles</option>
+      <option value="review">Needs review</option>
+      <option value="matched">Matched</option>
+      <option value="low_confidence">Low-confidence match</option>
+      <option value="unmatched">Unmatched</option>
+      <option value="pending">Pending enrichment</option>
+      <option value="unrated">Unrated by me</option>
+      <option value="nocover">No cover</option>
+      <option value="nourl">No source URL</option>
+      <option value="notes">Has notes</option>
+      <option value="mytags">Has my tags</option>
+      <option value="override">Queued for re-enrich</option></select>
+    <span id="status-filter" aria-label="Filter by reading status">
+      <button type="button" class="status-chip" data-status="want_to_read">Want to read</button>
+      <button type="button" class="status-chip" data-status="unread">Unread</button>
+      <button type="button" class="status-chip" data-status="reading">Reading</button>
+      <button type="button" class="status-chip" data-status="read">Read</button>
+      <button type="button" class="status-chip" data-status="dnf">DNF</button>
+    </span>
+    <span id="count"></span>
+    <select id="export-format" aria-label="Export format">
+      <option value="csv">CSV</option>
+      <option value="xlsx">XLSX</option></select>
+    <details id="column-picker">
+      <summary id="column-picker-summary">Columns</summary>
+      <div id="column-picker-panel">
+        <div id="column-picker-body"></div>
+        <button id="col-all" type="button">Select all</button>
+        <button id="col-none" type="button">Select none</button>
+      </div>
+    </details>
+    <button id="export" type="button">Download all</button>
+  </div>
+  <div id="bulk-bar">
+    <label for="bulk-tag">Bulk</label>
+    <span class="ac-wrap"><input id="bulk-tag" placeholder="tag..." size="16"></span>
+    <button id="bulk-add">Add</button>
+    <button id="bulk-remove">Remove</button>
+    <span id="bulk-note"></span>
+  </div>
+</header>
+<main>
+  <div id="review-panel" hidden></div>
+  <div id="dupes-panel" hidden></div>
+  <div id="stats-panel" hidden></div>
+  <div id="bundle-form">
+    <input id="bundle-url" type="url" size="60"
+           placeholder="Paste a HumbleBundle page URL to see what you already own">
+    <button id="bundle-go">Check bundle</button>
+  </div>
+  <div id="bundle-panel" hidden></div>
+  <div id="table-wrap">
+  <table id="catalog">
+    <thead><tr>
+      <th></th><th data-sort="name">Name<span class="sort-ind"></span></th>
+      <th data-sort="type">Type<span class="sort-ind"></span></th>
+      <th data-sort="read_status">Status<span class="sort-ind"></span></th>
+      <th data-sort="genre">Genre<span class="sort-ind"></span></th>
+      <th data-sort="series">Series<span class="sort-ind"></span></th>
+      <th data-sort="authors">Authors<span class="sort-ind"></span></th>
+      <th data-sort="narrator">Narrator/Artist<span class="sort-ind"></span></th>
+      <th data-sort="publisher">Publisher<span class="sort-ind"></span></th>
+      <th data-sort="bundle">Bundle<span class="sort-ind"></span></th>
+      <th data-sort="external_rating">Rating<span class="sort-ind"></span></th>
+      <th data-sort="my_rating">Mine<span class="sort-ind"></span></th>
+      <th>My tags</th><th>Notes</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+  </div>
+</main>
+<script src="/static/autocomplete.js"></script>
+<script src="/static/fuzzy.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

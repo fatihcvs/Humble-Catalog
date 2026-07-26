@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "catalog-viewer",
+      "runtimeExecutable": ".venv/Scripts/python",
+      "runtimeArgs": [
+        "-c",
+        "from humble_catalog.webapp import create_app; create_app(db_path='catalog.db').run(host='127.0.0.1', port=8087)"
+      ],
+      "port": 8087
+    }
+  ]
+}

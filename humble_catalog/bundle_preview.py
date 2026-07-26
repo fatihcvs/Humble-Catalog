@@ -1,0 +1,377 @@
+"""Preview how much of a live Humble bundle the catalog already holds.
+
+Read-only throughout: nothing in this module writes to catalog.db. The
+report is a question the owner asks before buying, not a fact about the
+library, so there is deliberately no persistence and no cache.
+
+Split at the network seam -- fetch_bundle() does the HTTP, preview() is
+pure -- so every counting rule is testable from a committed fixture with
+no network and no live bundle. Same split, and same reason, as
+harvest/enrich.
+"""
+import json
+import re
+import sys
+from urllib.parse import urlparse
+
+from rapidfuzz import fuzz, process
+
+from humble_catalog import db, import_games, stats, url_import
+from humble_catalog.titles import clean_game_title, clean_title, sequel_mismatch
+
+# Titles that clear this score are shown as a possible partial overlap.
+# Deliberately NOT matching.AUTO/REVIEW: those decide whether to write
+# enrichment onto a row, this decides whether to show a human a hint.
+# Measured against a live 36-item bundle: 0.60 and 0.75 were both
+# unusable (unrelated titles sharing a volume suffix score 75), 0.90
+# caught exactly the genuine omnibus/volume pairs.
+OVERLAP = 90.0
+
+# Game ownership has no shared id to lean on, so these decide it outright
+# rather than deciding whether to show a hint. Two thresholds, not one: the
+# band between them is where the report refuses to guess.
+#
+# Scored with token_sort_ratio, NOT the token_set_ratio the book overlap
+# uses. token_set_ratio scores a subset as a perfect 100, so every base
+# title would be a certain match for every expansion of it -- "Starfall
+# Rally" would read as owning "Starfall Rally Turbo".
+#
+# Measured during design: a live 12-game bundle scored against an imported
+# library of 1420 distinct normalized titles. Genuine same-game pairs both
+# scored 100 (one of them only because normalization strips the offered
+# title's subtitle punctuation first); the highest-scoring pair that was
+# NOT the same game scored 70.6. The whole span 71-99 was empty, so
+# GAME_OWNED sits in the middle of a ~30-point gap rather than on a
+# boundary, and GAME_POSSIBLE is above every false pair measured -- nothing
+# spurious reaches the band. Widen the band, do not narrow it, if a later
+# bundle lands something in between.
+GAME_OWNED = 92.0
+GAME_POSSIBLE = 80.0
+
+HOST = "humblebundle.com"
+# The blob sits ~3/4 of the way into a ~650 KB page, so this path needs a
+# bigger read than url_import's <head>-oriented default.
+MAX_PAGE_BYTES = 8 * 1024 * 1024
+_BLOB = re.compile(
+    r'<script id="webpack-bundle-page-data" type="application/json">'
+    r'(.*?)</script>', re.S)
+
+
+def fetch_bundle(url, http=None):
+    """The bundleData dict embedded in a live bundle page.
+
+    Reuses url_import's fetch guards -- scheme allowlist, post-redirect
+    re-check, size cap, shared retry policy -- but not its OpenGraph
+    fallback: a bundle page needs its own parser, so this is a new
+    handler rather than a degradation of that one.
+
+    Raises ValueError for a non-Humble host or a page carrying no bundle
+    data; lets HTTP and network errors propagate as themselves.
+    """
+    parts = urlparse(url_import.normalize_url(url))
+    host = parts.netloc.lower().removeprefix("www.")
+    if host != HOST and not host.endswith("." + HOST):
+        raise ValueError(f"not a HumbleBundle URL: {host or url}")
+    page = url_import._read_capped(
+        url_import._fetch_html(parts.geturl(), http), limit=MAX_PAGE_BYTES)
+    match = _BLOB.search(page)
+    if not match:
+        raise ValueError(
+            "not a Humble bundle page (no bundle data found) -- an expired "
+            "bundle redirects to the storefront, which looks like this")
+    return json.loads(match.group(1)).get("bundleData") or {}
+
+
+def _owned(conn):
+    """Every machine_name the catalog accounts for, as a set.
+
+    The merges half is load-bearing. A duplicate merged away is not an
+    items row any more, but it still names a book that is in the library;
+    omitting it would report an owned item as new.
+    """
+    rows = conn.execute(
+        "SELECT machine_name FROM items "
+        "UNION SELECT dropped_machine_name FROM merges").fetchall()
+    return {row[0] for row in rows}
+
+
+def _overlaps(conn, items, owned):
+    """Offered titles that look like partial matches for owned rows.
+
+    Runs only over items that did NOT match by machine_name, so the work
+    is proportional to the unowned remainder and an exactly-owned item can
+    never appear here as well.
+
+    Titles are compared through clean_title, the same normalization enrich
+    matches on, so ": A Novel" and edition suffixes do not depress a score
+    on either side.
+    """
+    rows = conn.execute("SELECT id, name FROM items").fetchall()
+    if not rows:
+        return []
+    names = [clean_title(row["name"])[0] for row in rows]
+    found = []
+    for machine_name, item in items.items():
+        if machine_name in owned:
+            continue
+        offered = item.get("human_name") or machine_name
+        hit = process.extractOne(
+            clean_title(offered)[0], names, scorer=fuzz.token_set_ratio,
+            processor=str.lower, score_cutoff=OVERLAP)
+        if hit is None:
+            continue
+        row = rows[hit[2]]
+        found.append({"offered": offered, "item_id": row["id"],
+                      "item_name": row["name"], "score": round(hit[1] / 100, 2)})
+    found.sort(key=lambda o: o["score"], reverse=True)
+    return found
+
+
+def _adds(ordered, items):
+    """Fill each tier's `adds` with what it gains over the cheaper tiers.
+
+    `ordered` is [(tier_dict, new_machine_names)] sorted price DESCENDING.
+    Walks it cheapest-first against a running set, so the lists are
+    disjoint and sum to the richest tier's `new` count.
+
+    A running set rather than a difference against the next tier down:
+    identical while the tiers nest, which they do today, but a bonus tier
+    that is not a strict superset would make the pairwise form emit the
+    same title twice, silently.
+
+    Sorted case-insensitively rather than left in bundle order. The list
+    is scanned -- is the one I want in here? -- and Humble's own ordering
+    is a marketing decision that means nothing for that question.
+    """
+    seen = set()
+    for tier, new_names in reversed(ordered):
+        tier["adds"] = sorted(
+            ((items.get(name) or {}).get("human_name") or name
+             for name in new_names if name not in seen),
+            key=str.lower)
+        seen.update(new_names)
+
+
+def delivery_stores(item):
+    """The storefronts a bundle item is delivered on, as a set.
+
+    Verified against a live bundle: `platforms_and_oses` is shaped
+    {"game": {"steam": ["windows", "mac"]}} -- the inner key is the
+    delivery store. An item with no game entry (a book, or the one
+    observed entry carrying {}) yields an empty set and routes to the
+    book path, so a mixed bundle needs no global decision.
+    """
+    return set((item.get("platforms_and_oses") or {}).get("game") or {})
+
+
+def classify_game(offered, owned):
+    """('owned'|'possible'|'new', best_match_or_None) for one offered title.
+
+    `owned` is [(normalized_title, display_title)] from the games table.
+
+    A sequel is forced to 'new' whatever it scores: "widget quest" and
+    "widget quest ii" differ by one token, so every fuzzy scorer rates
+    them near-identical, and they are the one near-identical pair that is
+    definitely a different product.
+    """
+    key = clean_game_title(offered)
+    if not key or not owned:
+        return "new", None
+    names = [normalized for normalized, _display in owned]
+    hit = process.extractOne(key, names, scorer=fuzz.token_sort_ratio,
+                             score_cutoff=GAME_POSSIBLE)
+    if hit is None:
+        return "new", None
+    if sequel_mismatch(key, hit[0]):
+        return "new", None
+    match = {"offered": offered, "owned_title": owned[hit[2]][1],
+             "score": round(hit[1] / 100, 2)}
+    return ("owned" if hit[1] >= GAME_OWNED else "possible"), match
+
+
+def _owned_games(conn):
+    """[(normalized_title, display_title)] across every imported store.
+
+    Deduped on the normalized title, so a game owned on two stores is one
+    row here and can only be counted once.
+    """
+    rows = conn.execute(
+        "SELECT normalized_title, title FROM games "
+        "ORDER BY normalized_title").fetchall()
+    seen, out = set(), []
+    for row in rows:
+        if row["normalized_title"] and row["normalized_title"] not in seen:
+            seen.add(row["normalized_title"])
+            out.append((row["normalized_title"], row["title"]))
+    return out
+
+
+def preview(conn, bundle, url=None):
+    """The ownership report for one parsed bundleData dict.
+
+    Pure: no network, no writes. `bundle` is what fetch_bundle returns.
+
+    Two kinds of answer share this report and never share a line. Book
+    items are matched on machine_name and are exact. Game items are
+    matched on the title and are approximate, so they carry a third
+    bucket -- `possible` -- for the band where the tool declines to guess.
+    """
+    owned = _owned(conn)
+    games = _owned_games(conn)
+    basic = bundle.get("basic_data") or {}
+    pricing = bundle.get("tier_pricing_data") or {}
+    items = bundle.get("tier_item_data") or {}
+    game_names = set()   # machine_names routed to title matching
+    delivered = set()    # storefronts this bundle delivers games on
+    ordered = []
+    for key, display in (bundle.get("tier_display_data") or {}).items():
+        names = display.get("tier_item_machine_names") or []
+        new_names, possible, owned_count = [], [], 0
+        for name in names:
+            item = items.get(name) or {}
+            if name in owned:
+                owned_count += 1
+                continue
+            if not delivery_stores(item):
+                new_names.append(name)
+                continue
+            game_names.add(name)
+            delivered |= delivery_stores(item)
+            verdict, match = classify_game(
+                item.get("human_name") or name, games)
+            if verdict == "owned":
+                owned_count += 1
+            elif verdict == "possible":
+                possible.append(match)
+            else:
+                new_names.append(name)
+        ordered.append(({
+            "price": ((pricing.get(key) or {}).get("price|money")
+                      or {}).get("amount", 0.0),
+            "total": len(names),
+            "owned": owned_count,
+            "possible": len(possible),
+            "possible_items": sorted(possible,
+                                     key=lambda p: p["offered"].lower()),
+            "new": len(new_names),
+        }, new_names))
+    # Sorted on the numeric amount, never on tier_order: that key was
+    # observed descending but nothing documents that it must be.
+    ordered.sort(key=lambda pair: pair[0]["price"], reverse=True)
+    _adds(ordered, items)
+    tiers = [tier for tier, _new_names in ordered]
+    libraries = import_games.imported_stores(conn)
+    return {
+        "name": basic.get("human_name") or "Humble Bundle",
+        "url": url or bundle.get("page_url") or "",
+        "currency": basic.get("currency") or "USD",
+        "tiers": tiers,
+        "game_matching": bool(game_names),
+        "libraries": libraries,
+        # A store this bundle delivers on that has never been imported.
+        # Its items were just counted as "new" by default, which is a
+        # guess dressed as a fact -- so the report says so out loud.
+        "unimported_stores": sorted(delivered - set(libraries)),
+        # Game items are excluded from the book overlap pass. Without this
+        # a game title fuzzy-matches the book catalog and invents an
+        # overlap across media -- observed on a live bundle.
+        "overlaps": _overlaps(conn, items, owned | game_names),
+    }
+
+
+# Symbols for the currencies Humble actually quotes. A currency not
+# listed prints its ISO code, which is unambiguous if less pretty.
+_SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
+
+
+def format_report(report, encoding="utf-8"):
+    """The report as printable text, safe for a console using `encoding`.
+
+    Highest tier first: that is the tier being decided against. There is
+    deliberately no price-per-new-item column -- see the design spec.
+    """
+    symbol = _SYMBOLS.get(report["currency"], report["currency"] + " ")
+    # A console that cannot encode the symbol falls back to the ISO code
+    # rather than to console_safe's replacement character: "?21.90" reads
+    # as a bug, "EUR 21.90" reads as a price. Same reasoning that makes
+    # console_safe map the star to an asterisk instead of dropping it.
+    # Not hypothetical: cp1252 carries the euro, but the Windows *console*
+    # defaults to cp437/cp850, and neither of those does.
+    try:
+        symbol.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        symbol = report["currency"] + " "
+    lines = [report["name"], report["url"], ""]
+    width = max((len(f"{symbol}{t['price']:.2f}") for t in report["tiers"]),
+                default=0)
+    for tier in report["tiers"]:
+        price = f"{symbol}{tier['price']:.2f}"
+        noun = "item " if tier["total"] == 1 else "items"
+        # The possible column appears only when there is something in it,
+        # so a book bundle's report is byte-identical to before games
+        # existed -- a third number that is always zero would just be noise.
+        middle = f"possible {tier['possible']:<3} " if tier.get("possible") else ""
+        lines.append(f"  {price:>{width}}   {tier['total']:>3} {noun}    "
+                     f"owned {tier['owned']:<3} {middle}new {tier['new']}")
+        # Skipped entirely when a tier adds nothing, so a bundle owned
+        # outright still prints as clean rows rather than empty headings.
+        # The heading names what the list is: the count above it is
+        # cumulative and this is incremental, so the two disagree.
+        if tier["adds"]:
+            lines.append(f"              adds {len(tier['adds'])} new:")
+            lines.extend(f"                {name}" for name in tier["adds"])
+            lines.append("")
+        # Listed, never folded into owned or new. The whole point of the
+        # middle band is that the tool declines to decide, so printing a
+        # bare count would hide which title it could not decide about.
+        if tier.get("possible_items"):
+            lines.append(f"              {len(tier['possible_items'])} possible "
+                         f"(counted as neither owned nor new):")
+            for hit in tier["possible_items"]:
+                lines.append(f"                {hit['offered']}  ~  "
+                             f"{hit['owned_title']}  ({hit['score']:.2f})")
+            lines.append("")
+    if report["overlaps"]:
+        lines += ["", f"  Possibly already owned in part "
+                      f"({len(report['overlaps'])}):"]
+        offered = max(len(o["offered"]) for o in report["overlaps"])
+        for hit in report["overlaps"]:
+            lines.append(f"    {hit['offered']:<{offered}}  ~  "
+                         f"{hit['item_name']}  ({hit['score']:.2f})")
+    # Printed only when game matching actually happened, so the book report
+    # is untouched. The warning and the data's age travel together: an
+    # approximate answer from a stale library is the one worth distrusting
+    # most, and neither fact is much use without the other.
+    if report.get("game_matching"):
+        lines += ["", "  Game ownership is matched by title and is "
+                      "APPROXIMATE -- verify anything you would buy on."]
+        libraries = report.get("libraries") or {}
+        if libraries:
+            listed = ", ".join(
+                f"{store} {info['count']} "
+                f"{'game' if info['count'] == 1 else 'games'} (imported "
+                f"{info['imported_at'][:10]})"
+                for store, info in sorted(libraries.items()))
+            lines.append(f"  Libraries: {listed}")
+        for store in report.get("unimported_stores") or []:
+            lines.append(f"  WARNING: this bundle delivers on '{store}', which "
+                         f"has never been imported -- its items are counted "
+                         f"as new by default.")
+        if report.get("unimported_stores"):
+            lines.append("  Run `python -m humble_catalog import-games` first.")
+    # Degraded at the CLI boundary only: the web route keeps the symbol,
+    # and the item names are arbitrary data that may hold anything.
+    # rstrip so a trailing adds block leaves no dangling blank line.
+    return stats.console_safe("\n".join(lines).rstrip(), encoding)
+
+
+def run(url):
+    """Fetch, count, and print. The `bundle` subcommand's entry point."""
+    bundle = fetch_bundle(url)
+    conn = db.connect()
+    try:
+        report = preview(conn, bundle, url=url)
+    finally:
+        conn.close()
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(format_report(report, encoding))

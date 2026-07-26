@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # Windows is the machine this is developed on; Linux is where the
+    # portability assumptions actually get tested. Running both is what
+    # keeps path handling and line endings honest.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # leak_check_history.py needs every commit, not the default
+          # depth-1 clone, or it would scan one commit and pass.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # No `playwright install`: the browser is only needed by `extract`
+      # against the live site, which CI never does. The package still
+      # imports, so nothing is skipped for its absence.
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Tests
+        run: python -m pytest -q
+
+      # This one is a real gate on a runner: it reads path names, so it
+      # needs no catalog to tell whether a data file was ever committed.
+      # The fetch-depth: 0 above is what lets it see history.
+      - name: No data files tracked
+        run: python scripts/check_no_data_tracked.py
+
+      # Runners have no catalog.db and no reference spreadsheets, so this
+      # reports SKIPPED and passes: it proves the gate still runs on a
+      # fresh clone, not that the repo is clean. The term check that
+      # means something runs locally, where the private data is.
+      - name: Privacy check
+        run: python scripts/leak_check.py

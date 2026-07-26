@@ -1,0 +1,312 @@
+# Humble Catalog
+
+Local searchable catalog of HumbleBundle e-books, audiobooks, and comics.
+
+> **Unaffiliated with Humble Bundle.** This is an independent hobby
+> project, not endorsed by, sponsored by, or connected to Humble Bundle
+> in any way; "Humble Bundle" is their trademark, used here only to say
+> what the tool reads. It signs in to *your own* account in a browser
+> window you drive yourself, to catalogue purchases you already made.
+> Nothing leaves your machine: the catalog, covers, and cached API
+> responses are all local files, no credentials are stored by this
+> project, and there is no server anywhere but the one you run.
+
+Runs on Windows, macOS, and Linux. Python 3.12 or newer.
+
+## One-time setup
+
+Only this section differs by platform. Create and activate a virtual
+environment:
+
+| | Windows (PowerShell) | macOS / Linux |
+|---|---|---|
+| Create | `py -3.12 -m venv .venv` | `python3.12 -m venv .venv` |
+| Activate | `.venv\Scripts\Activate.ps1` | `source .venv/bin/activate` |
+
+Then, with it active, the rest is the same everywhere:
+
+```
+python -m pip install -e ".[dev]"
+playwright install chromium
+```
+
+Two platform notes. If PowerShell refuses the activation script, it is
+the execution policy, not the project:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once will allow it.
+On Debian and Ubuntu, `apt install python3.12-venv` first — they ship
+`venv` without `ensurepip`, so otherwise you get an environment with no
+pip in it.
+
+Every command below assumes that activated environment. Forget it and
+the tool says so, naming the interpreter it is actually running under
+rather than failing with a puzzling `ModuleNotFoundError` — worth knowing
+because on Windows a missed activation is otherwise silent, `python`
+being the Microsoft Store stub, which exists.
+
+If you would rather not activate anything, two options avoid the
+question: name the interpreter explicitly, as in `.venv\Scripts\python -m
+humble_catalog enrich` (`.venv/bin/python` elsewhere), or use the per-OS
+wrappers in `scripts/`, which locate the environment themselves — see
+[scripts/README.md](scripts/README.md).
+
+### Optional API keys (better enrichment)
+
+- `HARDCOVER_API_KEY` - free from hardcover.app (Settings -> Hardcover API).
+  Paste it with or without the leading "Bearer " - both work.
+- `COMICVINE_API_KEY` - free from comicvine.gamespot.com/api
+- `GOOGLE_BOOKS_API_KEY` - optional; Google Books is skipped without it
+  (Google no longer allows keyless Books API queries). Free key via
+  console.cloud.google.com -> APIs -> Books API -> Credentials.
+
+The keys are read from the environment, so set them however your system
+persists environment variables — on Windows, Settings -> Environment
+Variables; on macOS and Linux, an `export HARDCOVER_API_KEY=...` line in
+`~/.zshrc` or `~/.bashrc`. Rotating a key later is safe: keys are never
+stored in the database or used to index the harvested cache, so a new
+key still finds everything the old one fetched.
+
+### Optional: Steam, for game-bundle previews
+
+Only needed if you want `bundle` to tell you which games in a game
+bundle you already own. Book bundles need none of this, and `bundle`
+works without it — it just reports Steam titles as a store you have
+never imported rather than guessing.
+
+Steam's local files cannot answer "what do I own": `appmanifest_*.acf`
+lists only *installed* games, and a game from a Humble key is typically
+activated and never installed — precisely the ones a bundle is most
+likely to duplicate. So this goes through Steam's Web API, which needs
+three things.
+
+**1. An API key.** Free from
+[steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey),
+signed in as yourself. The form asks for a domain name; it is not used
+for anything here, so `localhost` is fine. Set it as `STEAM_API_KEY`.
+
+**2. Your SteamID64** — the 17-digit numeric id, not your display name.
+If your profile URL looks like `steamcommunity.com/profiles/7656119…`,
+the number *is* your SteamID64. If it looks like
+`steamcommunity.com/id/somename`, you chose a custom URL and the number
+is hidden; with the key from step 1 you can resolve it:
+
+```
+https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/?key=YOUR_KEY&vanityurl=somename
+```
+
+Set the result as `STEAM_ID`.
+
+**3. Game details set to public.** Steam -> Profile -> Privacy Settings
+-> Game details -> Public. This is the step people miss, and Steam makes
+it easy to miss: a private profile does not return an error, it returns
+an empty list, which is indistinguishable from owning nothing. The
+import treats that as a failure rather than wiping your imported library
+— you will see `steam FAILED: Steam returned no games …` and the
+previous rows are kept.
+
+With both variables set, `python -m humble_catalog import-games` reports
+`steam <n> games (Web API)`. With either missing it prints
+`steam skipped (set STEAM_API_KEY and STEAM_ID)` and imports the other
+stores normally.
+
+## Usage
+- `python -m humble_catalog extract` - fetch your library.
+  First run opens a normal browser window: log in to HumbleBundle
+  (Google + TFA), then close the window when your library is visible.
+  Later runs are unattended and only fetch new bundles.
+  (`... -m humble_catalog login` re-opens the login window on its own.)
+- `python -m humble_catalog reset` - wipe the derived catalog
+  for a clean rebuild without re-downloading. The download caches
+  (`raw_orders`, the harvested `source_cache`), your cover files, and your
+  ratings/tags/comments are kept; hand edits, type overrides, and merges
+  are not. It asks you to type `RESET` first and refuses to run
+  non-interactively. Afterwards rebuild with `reparse`, then `harvest`
+  (a no-op if already cached), then `enrich` - all offline against the
+  caches.
+- `python -m humble_catalog reparse` - rebuild the catalog
+  from the local bundle cache without contacting HumbleBundle: re-applies
+  parsing/classification and re-links any covers already on disk. It runs
+  automatically at the start of every `extract`; run it on its own to
+  rebuild after a `reset` or a parser change.
+- Enrichment runs in three phases so the slow network work happens once and
+  matching stays cheap:
+  - `python -m humble_catalog harvest` - fetch every relevant
+    metadata source for every book/comic into the local cache, all sources
+    in parallel (one thread each, each keeping its own courteous throttle).
+    This is the long one - hours, dominated by Comic Vine's 200-requests/hour
+    limit - but it is **resumable**: interrupt it and rerun `harvest` to pick
+    up where it stopped (already-fetched titles are served from cache, for
+    free). Run it once, fine to leave overnight.
+    Each source shows its own counter and a state mark: `▸` still working,
+    `✓` finished, `✗` gave up (falling back to `~ + x` on consoles that
+    cannot draw them). The counter is how many titles that source *has
+    data for*, so a source that gave up shows how far it got rather than
+    rounding itself up. A source that exhausts its daily quota is marked
+    failed and keeps serving its cached titles to the end of the run; its
+    remaining titles wait for the next `harvest`. Google Books has the
+    smallest daily allowance and typically needs several days of runs.
+  - `python -m humble_catalog enrich` - match items against the
+    harvested cache and fill genre/series/ratings/narrator. Purely local,
+    runs in seconds, safe to re-run as often as you like (e.g. after tuning
+    the matcher). `--retry` also re-scores items that previously found no
+    match.
+    Hand-edited rows are left alone; queue one for re-enrichment with the
+    row's `↻` button in the viewer, or all of them at once with
+    `enrich --override-edited` (which asks you to type OVERRIDE first).
+    Either way only a confident match is applied, and the values it
+    replaces become the row's new Revert target.
+  - `python -m humble_catalog enrich --credits` - fill
+    writer/illustrator for matched comics from Comic Vine (a second per-comic
+    request, so slower). Resumable.
+- `python -m humble_catalog serve` - open the catalog.
+  Progress of a running extract/enrich shows in a banner; closing the
+  browser never interrupts them.
+  The search box matches names loosely: word order may differ, words may
+  be skipped, and small typos, accents and apostrophes are tolerated.
+  Initials work too - "woe" finds "The World of Examplia". While the box
+  has text, rows are ordered by how well they match (the count line says
+  "by relevance"); clicking a column header returns to sorting by that
+  column.
+  Each row has a Status dropdown (Want to read / Unread / Reading / Read /
+  DNF); the status chips above the table filter to any set of statuses, and
+  the Status column sorts by reading order rather than alphabetically.
+  Status is independent of your rating and is kept when you `reset`.
+  A row you edit by hand carries an "edited" badge, `↩` to revert it and
+  `↻` to queue it for the next enrich run. Queued rows show "re-enrich
+  queued" and are listed by the "Queued for re-enrich" flag filter, so
+  you can review or clear the whole set before running enrich. Once a run
+  replaces one, it reads "re-enriched" and `↩` gives your typed values
+  back.
+- `python -m humble_catalog import-sheets` - one-shot import
+  of the reference spreadsheets: ratings go to "Mine", and genre/series/
+  narrator fill empty fields (never overwriting enrichment or your edits;
+  filled rows show the "edited" badge and can be reverted). Rows it can't
+  match with certainty are listed with a closest-title hint - fix those by
+  hand in the viewer. Safe to re-run any time.
+- `python -m humble_catalog export [file]` - write the whole
+  catalog for Excel/Sheets. The suffix picks the format: `catalog.csv`
+  (the default) or `catalog.xlsx` for a styled workbook with a frozen
+  header, an autofilter and typed rating/date cells. Add
+  `--columns title,authors,my_rating` for a subset; the columns always
+  come out in their usual order whatever order you ask in, and an
+  unrecognized name is an error rather than a quietly missing column.
+- `python -m humble_catalog backup [dir]` - write a
+  timestamped snapshot of `catalog.db` to `backups/` (or a directory you
+  name - an external drive works). The copy goes through SQLite's online
+  backup API, so it is consistent even while `serve` is running, and it
+  is a single self-contained file. `--covers` also archives `covers/`
+  beside it as a zip. Nothing is ever deleted: old snapshots stay until
+  you remove them.
+- `python -m humble_catalog restore <snapshot>` - put a
+  snapshot back. It checks the file is a readable database first, shows
+  what is being replaced, and asks you to type `RESTORE`; it refuses to
+  run non-interactively. Your current catalog is snapshotted first, so a
+  mistaken restore is itself undoable. Stop `serve` before restoring -
+  with the viewer running the swap refuses rather than risking the file.
+  `--covers` also restores the cover archive paired with that snapshot.
+- `python -m humble_catalog bundle <url>` - point it at a
+  live HumbleBundle page and see, for each tier, how many items it holds,
+  how many you already own, how many would be new, and which titles that
+  tier adds over the cheaper ones. For books ownership is
+  exact - the page names each item with the same internal id your
+  catalog stores - so a re-run of a bundle you bought before reads as
+  owned rather than as a guess. Titles that merely *look* like something
+  you own (a Vol. 1-6 omnibus against a Vol. 1 you have) are listed
+  separately as possible partial overlaps rather than counted either way.
+  Read-only and needs no login: nothing is written to the catalog.
+  Game bundles are matched differently. Steam and GOG titles have no
+  shared id with your imported libraries, so ownership for games is
+  matched **by title and is approximate** - a near-miss can read as
+  owned, and a re-release or edition difference can read as new. Treat
+  the game counts as a strong hint, not a fact, and check anything you'd
+  base a purchase on against the launcher itself. Titles it cannot
+  decide about are counted as neither owned nor new and listed as
+  "possible", and a game delivered on a store you have never imported is
+  reported as such rather than quietly counted as new.
+- `python -m humble_catalog import-games` - import your game
+  libraries so `bundle` can tell which games you already own. GOG, Epic,
+  Amazon and Zoom are read from the caches
+  [Heroic](https://heroicgameslauncher.com/) already keeps on disk - no
+  login and no network, but Heroic must be installed and logged in, and
+  the data is only as fresh as its last refresh. Steam comes from its Web
+  API and needs `STEAM_API_KEY`, `STEAM_ID`, and a public game-details
+  setting — see [Optional: Steam, for game-bundle
+  previews](#optional-steam-for-game-bundle-previews) above; without
+  them Steam is skipped and the other stores still import. Re-run it any
+  time; each store is replaced whole, a store that fails leaves its
+  previous rows alone, and an import that comes back empty is treated as
+  an error rather than as "you own nothing". Games are kept apart from
+  the book catalog: they are never enriched, never given covers, and
+  never shown in the viewer - your launchers already do that.
+- In the viewer, the Download button exports the rows currently on
+  screen, in the order shown - filter or search first and the button says
+  how many rows will leave. The dropdown beside it picks CSV or XLSX, and
+  the "Columns" panel picks which columns go in; that selection is
+  remembered between visits, and the summary always shows how many of the
+  20 are ticked. Narrowing either rows or columns names the file
+  `catalog-filtered.*`, so a partial export never overwrites the full
+  one. Untouched, it is the whole catalog (`catalog.csv`), the same file
+  the CLI writes.
+- `python -m humble_catalog check` - one live search against
+  every metadata source to verify each API (and key) works.
+
+All data lives in `catalog.db` + `covers/` (both git-ignored).
+
+## Development
+
+`scripts/verify` (per-OS wrappers in `scripts/windows|macos|linux/`) runs
+everything that must pass before a commit: the test suite, then the
+privacy checks. See [scripts/README.md](scripts/README.md).
+
+Three privacy checks guard the same rule — that nothing revealing the
+owner's actual library reaches the repo:
+
+- `scripts/check_no_data_tracked.py` asks whether a data *file* is
+  tracked — the catalog, a cover, a spreadsheet, an export — in the
+  current tree or anywhere in history. Path names only, so it needs no
+  catalog and is a real gate on any clone. Part of `verify`.
+- `scripts/leak_check.py` scans the working tree for private *terms*.
+  Part of `verify`, so it runs constantly.
+- `scripts/leak_check_history.py` runs the same terms against every git
+  object and commit message. Slower and not part of `verify`; run it
+  before a first push to a public remote, and after any history rewrite.
+  A clean working tree says nothing about the commits beneath it.
+
+The two term checks derive their search terms at runtime from
+`catalog.db` and the reference spreadsheets, so neither file contains
+personal data — and on a clone without those, both report `SKIPPED`
+rather than a misleading "clean".
+
+**CI** (`.github/workflows/ci.yml`) runs the test suite on every push
+and pull request, on Linux and Windows, plus both checks a runner can
+meaningfully make: `check_no_data_tracked.py` is a genuine gate there,
+while `leak_check.py` reports `SKIPPED` for want of a catalog and only
+proves the gate still executes on a fresh clone. The term check that
+means something is the local one, before you commit.
+
+### The viewer's exposure
+
+`serve` binds `127.0.0.1` only, so nothing on your network can reach it,
+and it never enables Flask's debugger. Werkzeug still prints "This is a
+development server. Do not use it in a production deployment." on every
+start — that warning is about serving the public internet, which this
+never does; it is expected here, not a sign of misconfiguration.
+
+Two application-level defences matter more than the server it runs on,
+because a production WSGI server would not provide either:
+
+- **Requests addressed to any host but localhost are refused** (403,
+  before routing). Loopback binding alone does not stop DNS rebinding: a
+  page on `evil.com` whose name is re-pointed at `127.0.0.1` becomes
+  same-origin with the viewer and can then read your whole catalog. The
+  browser keeps sending `Host: evil.com`, so checking it closes the hole.
+- **Every write endpoint takes JSON only.** A cross-origin HTML form can
+  send only form-encoded, multipart, or plain-text bodies, all of which
+  are refused; a cross-origin `fetch` sending JSON needs a CORS preflight
+  the app never grants. So a page you visit cannot drive the API.
+
+Note that any process on your own machine can still reach the port —
+worth knowing if the machine is shared.
+
+## License
+
+[MIT](LICENSE).

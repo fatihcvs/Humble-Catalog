@@ -1,0 +1,33 @@
+[project]
+name = "humble-catalog"
+version = "0.1.0"
+description = "Local searchable catalog of your HumbleBundle e-books, audiobooks, and comics."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Mikkel Kjær Jensen", email = "kjmikkel@gmail.com"}]
+keywords = ["humblebundle", "ebooks", "audiobooks", "comics", "catalog", "library"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
+dependencies = ["requests>=2.31", "flask>=3.0", "playwright>=1.40", "rapidfuzz>=3.5", "openpyxl>=3.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+# >=77 for PEP 639 `license = "MIT"` / `license-files`; older setuptools
+# rejects the SPDX string form.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["humble_catalog", "humble_catalog.sources", "humble_catalog.webapp"]

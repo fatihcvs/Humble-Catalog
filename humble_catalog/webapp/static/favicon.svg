@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .s0{fill:#2f9e28}.s1{fill:#d13a1e}.s2{fill:#7c3aed}
+    @media (prefers-color-scheme:dark){.s0{fill:#63d452}.s1{fill:#ff8f70}.s2{fill:#c39cff}}
+  </style>
+  <rect class="s0" x="6" y="12" width="13" height="46" rx="1.5"/>
+  <rect class="s1" x="23" y="4" width="13" height="54" rx="1.5"/>
+  <rect class="s2" x="40" y="16" width="12" height="42" rx="1.5" transform="rotate(17 40 58)"/>
+</svg>

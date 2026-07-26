@@ -1,0 +1,23 @@
+{
+  "gamekey": "abc123",
+  "created": "2020-05-01T12:00:00",
+  "product": {"human_name": "Humble Book Bundle: Test by Example Press",
+              "machine_name": "test_bookbundle"},
+  "subproducts": [
+    {"machine_name": "allsystemsred_ebook",
+     "human_name": "All Systems Red",
+     "icon": "https://hb.imgix.net/allsystemsred.jpg",
+     "payee": {"human_name": "Example Press"},
+     "downloads": [
+       {"platform": "ebook",
+        "download_struct": [
+          {"name": "EPUB", "url": {"web": "https://dl.humble.com/a.epub?sig=x"}},
+          {"name": "PDF", "url": {"web": "https://dl.humble.com/a.pdf?sig=x"}}]}]},
+    {"machine_name": "bonus_wallpaper",
+     "human_name": "Bonus Wallpaper",
+     "downloads": [{"platform": "other", "download_struct": []}]}
+  ],
+  "tpkd_dict": {"all_tpks": [
+    {"human_name": "DriveThruRPG Voucher", "key_type": "coupon",
+     "redeemed_key_val": "https://www.drivethrurpg.com/x"}]}
+}

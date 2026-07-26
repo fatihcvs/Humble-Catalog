@@ -1,0 +1,150 @@
+// Loads the viewer's app.js in a stubbed DOM so its functions can be
+// tested for real behaviour, not just grepped for.
+//
+// app.js is a plain script, not a module: it has no exports and it calls
+// load()/pollStatus() at the bottom. So the stubs make those calls
+// harmless (fetch never resolves, timers are no-ops) and an appended line
+// publishes the top-level bindings, which `const` would otherwise keep
+// off the global object.
+//
+// Usage: node harness.mjs <path-to-app.js> <expression>
+// The expression runs with `app` (the bindings) and `dom` (the recorder)
+// in scope, and its result is printed as JSON.
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+
+const [appPath, expr] = process.argv.slice(2);
+const src = fs.readFileSync(appPath, "utf8");
+// fuzzy.js is a sibling script that app.js depends on. It has to run in
+// the same context and be published by hand: a top-level `const` inside
+// runInContext never reaches globalThis.
+const fuzzySrc = fs.readFileSync(
+  path.join(path.dirname(appPath), "fuzzy.js"), "utf8");
+
+// Records innerHTML writes per selector, so a test can ask which
+// renderers actually ran.
+const writes = {};
+
+function makeEl(selector) {
+  const el = {
+    _selector: selector,
+    value: "",
+    hidden: false,
+    dataset: {},
+    classList: { contains: () => false, add() {}, remove() {} },
+    addEventListener() {},
+    removeEventListener() {},
+    insertAdjacentHTML() {},
+    remove() {},
+    focus() {},
+    click() {},
+    closest: () => makeEl(selector),
+    querySelector: () => makeEl(selector),
+    querySelectorAll: () => [],
+    getAttribute: () => null,
+    setAttribute() {},
+    appendChild() {},
+    get innerHTML() { return writes[selector] ?? ""; },
+    set innerHTML(v) { writes[selector] = String(v); },
+    get textContent() { return ""; },
+    set textContent(v) { writes[selector + ":text"] = String(v); },
+  };
+  return el;
+}
+
+const elCache = new Map();
+const query = (sel) => {
+  if (!elCache.has(sel)) elCache.set(sel, makeEl(sel));
+  return elCache.get(sel);
+};
+
+const document = {
+  querySelector: query,
+  querySelectorAll: () => [],
+  addEventListener() {},
+  createElement: () => makeEl("created"),
+};
+
+const sandbox = {
+  document,
+  console,
+  // Never resolves: the load()/pollStatus() calls at the bottom of app.js
+  // stay pending instead of running during import.
+  fetch: () => new Promise(() => {}),
+  setInterval: () => 0,
+  setTimeout: () => 0,
+  clearTimeout() {},
+  alert() {},
+  // The CSV download materializes a Blob and clicks a synthetic <a>;
+  // neither API exists in the sandbox, and neither needs to do anything
+  // real for the test to see which ids were posted.
+  URL: { createObjectURL: () => "blob:stub", revokeObjectURL() {} },
+  // app.js persists the theme and the export column selection. The real
+  // sandbox has no localStorage, and app.js guards for that -- but the
+  // guard would then make persistence itself untestable, so it gets a
+  // working in-memory stand-in.
+  localStorage: (() => {
+    const store = {};
+    return {
+      getItem: (k) => (k in store ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+    };
+  })(),
+  Autocomplete: { attach() {} },
+};
+sandbox.globalThis = sandbox;
+sandbox.window = sandbox;
+
+vm.createContext(sandbox);
+
+// Publish the bindings a `const` would keep off globalThis, plus hooks the
+// tests need to drive state.
+const publish = `
+;globalThis.__app = {
+  tagBadges, person, personField, esc, highlight, chipFilters, passesChipFilters,
+  visible, render, tagCounts, shouldPostEnrichmentEdit, load, loadReview, shownRows,
+  refreshStats, renderStats, SECTION_FILTERS,
+  previewBundle, renderBundlePreview, money,
+  setBundlePreview: (v) => { bundlePreview = v; },
+  setGenresShowAll: (v) => { genresShowAll = v; },
+  setTagEditMode: (v) => { tagEditMode = v; },
+  sortValue, renderExportButton, downloadExport,
+  statusSelect, READ_STATUS_ORDER,
+  setStatusFilter: (arr) => { statusFilter.clear(); for (const s of arr) statusFilter.add(s); },
+  EXPORT_COLUMNS, toggleColumn, loadColumnSelection, renderColumnPicker,
+  getExportColumns: () => [...exportColumns],
+  setExportColumns: (v) => { exportColumns = new Set(v); },
+  setStored: (k, v) => globalThis.localStorage.setItem(k, v),
+  setSort: (k, asc) => { sortKey = k; sortAsc = asc; },
+  setItems: (v) => { items = v; },
+  setSearch: (v) => { document.querySelector("#search").value = v; },
+  setExportFormat: (v) => { document.querySelector("#export-format").value = v; },
+  setFlag: (v) => { document.querySelector("#f-flag").value = v; },
+  setRating: (v) => { document.querySelector("#f-rating").value = v; },
+  setRelevance: (v) => { relevanceSort = v; },
+  // a Map, which JSON.stringify renders as {}: assert on .size or on
+  // [...entries()], never on the Map itself
+  getMatchSpans: () => matchSpans,
+  getItems: () => items,
+  setFetch: (fn) => { globalThis.fetch = fn; },
+};
+`;
+
+vm.runInContext(fuzzySrc + ";globalThis.Fuzzy = Fuzzy;", sandbox);
+vm.runInContext(src + publish, sandbox);
+
+const runner = `
+(async () => {
+  const app = globalThis.__app;
+  const dom = globalThis.__dom;
+  const Fuzzy = globalThis.Fuzzy;
+  return (${expr});
+})()
+`;
+
+sandbox.__dom = { writes, reset: () => { for (const k of Object.keys(writes)) delete writes[k]; } };
+
+const result = await vm.runInContext(runner, sandbox);
+process.stdout.write(JSON.stringify(result === undefined ? null : result));

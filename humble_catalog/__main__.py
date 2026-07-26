@@ -1,0 +1,241 @@
+import argparse
+import importlib.util
+import sys
+from pathlib import Path
+
+# Import name -> name to install, for every runtime dependency declared in
+# pyproject.toml. Listed here rather than read from installed metadata
+# because the case this catches is precisely the one where the package is
+# *not* installed: humble_catalog imported straight out of the source tree
+# by an interpreter that never had the dependencies. tests/test_main.py
+# asserts this stays in step with pyproject.
+RUNTIME_DEPENDENCIES = {
+    "requests": "requests",
+    "flask": "flask",
+    "playwright": "playwright",
+    "rapidfuzz": "rapidfuzz",
+    "openpyxl": "openpyxl",
+}
+
+
+def missing_dependencies():
+    """Declared dependencies this interpreter cannot see.
+
+    find_spec rather than import: it answers the same question without
+    executing module code, so the healthy path costs almost nothing.
+    """
+    return sorted(package for module, package in RUNTIME_DEPENDENCIES.items()
+                  if importlib.util.find_spec(module) is None)
+
+
+def check_dependencies():
+    """Explain a wrong interpreter instead of dying four imports deep.
+
+    A forgotten activation does not announce itself on Windows: bare
+    `python` resolves to the Microsoft Store stub, which exists, and from
+    the repo root it imports humble_catalog out of the source tree (cwd is
+    on sys.path) before failing on the first third-party import. The
+    result reads as a broken install. Naming the interpreter is what makes
+    the real cause visible.
+    """
+    missing = missing_dependencies()
+    if not missing:
+        return
+    is_are = "is" if len(missing) == 1 else "are"
+    print(f"Cannot run: {', '.join(missing)} {is_are} not installed.",
+          file=sys.stderr)
+    print(f"Interpreter: {sys.executable}", file=sys.stderr)
+    print("That is usually the wrong Python rather than a broken install. "
+          "Activate the\nproject's virtual environment, or name its "
+          "interpreter explicitly:", file=sys.stderr)
+    print(r"    .venv\Scripts\python -m humble_catalog ...   (Windows)",
+          file=sys.stderr)
+    print("    .venv/bin/python -m humble_catalog ...       (macOS, Linux)",
+          file=sys.stderr)
+    raise SystemExit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="humble_catalog")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p_extract = sub.add_parser("extract", help="Fetch owned bundles from HumbleBundle")
+    p_extract.add_argument("--refetch", action="store_true",
+                           help="Re-fetch all bundles, refreshing the cache")
+    sub.add_parser("login", help="Open a browser to (re)log in to HumbleBundle")
+    sub.add_parser("reparse", help="Re-classify items from the local cache (no network)")
+    p_enrich = sub.add_parser("enrich", help="Fill in metadata from external APIs")
+    p_enrich.add_argument("--retry", action="store_true",
+                          help="Also reprocess items that previously found no match")
+    p_enrich.add_argument("--reset", action="store_true",
+                          help="Wipe ALL enrichment back to pending and exit "
+                               "(your ratings and type overrides are kept)")
+    p_enrich.add_argument("--reset-reviews", action="store_true",
+                          help="Wipe only manual review choices back to pending "
+                               "and exit")
+    p_enrich.add_argument("--override-edited", action="store_true",
+                          help="Re-enrich EVERY hand-edited item (asks for "
+                               "confirmation; per-item Revert stays available)")
+    p_enrich.add_argument("--credits", action="store_true",
+                          help="Fill writer/illustrator for matched comics "
+                               "(Comic Vine top-up; resumable)")
+    sub.add_parser("harvest", help="Fetch all external sources in parallel "
+                                   "into the cache (run once; resumable)")
+    sub.add_parser("reset", help="Wipe the derived catalog for a clean "
+                                 "rebuild (keeps downloads, covers, and your "
+                                 "ratings/tags/comments)")
+    sub.add_parser("check", help="Test each metadata API (and its key) with "
+                                 "one live search")
+    sub.add_parser("stats", help="Report what is in the catalog: counts by "
+                                 "type, ratings, reading status, enrichment "
+                                 "coverage, gaps and genres (no network)")
+    p_serve = sub.add_parser("serve", help="Open the searchable catalog")
+    p_serve.add_argument("--port", type=int, default=8087,
+                         help="Port to listen on (default: 8087)")
+    p_export = sub.add_parser("export", help="Write the whole catalog to a "
+                                             "CSV or XLSX file "
+                                             "(Excel/Sheets-ready)")
+    p_export.add_argument("path", nargs="?", default="catalog.csv",
+                          help="Destination file; its suffix picks the "
+                               "format, .csv or .xlsx (default: catalog.csv)")
+    p_export.add_argument("--columns",
+                          help="Comma-separated subset of the export's "
+                               "columns, e.g. 'title,authors,my_rating' "
+                               "(default: all of them, in their usual "
+                               "order, which a subset also keeps)")
+    p_import = sub.add_parser(
+        "import-sheets",
+        help="Import ratings/metadata from the reference spreadsheets "
+             "(gap-fill only; unmatched rows are reported, not guessed)")
+    p_import.add_argument(
+        "files", nargs="*",
+        help="Workbook paths (default: the two files under "
+             "'Reference spreadsheets')")
+    p_backup = sub.add_parser(
+        "backup",
+        help="Write a timestamped snapshot of the catalog (no network)")
+    p_backup.add_argument(
+        "dest", nargs="?", default="backups",
+        help="Destination directory (default: backups)")
+    p_backup.add_argument(
+        "--covers", action="store_true",
+        help="Also snapshot the cover files, as a zip beside the database")
+    p_restore = sub.add_parser(
+        "restore",
+        help="Put a snapshot back over the catalog (asks for confirmation)")
+    p_restore.add_argument(
+        "snapshot", help="Snapshot .db file written by `backup`")
+    p_restore.add_argument(
+        "--covers", action="store_true",
+        help="Also restore the cover archive paired with that snapshot")
+    p_bundle = sub.add_parser(
+        "bundle",
+        help="Show how much of a live bundle you already own, per tier")
+    p_bundle.add_argument(
+        "url", help="A humblebundle.com bundle page URL")
+    sub.add_parser(
+        "import-games",
+        help="Import your Steam/Heroic game libraries, so `bundle` can "
+             "count games you already own (approximate; title-matched)")
+    args = parser.parse_args()
+    # After parsing, so --help still works on a broken environment: it is
+    # stdlib-only, and it is how you find the command names to begin with.
+    check_dependencies()
+    if args.command == "extract":
+        from humble_catalog import extract
+        extract.run(refetch=args.refetch)
+    elif args.command == "login":
+        from humble_catalog import humble_api
+        humble_api.ensure_login()
+    elif args.command == "reparse":
+        from humble_catalog import extract
+        extract.reparse()
+    elif args.command == "harvest":
+        from humble_catalog import harvest
+        harvest.run()
+    elif args.command == "reset":
+        from humble_catalog import reset
+        reset.run()
+    elif args.command == "enrich":
+        from humble_catalog import enrich
+        if args.override_edited and (args.reset or args.reset_reviews):
+            parser.error("--override-edited cannot be combined with --reset "
+                         "or --reset-reviews (--reset would wipe the hand "
+                         "edits the override exists to carry through)")
+        if args.reset or args.reset_reviews:
+            enrich.reset(reviews_only=not args.reset)
+        elif args.credits:
+            enrich.credits()
+        elif args.override_edited:
+            enrich.override_edited(retry=args.retry)
+        else:
+            enrich.run(retry=args.retry)
+    elif args.command == "check":
+        from humble_catalog import check
+        check.run()
+    elif args.command == "stats":
+        from humble_catalog import db, stats
+        conn = db.connect()
+        try:
+            stats.run(conn)
+        finally:
+            conn.close()
+    elif args.command == "serve":
+        from humble_catalog import webapp
+        webapp.serve(port=args.port)
+    elif args.command == "export":
+        from humble_catalog import db, export
+        # The suffix is the only format signal. A --format flag could only
+        # duplicate or contradict the filename beside it, and guessing a
+        # format for an unknown suffix would write a mislabelled file.
+        suffix = Path(args.path).suffix.lower()
+        if suffix not in (".csv", ".xlsx"):
+            parser.error(f"cannot tell the format from '{args.path}': "
+                         "give a path ending in .csv or .xlsx")
+        # Unknown names are fatal here although the web route drops them:
+        # a typo on a command line is a mistake being made right now, and
+        # silently handing back a file missing 'authors' is worse than
+        # refusing. Order is not honoured -- export._columns forces the
+        # canonical one -- so this only has to validate.
+        columns = None
+        if args.columns is not None:
+            columns = [c.strip() for c in args.columns.split(",") if c.strip()]
+            unknown = [c for c in columns if c not in export.COLUMNS]
+            if unknown:
+                parser.error("unknown column(s): " + ", ".join(unknown))
+            if not columns:
+                parser.error("--columns needs at least one column name")
+        conn = db.connect()
+        try:
+            if suffix == ".xlsx":
+                with open(args.path, "wb") as fh:  # openpyxl owns encoding
+                    count = export.write_xlsx(conn, fh, columns=columns)
+            else:
+                with open(args.path, "w", encoding="utf-8-sig",
+                          newline="") as fh:
+                    count = export.write_csv(conn, fh, columns=columns)
+        finally:
+            conn.close()
+        print(f"Wrote {count} items to {args.path}")
+    elif args.command == "import-sheets":
+        from humble_catalog import import_sheets
+        import_sheets.run(args.files or None)
+    elif args.command == "backup":
+        from humble_catalog import backup
+        backup.run(dest=args.dest, with_covers=args.covers)
+    elif args.command == "restore":
+        from humble_catalog import backup
+        backup.restore(args.snapshot, with_covers=args.covers)
+    elif args.command == "import-games":
+        from humble_catalog import import_games
+        import_games.run()
+    elif args.command == "bundle":
+        from humble_catalog import bundle_preview
+        try:
+            bundle_preview.run(args.url)
+        except ValueError as exc:
+            # A rejected URL is the user's mistake being made right now,
+            # so it reads as a usage error rather than a traceback.
+            parser.error(str(exc))
+
+if __name__ == "__main__":
+    main()

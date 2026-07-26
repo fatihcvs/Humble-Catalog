@@ -1,0 +1,7 @@
+{
+  "games": [
+    {"app_name": "1207658691", "title": "Pixel Harbor™", "runner": "gog", "is_installed": false},
+    {"app_name": "1207658713", "title": "Neon Drifter", "runner": "gog", "is_installed": true}
+  ],
+  "__timestamp": {"games": "Sat Jul 25 2026 20:34:58 GMT+0200"}
+}

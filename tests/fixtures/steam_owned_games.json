@@ -1,0 +1,10 @@
+{
+  "response": {
+    "game_count": 3,
+    "games": [
+      {"appid": 440, "name": "Widget Quest", "playtime_forever": 120},
+      {"appid": 220, "name": "Neon Drifter", "playtime_forever": 0},
+      {"appid": 330, "name": "Starfall Rally", "playtime_forever": 45}
+    ]
+  }
+}

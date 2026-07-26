@@ -1,0 +1,23 @@
+# Runtime data — never commit personal library data or credentials
+catalog.db*
+Reference spreadsheets/
+covers/
+cache/
+backups/
+.playwright-profile/
+.secrets/
+*.env
+
+# Claude Code local state. Machine-specific, not shared: settings.local.json
+# holds per-machine permissions and worktrees/ holds scratch checkouts. Both
+# were previously excluded only by this machine's global gitignore and
+# .git/info/exclude — neither of which travels with a clone, so a second
+# checkout would have started tracking them.
+.claude/settings.local.json
+.claude/worktrees/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+humble_catalog.egg-info/
