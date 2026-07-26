@@ -104,13 +104,22 @@ same is true of `leak_check_history.py`, and of the privacy step in CI,
 which runs on a runner that has no catalog either.
 
 **`leak_check_history.py` has no wrapper and is not part of `verify`.**
-It scans every git object and commit message rather than the working
-tree, which is slower and only matters at two moments: before the first
-push to a public remote, and after a history rewrite. Run it directly:
+It scans the commit messages and blobs reachable from one ref rather
+than the working tree, which is slower and only matters at two moments:
+before a push to a public remote, and after a history rewrite. Run it
+directly:
 
 ```
-python scripts/leak_check_history.py
+python scripts/leak_check_history.py [ref]
 ```
+
+It defaults to `HEAD` and answers "what would pushing this ref
+publish?". One ref, not the whole object store, because the development
+history is deliberately kept in a local-only branch — scanning
+everything would report data that is never going anywhere and make the
+check permanently red. It prints which local branches it did *not*
+scan, and those must never be pushed: `git push --all` and `--mirror`
+are the two commands that would publish them.
 
 A hit there cannot be fixed by editing a file — the term is already in
 history. Check the context first, since most hits are ordinary prose
