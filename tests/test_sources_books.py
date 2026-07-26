@@ -123,3 +123,44 @@ def test_a_successful_request_clears_the_sources_quota_record(tmp_path):
     src = GoogleBooks(conn, http=_http({"items": []}), key="k")
     src.lookup("Gray Waters")
     assert quota.blocked(conn, "google_books") is None
+
+def _http_status(status):
+    import requests as rq
+    http = Mock()
+    resp = Mock(status_code=status)
+    err = rq.HTTPError(response=Mock(status_code=status))
+    resp.raise_for_status = Mock(side_effect=err)
+    http.request.return_value = resp
+    return http
+
+def test_google_books_does_not_retry_a_server_error(tmp_path, monkeypatch):
+    # Every attempt spends a quota unit, and for this source the quota is
+    # the binding constraint: retrying a 503 twice costs three of the
+    # day's 1,000 requests to answer one title. One attempt, then move on
+    # - the title stays uncached, so the next run picks it up for free.
+    import requests as rq
+    import pytest
+    slept = []
+    monkeypatch.setattr("time.sleep", slept.append)
+    http = _http_status(503)
+    src = GoogleBooks(db.connect(tmp_path / "t.db"), http=http, key="k")
+    with pytest.raises(rq.HTTPError):
+        src.lookup("Gray Waters")
+    assert http.request.call_count == 1
+    assert slept == []
+
+def test_google_books_still_retries_a_connection_error(tmp_path, monkeypatch):
+    # Deliberately not covered by the rule above. A 503 came *from*
+    # Google, so it was served and almost certainly counted; a connection
+    # error may never have reached the quota system at all, and dropping
+    # the retry there would trade quota savings for lost titles on any
+    # transient network blip.
+    import requests as rq
+    import pytest
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    http = Mock()
+    http.request.side_effect = rq.ConnectionError("boom")
+    src = GoogleBooks(db.connect(tmp_path / "t.db"), http=http, key="k")
+    with pytest.raises(rq.ConnectionError):
+        src.lookup("Gray Waters")
+    assert http.request.call_count == 3

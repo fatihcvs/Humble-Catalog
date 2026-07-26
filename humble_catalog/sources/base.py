@@ -30,13 +30,20 @@ def cache_key_params(params, secret_params):
 ATTEMPTS = 3
 BACKOFF_BASE = 5
 
-def _with_retries(send):
+def _with_retries(send, retry_server_errors=True):
     """Call send() under the shared retry policy and return its response.
 
     Retries connection errors, timeouts, and 5xx with exponential backoff
     (5s, then 10s). Every other 4xx raises immediately: a 403 bot wall and
     a 429 dead quota will not improve on retry, and waiting only delays
     the caller's fallback.
+
+    `retry_server_errors=False` drops 5xx out of that set, for a source
+    whose quota is the binding constraint: a 5xx came *from* the provider,
+    so it was served and almost certainly counted, and asking three times
+    spends three of the day's budget to answer one question. Connection
+    errors and timeouts keep retrying either way - those may never have
+    reached the provider's quota system, so the same trade does not apply.
 
     At three attempts this is numerically identical to the linear schedule
     it replaces; the exponential form states the intended policy so that
@@ -52,13 +59,16 @@ def _with_retries(send):
                 raise
         except requests.HTTPError as exc:
             status = getattr(exc.response, "status_code", 0)
-            if attempt == ATTEMPTS - 1 or status < 500:
+            if attempt == ATTEMPTS - 1 or status < 500 or not retry_server_errors:
                 raise
         time.sleep(BACKOFF_BASE * 2 ** attempt)
 
 class Source:
     name = "base"
     delay = 2.0
+    # Whether a 5xx is worth asking again. True everywhere except where a
+    # provider's daily quota is the binding constraint - see google_books.
+    retry_server_errors = True
     # Query params that authenticate the request rather than describe it.
     # They are sent, but kept out of the cache key: keying on a credential
     # makes rotating it orphan every response already fetched, so the next
@@ -99,7 +109,7 @@ class Source:
                 # Throttle from the attempt itself, successful or not.
                 self._last = time.monotonic()
 
-        resp = _with_retries(_send)
+        resp = _with_retries(_send, self.retry_server_errors)
         data = resp.json()
         self.validate(data)  # bad payloads must raise so they are never cached
         self.conn.execute(

@@ -6,6 +6,16 @@ class GoogleBooks(Source):
     name = "google_books"
     delay = 2.0
     secret_params = ("key",)
+    # The free quota is 1,000 requests a day and the worklist is ~2,300
+    # titles, so the budget - not the clock - is what decides how far a run
+    # gets. Google serves `503 backendFailed` often enough that retrying
+    # made the median title cost two to three requests, spending roughly
+    # half the day's allowance re-asking questions that already failed.
+    # A skipped title is not lost: it stays uncached, so the next run has
+    # it at the head of the queue. Trading a same-run recovery for twice
+    # as many titles per day is the right way round when the source needs
+    # several days either way.
+    retry_server_errors = False
 
     def __init__(self, conn, http=None, key=None, offline=False):
         super().__init__(conn, http=http, offline=offline)
