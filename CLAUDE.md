@@ -21,15 +21,16 @@ what they actually own may be committed to this repo:
   remote, and after any history rewrite, also run
   `scripts/leak_check_history.py`, which scans git history rather than
   the working tree. See the Privacy section of `docs/BACKLOG.md`.
-- **`main` is a squashed publication history, and the development
-  history lives only in the local branch `pre-public-history`.** That
-  branch still contains real author names in old test data, from before
-  the catalog grew enough for the checks to see them. Push one ref at a
-  time and only `main`: `git push --all`, `--mirror`, or pushing
-  `pre-public-history` by name would publish exactly what the squash was
-  for. Never merge, rebase or cherry-pick it into `main` either.
-  `scripts/leak_check_history.py` scans one ref (default HEAD) for this
-  reason and names the branches it did not scan.
+- **`main` starts at a squashed initial commit (2026-07-26); there is no
+  development history in this repo.** It was bundled to
+  `../humble-catalog-pre-public-history-2026-07-26.bundle` and the
+  branch deleted, because that history contains real author names in old
+  test data from before the catalog grew enough for the checks to see
+  them. Never fetch, clone or merge that bundle into this repo — restore
+  it to a throwaway clone if you need to read it.
+  `scripts/leak_check_history.py` scans a single ref (default HEAD) and
+  names any local branch it did not scan; if it ever names one, do not
+  push until you know what is on it.
 - History was also rewritten 2026-07-18 (`git filter-repo`) to purge
   pre-scrub commits — see the Privacy section of `docs/BACKLOG.md`.
   Do not restore or merge any pre-rewrite clone or bundle into this

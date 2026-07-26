@@ -38,15 +38,16 @@ Acting on a hit:
 Two things that stay true regardless:
 
 - **`main` starts at a squashed initial commit (2026-07-26).** The
-  development history is kept in the local branch
-  `pre-public-history` and is not published. The reason is structural:
-  the term list is derived from the live catalog, so every substantial
+  development history was bundled to
+  `../humble-catalog-pre-public-history-2026-07-26.bundle` (367
+  commits, outside the repo) and its branch deleted, so this repo
+  holds no unpublished history at all. The reason is structural: the
+  term list is derived from the live catalog, so every substantial
   harvest can reveal older commits whose test data happens to name
-  something now owned — three separate rewrites would each have fixed
-  only that day's snapshot. A history beginning at a verified clean
-  tree cannot reopen the question. The cost is that only `main` may
-  ever be pushed; `git push --all` or `--mirror` would undo it in one
-  command.
+  something now owned — successive rewrites would each fix only that
+  day's snapshot. A history beginning at a verified clean tree cannot
+  reopen the question. Read the bundle by restoring it to a throwaway
+  clone (`git clone <bundle> tmp`); never fetch or merge it back here.
 - **History was also rewritten on 2026-07-18** to purge the pre-scrub
   commits. Never merge or restore a clone predating that date; it would
   put the old history back.

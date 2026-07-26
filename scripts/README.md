@@ -114,12 +114,12 @@ python scripts/leak_check_history.py [ref]
 ```
 
 It defaults to `HEAD` and answers "what would pushing this ref
-publish?". One ref, not the whole object store, because the development
-history is deliberately kept in a local-only branch — scanning
-everything would report data that is never going anywhere and make the
-check permanently red. It prints which local branches it did *not*
-scan, and those must never be pushed: `git push --all` and `--mirror`
-are the two commands that would publish them.
+publish?" — one ref rather than the whole object store, so that history
+deliberately kept out of `main` cannot make the check permanently red.
+It also prints any local branch it did *not* scan. Today there are
+none, and that is the intended state: the pre-publication history lives
+in a bundle outside the repo, not in a branch. If the check ever names
+a branch, find out what is on it before pushing anything.
 
 A hit there cannot be fixed by editing a file — the term is already in
 history. Check the context first, since most hits are ordinary prose
