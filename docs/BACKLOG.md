@@ -112,6 +112,26 @@ Surfaced by investigating a harvest that appeared to restart from
 scratch on every rerun. The two bugs behind that are fixed, and the
 quota-budgeting entry has since shipped; these are what is left.
 
+- **Retries spend quota, and google_books is where that hurts**
+  (measured 2026-07-26) — `_with_retries` retries 5xx twice more, and
+  every attempt costs a quota unit. Google Books returns `503
+  backendFailed` often enough that the median item costs two to three
+  requests rather than one, so roughly half the 1,000/day allowance is
+  spent re-asking questions that already failed.
+  The evidence is in the cache timings. On 2026-07-26 google_books wrote
+  302 rows over 85.5 minutes, a median gap of 7.6s where the 2.0s
+  throttle plus ~0.6s latency predicts 2.6s — one backoff (5s) on the
+  *median* request. The previous day's median was 17.9s, which is two
+  (5s + 10s). If only successful requests counted against the quota the
+  ceiling would look like ~300/day, which matches no Google limit; at two
+  to three attempts each it lands at ~1,000, which is exactly the
+  documented default.
+  Directions, none costed yet: skip the retry for a source whose quota is
+  the binding constraint (a 503 under load may itself be a soft rate
+  signal, in which case retrying is actively counterproductive); make the
+  backoff cheaper for the first attempt; or raise the quota, which is a
+  Cloud Console request rather than a code change and would help most.
+  Worth measuring the 503 rate over a full run before choosing.
 - **Shorten the google_books worklist** — it is fetched for every type,
   so its list is roughly twice the size of any other source's, which is
   why its small daily quota takes so many days to work through. Dropping

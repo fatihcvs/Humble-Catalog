@@ -373,7 +373,7 @@ should declare a window rather than inherit the one-hour fallback.
 
 | Source | Documented limit | Window | Our rate | Declares? |
 |---|---|---|---|---|
-| `google_books` | 10,000/day (keyless: 0) | daily, midnight Pacific | 0.5/s | yes — Pacific midnight |
+| `google_books` | **1,000/day** (keyless: 0) | daily, midnight Pacific | 0.5/s | yes — Pacific midnight |
 | `comicvine` | 200 per *resource*, per hour | rolling hour | 180/hr | yes — 1 hour |
 | `hardcover` | 60/minute | per minute | 30/min | yes — 2 minutes |
 | `open_library` | 1/s (3/s if identified) | per second | 0.5/s | no |
@@ -399,6 +399,28 @@ Three findings changed the code:
 
 `oreilly` and `audible` are undocumented internal endpoints. They keep the
 fallback, which is the honest position — there is no window to declare.
+
+### Measured, not read off a doc page
+
+Google's own 429 body was captured rather than trusted to search results,
+which had claimed 10,000/day. It says:
+
+> Quota exceeded for quota metric 'Queries' and limit **'Queries per day'**
+
+with `quota_limit: defaultPerDayPerProject` and `quota_unit: 1/d/{project}`
+— the untouched default, which for the Books API is **1,000/day**, not
+10,000. Two things this settles for the design above:
+
+- The limit really is per *day* and per *project*, so a midnight rollover
+  is the right model rather than a rolling window.
+- The response carries **no `Retry-After` header**, confirming the
+  assumption stated under "The reset time is derived, not read".
+
+The same capture showed Google Books returning frequent `503
+backendFailed` alongside the 429s. That matters here because
+`_with_retries` retries 5xx twice more and **every attempt spends a quota
+unit**, so the effective cost is well above one request per title. See the
+open backlog entry on retry cost.
 
 ## Out of scope
 
