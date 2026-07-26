@@ -109,19 +109,17 @@ its own; none is committed to.
 ### Harvest (identified 2026-07-26 while debugging resume)
 
 Surfaced by investigating a harvest that appeared to restart from
-scratch on every rerun. The two bugs behind that are fixed; these are
-what the investigation left behind.
+scratch on every rerun. The two bugs behind that are fixed, and the
+quota-budgeting entry has since shipped; these are what is left.
 
-- **Budget the Google Books daily quota across runs** — the free quota
-  is spent long before the source's worklist is, so google_books needs
-  many days of runs to finish while every other source completes from
-  cache in seconds. Nothing records that the quota is gone, so each
-  rerun re-walks the whole list to discover it again, spends one request
-  proving it, and stops. Recording the exhaustion with its reset time
-  would let a rerun skip the source outright and say so, rather than
-  presenting a fresh failure each time. The alternative direction is to
-  make the list shorter: google_books is fetched for every type, and is
-  roughly twice the size of any other source's list as a result.
+- **Shorten the google_books worklist** — it is fetched for every type,
+  so its list is roughly twice the size of any other source's, which is
+  why its small daily quota takes so many days to work through. Dropping
+  it from a type's `SOURCE_ORDER` would fix that, but it changes which
+  candidates every affected item can ever match against, so it is a
+  matching-quality decision and wants its own measurement. Split out of
+  the quota-budget entry (now shipped) precisely so the two effects stay
+  measurable apart.
 - **`build_worklist` order is incidental, not guaranteed** — the
   docstring promises "order is preserved for stable, resumable
   progress", but the query is `SELECT name, type FROM items` with no
@@ -158,6 +156,47 @@ what the investigation left behind.
 - Any cloud/hosted component — everything runs locally.
 
 ## Done (formerly on this list)
+
+- **Quota budgeting across harvest runs** —
+  `docs/superpowers/specs/2026-07-26-harvest-quota-budget-design.md`.
+  A 429 is now recorded in a new `source_quota` table together with when
+  the limit is expected to lift, so the next `harvest` serves that source
+  from cache without spending the one request that rediscovers a wall the
+  previous run already proved. That request is the whole cost being
+  removed: `_with_retries` already treats 429 as terminal rather than
+  retryable, so rediscovery was never three requests — but it was one out
+  of a quota whose scarcity is the entire problem.
+  The source is walked cache-only rather than skipped outright, which the
+  entry's own wording asked for. The walk is what keeps the progress
+  number true: a 90%-cached source still reports 90% on a blocked run,
+  where skipping it would report nothing and the number would appear to go
+  backwards between runs. It costs one indexed cache lookup per title.
+  The reset time is *derived*, never read off the response — Google states
+  no reset field, and a generic "24 hours later" would place it up to a
+  whole day past the real one and waste that day's quota. So the policy is
+  a `Source.quota_resets_at` method, defaulting to a deliberately short
+  one hour (a per-minute limit must not sit out a day) and overridden only
+  in `google_books.py`, which is the single file that knows Google's
+  window is daily. Pacific is a fixed UTC-8 rather than `zoneinfo`, since
+  `ZoneInfo` needs `tzdata` on Windows and the project has no date
+  dependency; the resulting hour of DST lateness is the safe direction,
+  because waiting costs nothing and retrying early spends the request.
+  It also sidesteps the `replace()`-on-a-DST-zone trap for free.
+  A paused source is neither done nor failed, which is exactly the
+  ambiguity `HarvestProgress`'s marks exist to resolve — and without a
+  fourth state it would have read as **done**, since a cache-only walk
+  raises `CacheMiss` and `CacheMiss` is not a failure. `finish` names
+  paused sources on their own line rather than letting them inherit
+  "rerun 'harvest' to resume", which is wrong advice for a source that
+  will 429 again immediately. One rule decides it — a live record at the
+  end of the run — so a source blocked before the threads started and one
+  blocked by its own first 429 cannot report differently.
+  Two recoveries for a wrong guess: `harvest --ignore-quota`, and any
+  successful request clearing its own record in the same transaction as
+  the cache insert. `check` deliberately clears nothing, because it runs
+  on `:memory:` so the cache cannot fake a success.
+  `progress._duration` became public on the way, having acquired a second
+  caller — as `stats._console_safe` did.
 
 - **Bundle preview** —
   `docs/superpowers/specs/2026-07-25-bundle-preview-design.md`.

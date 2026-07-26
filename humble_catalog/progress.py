@@ -8,8 +8,12 @@ from datetime import datetime, timezone
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
-def _duration(seconds):
-    """Compact wall-clock: 45s, 2m07s, 1h04m. Blank when not yet knowable."""
+def duration(seconds):
+    """Compact wall-clock: 45s, 2m07s, 1h04m. Blank when not yet knowable.
+
+    Public since harvest started formatting how far off a quota reset is
+    with it, as stats._console_safe became public on acquiring a second
+    caller."""
     if seconds is None:
         return "--"
     seconds = int(seconds)
@@ -60,7 +64,7 @@ class Progress:
         # An ETA before the first step finishes would be division by zero,
         # and one from a single sample is a lie; both show as "--".
         eta = elapsed / self.done * (self.total - self.done) if self.done else None
-        cells.append(f"{_duration(elapsed)} elapsed, eta {_duration(eta)}")
+        cells.append(f"{duration(elapsed)} elapsed, eta {duration(eta)}")
         return cells
 
     def detach(self):
@@ -222,11 +226,11 @@ class LiveDisplay:
             if painted:
                 self.render(self._rows)
 
-_GLYPHS_ASCII = ("~", "+", "x")
-_GLYPHS_UNICODE = ("▸", "✓", "✗")
+_GLYPHS_ASCII = ("~", "+", "x", "=")
+_GLYPHS_UNICODE = ("▸", "✓", "✗", "⏸")
 
 def _glyphs(stream):
-    """Per-source state marks: (working, done, failed).
+    """Per-source state marks: (working, done, failed, paused).
 
     Prefers the drawn glyphs, but a console that cannot encode them would
     raise mid-repaint, so anything short of a stream that accepts them
@@ -264,7 +268,7 @@ class HarvestProgress:
         self.total = sum(totals.values())
         self._lock = threading.Lock()
         self._display = LiveDisplay(stream)
-        self._glyph = dict(zip(("working", "done", "failed"),
+        self._glyph = dict(zip(("working", "done", "failed", "paused"),
                                _glyphs(self._display.stream)))
         conn.execute(
             "INSERT OR REPLACE INTO run_status "
@@ -325,18 +329,40 @@ class HarvestProgress:
             if self._display.live:
                 self._paint()
 
-    def finish(self, incomplete):
+    def finish(self, incomplete, paused=None):
+        """Retire the run. `paused` maps a source name to when its rate
+        limit lifts, already formatted for display.
+
+        A paused source is reported apart from the merely incomplete ones,
+        because "rerun 'harvest' to resume" is wrong advice for a source
+        that will hit the same 429 immediately.
+        """
+        paused = paused or {}
         with self._lock:
             for name, state in self.state.items():
                 if state == "working":  # no pool ran for it, or none reported
                     self.state[name] = "failed" if name in incomplete else "done"
+            # A source with a live quota record is paused however its pool
+            # settled. Blocked before the threads started and blocked by
+            # its own first 429 are the same condition, and one rule
+            # applied here beats two paths that could drift. Without this
+            # the first case would read as *done*: a cache-only walk
+            # raises CacheMiss, which is not a failure.
+            for name in paused:
+                if name in self.state:
+                    self.state[name] = "paused"
             self._paint()
             self._display.detach()  # the grid is final; the summary goes below
-            if incomplete:
+            stalled = sorted(set(incomplete) - set(paused))
+            if stalled:
                 self._display.write(
-                    f"harvest incomplete for: {', '.join(sorted(incomplete))} "
+                    f"harvest incomplete for: {', '.join(stalled)} "
                     f"(rerun 'harvest' to resume)")
-            else:
+            for name in sorted(paused):
+                self._display.write(
+                    f"{name} is out of quota until {paused[name]}; "
+                    f"rerun 'harvest' after that")
+            if not stalled and not paused:
                 self._display.write("harvest complete")
             self.conn.execute(
                 "UPDATE run_status SET phase='done', updated_at=? "

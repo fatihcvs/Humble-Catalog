@@ -1,4 +1,5 @@
 import os
+from humble_catalog import quota
 from humble_catalog.sources.base import Source, candidate
 
 class GoogleBooks(Source):
@@ -10,6 +11,13 @@ class GoogleBooks(Source):
         super().__init__(conn, http=http, offline=offline)
         # Google's keyless Books quota is 0/day; a (free) API key is required.
         self.key = key if key is not None else os.environ.get("GOOGLE_BOOKS_API_KEY")
+
+    def quota_resets_at(self, now=None):
+        # Google's Cloud quotas are daily and roll over at midnight
+        # Pacific, so the base class's one-hour guess would send a rerun
+        # back into a 429 all day. This is the only place in the codebase
+        # that knows that; harvest never names a provider.
+        return quota.next_pacific_midnight(now)
 
     def lookup(self, title):
         if not self.key:

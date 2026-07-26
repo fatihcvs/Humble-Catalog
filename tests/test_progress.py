@@ -116,13 +116,15 @@ def test_harvest_finish_settles_any_source_its_pool_never_reached(tmp_path, monk
 
 def test_grid_glyphs_fall_back_to_ascii_when_the_console_cannot_encode(tmp_path):
     from humble_catalog.progress import _glyphs
-    assert _glyphs(io.StringIO()) == ("~", "+", "x")          # no .encoding at all
+    assert _glyphs(io.StringIO()) == ("~", "+", "x", "=")     # no .encoding at all
     class _Cp1252(io.StringIO):
         encoding = "cp1252"
     class _Utf8(io.StringIO):
         encoding = "utf-8"
-    assert _glyphs(_Cp1252()) == ("~", "+", "x")
-    assert _glyphs(_Utf8()) == ("▸", "✓", "✗")
+    # All four or none: the set is tested for encodability as a whole, so
+    # a console that cannot take the paused mark loses the other three too.
+    assert _glyphs(_Cp1252()) == ("~", "+", "x", "=")
+    assert _glyphs(_Utf8()) == ("▸", "✓", "✗", "⏸")
 
 def test_harvest_log_message_survives_the_repaint(tmp_path, monkeypatch):
     conn, out, prog = _live(monkeypatch, tmp_path, {"oreilly": 2, "audible": 3})
@@ -147,3 +149,24 @@ def test_column_count_prefers_even_rows_and_respects_width():
     assert _column_count(20, 4, 100) == 2       # three would leave a lonely cell
     assert _column_count(20, 6, 45) == 2        # only two fit in 45 columns
     assert _column_count(20, 6, 20) == 1
+
+def test_harvest_finish_marks_a_quota_paused_source_paused_not_done(tmp_path, monkeypatch):
+    # A source out of quota is neither done nor failed, and the count
+    # alone cannot say which - which is the reason the marks exist. It
+    # would otherwise read as done: a cache-only walk raises CacheMiss,
+    # which is not a failure, so its pool settles cleanly.
+    conn, out, prog = _live(monkeypatch, tmp_path, {"oreilly": 2, "audible": 3})
+    prog.settle("audible", failed=False)
+    prog.finish({"audible"}, paused={"audible": "2026-07-27T08:00:00+00:00"})
+    frame = _frame(out)
+    assert "audible 0/3   0% =" in frame     # paused, not "+"
+    assert "oreilly 0/2   0% +" in frame     # untouched
+
+def test_harvest_finish_names_a_paused_source_with_its_reset_time(tmp_path, monkeypatch):
+    # "rerun 'harvest' to resume" is wrong advice for a source that will
+    # 429 again immediately, so paused sources get their own line.
+    conn, out, prog = _live(monkeypatch, tmp_path, {"audible": 3})
+    prog.finish({"audible"}, paused={"audible": "2026-07-27T08:00:00+00:00"})
+    tail = out.getvalue()
+    assert "audible" in tail and "2026-07-27T08:00" in tail
+    assert "out of quota" in tail

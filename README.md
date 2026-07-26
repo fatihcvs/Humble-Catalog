@@ -143,13 +143,19 @@ stores normally.
     up where it stopped (already-fetched titles are served from cache, for
     free). Run it once, fine to leave overnight.
     Each source shows its own counter and a state mark: `▸` still working,
-    `✓` finished, `✗` gave up (falling back to `~ + x` on consoles that
-    cannot draw them). The counter is how many titles that source _has
-    data for_, so a source that gave up shows how far it got rather than
-    rounding itself up. A source that exhausts its daily quota is marked
-    failed and keeps serving its cached titles to the end of the run; its
-    remaining titles wait for the next `harvest`. Google Books has the
-    smallest daily allowance and typically needs several days of runs.
+    `✓` finished, `✗` gave up, `⏸` out of quota (falling back to
+    `~ + x =` on consoles that cannot draw them). The counter is how many
+    titles that source _has data for_, so a source that gave up shows how
+    far it got rather than rounding itself up.
+    A source that exhausts its daily quota is marked `⏸`, keeps serving
+    its cached titles to the end of the run, and the run remembers when
+    the limit lifts. The next `harvest` therefore serves that source from
+    cache without spending a request to rediscover the same wall, and says
+    when to come back instead of reporting a fresh failure. Google Books
+    has the smallest daily allowance and typically needs several days of
+    runs. Use `harvest --ignore-quota` to retry a recorded source anyway —
+    after adding a key with a bigger allowance, say; any successful
+    request clears the record by itself.
   - `python -m humble_catalog enrich` - match items against the
     harvested cache and fill genre/series/ratings/narrator. Purely local,
     runs in seconds, safe to re-run as often as you like (e.g. after tuning

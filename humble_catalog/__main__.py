@@ -78,8 +78,13 @@ def main():
     p_enrich.add_argument("--credits", action="store_true",
                           help="Fill writer/illustrator for matched comics "
                                "(Comic Vine top-up; resumable)")
-    sub.add_parser("harvest", help="Fetch all external sources in parallel "
-                                   "into the cache (run once; resumable)")
+    p_harvest = sub.add_parser("harvest",
+                               help="Fetch all external sources in parallel "
+                                    "into the cache (run once; resumable)")
+    p_harvest.add_argument("--ignore-quota", action="store_true",
+                           help="Retry sources recorded as out of quota "
+                                "instead of serving them from cache (use "
+                                "after adding a key with a bigger allowance)")
     sub.add_parser("reset", help="Wipe the derived catalog for a clean "
                                  "rebuild (keeps downloads, covers, and your "
                                  "ratings/tags/comments)")
@@ -151,7 +156,7 @@ def main():
         extract.reparse()
     elif args.command == "harvest":
         from humble_catalog import harvest
-        harvest.run()
+        harvest.run(ignore_quota=args.ignore_quota)
     elif args.command == "reset":
         from humble_catalog import reset
         reset.run()

@@ -264,3 +264,23 @@ def test_the_guard_tracks_the_declared_dependencies():
     declared = {re.split(r"[<>=!~\[;\s]", d)[0]
                 for d in data["project"]["dependencies"]}
     assert set(RUNTIME_DEPENDENCIES.values()) == declared
+
+
+def test_harvest_dispatch_honours_the_stored_quota_by_default(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("humble_catalog.harvest.run",
+                        lambda **kw: seen.update(kw))
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "harvest"])
+    main()
+    assert seen == {"ignore_quota": False}
+
+
+def test_harvest_accepts_ignore_quota(monkeypatch):
+    # the escape hatch is a lie unless the flag actually reaches the run
+    seen = {}
+    monkeypatch.setattr("humble_catalog.harvest.run",
+                        lambda **kw: seen.update(kw))
+    monkeypatch.setattr(sys, "argv",
+                        ["humble_catalog", "harvest", "--ignore-quota"])
+    main()
+    assert seen == {"ignore_quota": True}

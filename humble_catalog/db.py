@@ -57,6 +57,8 @@ CREATE INDEX IF NOT EXISTS ix_games_normalized ON games(normalized_title);
 CREATE TABLE IF NOT EXISTS game_imports (
   store TEXT PRIMARY KEY, imported_at TEXT NOT NULL,
   count INTEGER NOT NULL, source TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS source_quota (
+  source TEXT PRIMARY KEY, hit_at TEXT NOT NULL, resets_at TEXT NOT NULL);
 """
 
 # The four multi-value enrichment fields. Stored as JSON arrays in TEXT
@@ -411,6 +413,16 @@ def _migrate(conn):
     if conn.execute("PRAGMA user_version").fetchone()[0] < 8:
         _migrate_secrets_out_of_cache_keys(conn)
         conn.execute("PRAGMA user_version = 8")
+        conn.commit()
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 9:
+        # Adds source_quota, which remembers that a source's rate limit is
+        # spent so a rerun need not spend a request rediscovering it. As
+        # with migration 7, the executescript(SCHEMA) above has already
+        # created the table on this connection; this only carries the
+        # version forward. No existing data is read or rewritten - an
+        # older database simply starts with no records, which is exactly
+        # the state "nothing is known to be rate-limited".
+        conn.execute("PRAGMA user_version = 9")
         conn.commit()
 
 def _legacy_tags(value):

@@ -1,8 +1,9 @@
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 import requests
+from humble_catalog import quota
 
 class CacheMiss(Exception):
     """Raised by an offline Source when a query is not in source_cache."""
@@ -105,8 +106,23 @@ class Source:
             "INSERT OR REPLACE INTO source_cache (source, query, fetched_at, json) "
             "VALUES (?,?,?,?)",
             (self.name, key, datetime.now(timezone.utc).isoformat(), json.dumps(data)))
+        # This request proves the source is live, so any record saying its
+        # quota is spent is wrong and must not survive to block the next
+        # run. Same transaction as the cache insert: the two facts are one.
+        quota.clear(self.conn, self.name)
         self.conn.commit()
         return data
+
+    def quota_resets_at(self, now=None):
+        """When a 429 from this source is expected to lift.
+
+        Default: one hour. Deliberately short - a source whose real limit
+        is per-minute must not sit out a whole day, and the cost of
+        guessing short is one wasted request, while the cost of guessing
+        long is lost harvesting. Override where the provider's window is
+        actually known.
+        """
+        return (now or datetime.now(timezone.utc)) + timedelta(hours=1)
 
     def validate(self, data):
         """Raise if the (HTTP 200) payload is actually an error response."""

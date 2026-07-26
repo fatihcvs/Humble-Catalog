@@ -105,3 +105,14 @@ def test_secret_params_do_not_collapse_distinct_queries(tmp_path):
     src.lookup("Shadow Hound")
     assert http.request.call_count == 2
     assert conn.execute("SELECT COUNT(*) c FROM source_cache").fetchone()["c"] == 2
+
+
+def test_default_quota_reset_is_about_an_hour(tmp_path):
+    # Deliberately short. A source whose real limit is per-minute must not
+    # sit out a whole day; guessing short costs one wasted request, while
+    # guessing long costs harvesting.
+    from datetime import datetime, timedelta, timezone
+    from humble_catalog import db
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+    src = base.Source(db.connect(tmp_path / "t.db"))
+    assert src.quota_resets_at(now=now) == now + timedelta(hours=1)

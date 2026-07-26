@@ -102,3 +102,24 @@ def test_open_library_lookup(tmp_path, monkeypatch):
     assert cands[0]["authors"] == ["Frank Herbert"]
     assert cands[0]["genre"] == "Science fiction"
     assert cands[0]["url"] == "https://openlibrary.org/works/OL893415W"
+
+def test_google_books_quota_resets_at_pacific_midnight(tmp_path):
+    # The one place that knows Google's Books quota is daily is the
+    # subclass; harvest must never name a provider.
+    from datetime import datetime, timezone
+    from humble_catalog import quota
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+    src = GoogleBooks(db.connect(tmp_path / "t.db"), key="k")
+    assert src.quota_resets_at(now=now) == quota.next_pacific_midnight(now)
+
+def test_a_successful_request_clears_the_sources_quota_record(tmp_path):
+    # A source that has come back to life must not leave a stale record
+    # behind to block the next run.
+    from datetime import datetime, timedelta, timezone
+    from humble_catalog import quota
+    conn = db.connect(tmp_path / "t.db")
+    later = datetime.now(timezone.utc) + timedelta(hours=6)
+    quota.record(conn, "google_books", later)
+    src = GoogleBooks(conn, http=_http({"items": []}), key="k")
+    src.lookup("Gray Waters")
+    assert quota.blocked(conn, "google_books") is None

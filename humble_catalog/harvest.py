@@ -1,7 +1,8 @@
 import threading
-from humble_catalog import db
+from datetime import datetime, timezone
+from humble_catalog import db, quota
 from humble_catalog.enrich import SOURCE_ORDER, SOURCE_CLASSES
-from humble_catalog.progress import HarvestProgress
+from humble_catalog.progress import HarvestProgress, duration
 from humble_catalog.sources.base import CacheMiss
 from humble_catalog.titles import clean_title
 
@@ -32,7 +33,7 @@ def _is_429(exc):
     resp = getattr(exc, "response", None)
     return resp is not None and getattr(resp, "status_code", None) == 429
 
-def _run_pool(name, src, titles, prog, incomplete, lock):
+def _run_pool(name, src, titles, prog, incomplete, lock, conn):
     """Walk one source's titles, ticking only the ones it actually got.
 
     A 429 ends the source's *network*, not its cache, so the quota dying
@@ -41,6 +42,10 @@ def _run_pool(name, src, titles, prog, incomplete, lock):
     outright instead would strand every cached title below the first
     uncached one, and a source whose first gap sits near the top of the
     list would show the same handful of steps on every rerun.
+
+    `conn` is the caller's connection, used under `lock` to record the
+    dead quota. The worker's own connection is deliberately not used:
+    HarvestProgress promises that only one connection is ever written.
     """
     failed = quota_dead = False
     for title in titles:
@@ -59,17 +64,31 @@ def _run_pool(name, src, titles, prog, incomplete, lock):
                 break  # offline was ignored: stop before we hammer the API
             quota_dead = True
             src.offline = True
+            resets_at = src.quota_resets_at()
+            with lock:
+                quota.record(conn, name, resets_at)
             prog.log(f"  {name}: rate limit hit - serving the rest from cache; "
-                     f"rerun 'harvest' later to fetch the remainder")
+                     f"rerun 'harvest' after {_when(resets_at)}")
             continue
         prog.tick(name)
     prog.settle(name, failed=failed)
 
-def run(db_path="catalog.db", sources=None, _conn=None):
+def _when(resets_at):
+    """A reset time as an absolute instant plus how long that is away."""
+    ahead = (resets_at - datetime.now(timezone.utc)).total_seconds()
+    return f"{resets_at.isoformat(timespec='minutes')} (in {duration(ahead)})"
+
+def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     """Fetch every relevant source for every eligible item into source_cache.
 
     One thread per source; each owns its Source (and, when live, its own
     db connection). Returns the set of sources left incomplete.
+
+    A source whose rate limit an earlier run recorded as spent starts
+    offline, so it serves what is cached and spends no request proving
+    the limit is still there. `ignore_quota` disregards those records for
+    one run, for when the stored guess is wrong - a paid key rotated in,
+    or a limit that turned out to be per-minute.
     """
     conn = _conn or db.connect(db_path)
     worklist = build_worklist(conn)
@@ -84,14 +103,29 @@ def run(db_path="catalog.db", sources=None, _conn=None):
         src = sources.get(name)
         if src is None:
             continue
+        if not ignore_quota and (resets_at := quota.blocked(conn, name)):
+            # Cache-only, not skipped: the walk is what keeps the progress
+            # number true, so a 90%-cached source still reports 90% rather
+            # than appearing to go backwards between runs. It costs one
+            # indexed cache lookup per title and no requests at all.
+            src.offline = True
+            incomplete.add(name)
+            prog.log(f"  {name}: quota still spent - serving from cache only "
+                     f"until {_when(resets_at)}")
         t = threading.Thread(target=_run_pool,
-                             args=(name, src, titles, prog, incomplete, lock),
+                             args=(name, src, titles, prog, incomplete, lock,
+                                   conn),
                              name=f"harvest-{name}")
         t.start()
         threads.append(t)
     for t in threads:
         t.join()
-    prog.finish(incomplete)
+    # Read back rather than tracking in memory: this catches both a source
+    # blocked before the threads started and one blocked by its own first
+    # 429 during the run. They are the same condition.
+    paused = {name: _when(resets_at) for name in worklist
+              if (resets_at := quota.blocked(conn, name))}
+    prog.finish(incomplete, paused=paused)
     if _conn is None:
         conn.close()
     return incomplete
