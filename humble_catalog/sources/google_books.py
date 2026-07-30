@@ -11,10 +11,11 @@ class GoogleBooks(Source):
     # gets. Google serves `503 backendFailed` often enough that retrying
     # made the median title cost two to three requests, spending roughly
     # half the day's allowance re-asking questions that already failed.
-    # A skipped title is not lost: it stays uncached, so the next run has
-    # it at the head of the queue. Trading a same-run recovery for twice
-    # as many titles per day is the right way round when the source needs
-    # several days either way.
+    # A skipped title is not lost: it stays uncached, so the next run
+    # asks again when the walk reaches its place in the sorted worklist -
+    # ahead of every title the budget has not reached yet. Trading a
+    # same-run recovery for twice as many titles per day is the right way
+    # round when the source needs several days either way.
     retry_server_errors = False
 
     def __init__(self, conn, http=None, key=None, offline=False):
