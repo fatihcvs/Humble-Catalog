@@ -3,9 +3,14 @@
 // line the sections are drawn on. Everything here reads the shared
 // `items` array from app.js and posts through its `post()`.
 let reviewOpen = false, dupesOpen = false;
+// How many items the review queue is holding. Kept as its own binding
+// because the panel's own HTML is the only other record of the count,
+// and load() needs it after loadReview() has run to feed the tab badge.
+let reviewCount = 0;
 
 async function loadReview() {
   const review = (await (await fetch("/api/review")).json()).items;
+  reviewCount = review.length;
   const panel = $("#review-panel");
   panel.hidden = review.length === 0;
   panel.innerHTML = review.length === 0 ? "" :

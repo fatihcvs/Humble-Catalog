@@ -45,6 +45,38 @@ function showSection(name) {
 if (typeof addEventListener === "function")
   addEventListener("hashchange", () => showSection(currentSection()));
 
+// ---- Badges -----------------------------------------------------------
+// What each section is waiting on. Written by load(), read by
+// renderBadges(). One object rather than a call into each section, so a
+// section whose loader has not run yet counts as zero instead of
+// throwing during the first paint.
+let pending = {library: 0, maintenance: 0, keys: 0, bundles: 0};
+
+// Which pending counts are worth a badge.
+//
+// A badge here means "there is work waiting", not "here is a number".
+// That distinction decides Library: its natural count is unrated items,
+// which never reaches zero because rating is optional and the catalog
+// keeps growing. A badge that is always lit is one the eye stops
+// reading -- and it would take the Maintenance badge beside it down
+// with it, which is the badge that has something to say.
+//
+// So Library stays silent, and the sections that badge are the ones
+// whose count is a queue that can be emptied. To change the policy,
+// change this function; nothing else reads `pending`.
+function badgeCount(section) {
+  return section === "library" ? 0 : (pending[section] || 0);
+}
+
+function renderBadges() {
+  for (const s of SECTIONS) {
+    const el = $(`#tab-${s.id} .badge-count`);
+    if (!el) continue;
+    const n = badgeCount(s.id);
+    el.textContent = n > 0 ? String(n) : "";
+  }
+}
+
 // Theme toggle. currentTheme() reads the explicit choice, falling back to
 // the OS preference. Every DOM/global here is guarded so app.js still loads
 // under the test harness, whose sandbox has no matchMedia/localStorage/

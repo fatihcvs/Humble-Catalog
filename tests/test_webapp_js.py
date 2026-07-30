@@ -1135,3 +1135,32 @@ def test_current_section_reads_the_hash_and_rejects_junk():
                    ' return app.currentSection(); })()') == "library"
     assert eval_js('(() => { location.hash = "";'
                    ' return app.currentSection(); })()') == "library"
+
+
+def test_badge_shows_a_count_and_vanishes_at_zero():
+    # The harness's textContent getter always returns "", so the write is
+    # asserted through dom.writes rather than read back off the element.
+    written = eval_js("""(() => {
+      dom.reset();
+      app.setPending({maintenance: 12});
+      app.renderBadges();
+      const shown = dom.writes["#tab-maintenance .badge-count:text"];
+      app.setPending({maintenance: 0});
+      app.renderBadges();
+      return [shown, dom.writes["#tab-maintenance .badge-count:text"]];
+    })()""")
+    assert written == ["12", ""]
+
+
+def test_an_optional_backlog_never_badges_the_library_tab():
+    # Unrated items never reach zero, and a badge that is always lit is
+    # one the eye stops reading -- which would cost the Maintenance badge
+    # beside it its meaning too.
+    written = eval_js("""(() => {
+      dom.reset();
+      app.setPending({library: 900, maintenance: 3});
+      app.renderBadges();
+      return [dom.writes["#tab-library .badge-count:text"],
+              dom.writes["#tab-maintenance .badge-count:text"]];
+    })()""")
+    assert written == ["", "3"]

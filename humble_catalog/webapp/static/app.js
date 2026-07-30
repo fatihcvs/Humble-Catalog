@@ -40,6 +40,16 @@ async function load() {
       console.error(`${step.name}() failed:`, err);
     }
   }
+  // Badges are computed here rather than by each section, because this
+  // loop is the one place that has just run every loader. A section the
+  // owner has never opened still reports its count.
+  pending = {
+    library: items.filter((i) => !i.my_rating).length,
+    maintenance: reviewCount + dupeGroups.length,
+    keys: 0,
+    bundles: 0,
+  };
+  renderBadges();
 }
 
 // Tolerates a missing array: render() runs before the review/dupes/genre
