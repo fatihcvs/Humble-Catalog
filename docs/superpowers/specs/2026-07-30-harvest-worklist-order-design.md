@@ -23,25 +23,36 @@ existing worklist tests assert with `in` and `.count()`, never an index.
 
 ### What actually depends on it
 
+**Determinism, and nothing else.** That is the whole case for this
+change, and it is worth being precise about why the more appealing
+justification does not survive measurement.
+
 Not resume. `_run_pool` decides each title on its own — a cache hit costs
 nothing, a `CacheMiss` is skipped — so the set of uncached titles shrinks
 monotonically whatever order the list is walked in. Resume is keyed on
 the cache, not on position, and the backlog entry says so.
 
-What order buys is:
+Not the quota either, except briefly. It is tempting to argue that order
+chooses which titles a rate-limited source enriches today, since the list
+is walked front to back until the quota dies. But the cache-skip is free,
+so the walk is really "visit the *uncached* set in list order" — and if
+that set is smaller than the day's budget, every member of it is fetched
+today whatever position it holds. Order decides something only while the
+uncached remainder exceeds the daily quota.
 
-- **Reproducibility.** Two runs over an unchanged catalog should present
-  the same work in the same sequence, so a log from one run is readable
-  against another.
-- **Which titles today's quota is spent on.** A rate-limited source is
-  walked front to back until the quota dies, so the order chooses which
-  titles get enriched today and which wait days. For google_books, with a
-  1,000/day budget against a worklist roughly twice any other source's,
-  that is several days of difference.
+Measured 2026-07-30: ~2,300 eligible items, ~570 google_books titles
+cached, so ~1,750 uncached against roughly 1,000 requests a day after
+`82d178b`. That condition holds for about two more days. Reopening it
+would need a single day's purchases to leave more than ~1,000 titles
+uncached, and the largest bundle in the catalog is ~150 items.
 
-So the cost of the missing guarantee is not a broken feature. It is a
-docstring stating something the code does not make true, in a function
-whose order has a real effect on a scarce resource.
+So this is a tidiness fix, deliberately and by measurement — not a
+performance one. What it buys is that two runs over an unchanged catalog
+present the same work in the same sequence, so a log from one run reads
+against another, and a test can assert an order at all. The defect being
+fixed is a docstring stating a guarantee the code does not make, which is
+worth fixing on its own terms and would be worth fixing if the quota were
+infinite.
 
 ## The change
 
@@ -139,19 +150,46 @@ that a *content* rule and not the SQL row order decides it does.
 This moves google_books' frontier from insertion order to alphabetical.
 Nothing already cached is re-fetched — the cache is keyed on the title,
 not on a position — so no quota is wasted and progress stays monotone.
-But the next several days will enrich a different set of titles than they
-would have. This is a behaviour change, not only a docstring fix.
+
+The observable consequence is that the roughly two remaining catch-up
+days enrich a different set of titles than they would have, in a
+different sequence. Once the uncached remainder drops below a day's
+quota the reordering has no observable effect at all, by the same
+argument that makes this a tidiness fix rather than a performance one.
+Worth naming because it is a behaviour change, and worth keeping in
+proportion: it is two days of different ordering, not two days of lost
+work.
 
 ## Explicitly not in scope
 
-**Prioritising new purchases.** Newest-first is the better answer under a
-starved quota: a bundle bought today would be enriched today rather than
-in several days. It is not done here because it is a different change
-with its own costs — the purchase date is not on `items` at all, so it
-needs `item_bundles` joined to `MIN(bundles.purchased_at)` (an item can
-sit in several bundles; `export.py` takes `min(purchased)` for the same
-reason), plus a defined slot for items with no bundle row. Recorded as
-its own backlog entry rather than smuggled in behind a docstring fix.
+**Prioritising new purchases.** Newest-purchase-first looks like the
+better answer — a bundle bought today enriched today rather than in
+several days — and it was considered and rejected on measurement, not
+postponed for convenience. Recording why, so it is not re-derived later:
+
+- **Its benefit expires before it could ship.** Order only matters while
+  the uncached remainder exceeds the daily quota (see *What actually
+  depends on it*), which is about two more days. After that a new
+  bundle's titles are fetched the same day at any position, because
+  every uncached title fits inside one day's budget. No realistic
+  purchase reopens the window: the largest bundle in the catalog is
+  ~150 items against a ~1,000/day quota.
+- **It is a superset of this change, not an alternative.**
+  `purchased_at` lives on `bundles`, so every item in one bundle shares
+  a key — up to ~150 identical keys. Newest-first therefore needs a
+  content tiebreak underneath it, which is exactly the sort designed
+  here. Building it later means adding a join above this, not replacing
+  it.
+- **It costs more than it looks.** The purchase date is not on `items`
+  at all, so it needs `item_bundles` joined to
+  `MIN(bundles.purchased_at)` — an item can sit in several bundles, the
+  reason `export.py` takes `min(purchased)` — plus a defined slot for
+  items with no bundle row. Neither case exists in the catalog today
+  (measured: no bundle has a null date, no item lacks a bundle), so both
+  would be defensive code with no live example to test against.
+
+Revisit only if the quota tightens or the catalog grows enough that a
+single day's purchases can leave more than a day's quota uncached.
 
 **A sweep for sibling cases.** Other queries may have consumers that
 assume an order SQL does not promise. Out of scope; this entry is about
@@ -187,8 +225,13 @@ harvest is not needed to prove the change.
   already used in `test_harvest.py` but was never recorded there.)
 - **`docs/BACKLOG.md`** — move two entries to **Done**: this one, and
   "Retries spend quota, and google_books is where that hurts", which
-  shipped in `82d178b` without being moved. Add the newest-purchase-first
-  prioritisation as a new Open entry under Harvest.
+  shipped in `82d178b` without being moved. Newest-purchase-first goes
+  under **"Explicitly out of scope (decided against, not merely
+  postponed)"**, not under Open — it was measured and rejected, and
+  filing it as Open would invite a future session to re-derive the join
+  the measurement rules out. The entry carries the expiry argument and
+  the ~150-item/~1,000-quota figures, so the rejection can be re-checked
+  rather than taken on trust.
 - **The docstring itself** — restated to promise what the code now makes
   true, and to say the order is a pure function of the item set rather
   than a property of the query.
