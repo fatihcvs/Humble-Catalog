@@ -76,7 +76,10 @@ def test_only_the_table_scrolls_sideways():
     assert "#catalog thead th { position: sticky; top: 0;" in css
     # panels sit outside that scroller, so they need a cap of their own or
     # an expanded one squeezes the table region to nothing
-    assert "max-height: 50%" in css
+    # the cap is gone with the stacking that needed it: a section owns the
+    # viewport, so no panel can squeeze the table region any more
+    assert "max-height: 50%" not in css
+    assert 'section[id^="section-"]' in css
 
 def test_app_wires_every_registered_chip_filter():
     js = _viewer_js()
@@ -1408,13 +1411,17 @@ def test_index_has_the_bundle_preview_panel_and_input():
 
 
 def test_bundle_panel_scrolls_internally_like_the_other_panels():
-    # Without this a 35-item adds list grows the panel without bound and
-    # pushes the table off screen. The JS harness has no computed styles,
-    # so this is asserted against the stylesheet.
+    # Without this a 35-item adds list grows the panel without bound. It
+    # can no longer push the table off screen -- they are in different
+    # sections now, which is why the max-height half of this rule is gone
+    # -- but a panel taller than the viewport still has to scroll itself
+    # rather than the page. The JS harness has no computed styles, so this
+    # is asserted against the stylesheet.
     css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
            / "static" / "style.css").read_text(encoding="utf-8")
     assert ("#review-panel, #dupes-panel, #stats-panel, #bundle-panel "
-            "{ flex: 0 1 auto; max-height: 50%;") in css
+            "{ flex: 0 1 auto;") in css
+    assert "overflow: auto; }" in css
 
 
 # --- Host validation (DNS rebinding defence) -------------------------------
@@ -1485,3 +1492,13 @@ def test_index_loads_the_viewer_scripts_in_dependency_order():
     assert positions == sorted(positions)
     assert VIEWER_JS[0].name == "app.js"
     assert VIEWER_JS[-1].name == "shell.js"
+
+
+def test_hidden_sections_are_actually_hidden():
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    # A section carries display:flex, which outranks the UA stylesheet's
+    # [hidden] { display: none } and paints every section at once. The JS
+    # stays correct throughout -- el.hidden really is true -- so no DOM
+    # assertion can catch this; only the explicit guard prevents it.
+    assert 'section[id^="section-"][hidden] { display: none; }' in css

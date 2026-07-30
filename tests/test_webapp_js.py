@@ -1107,3 +1107,31 @@ def test_harness_loads_every_viewer_script():
     assert VIEWER_JS[0].name == "app.js"
     assert all(p.exists() for p in VIEWER_JS)
     assert eval_js("typeof app.esc") == "function"
+
+
+def test_hash_selects_exactly_one_section():
+    shown = eval_js("""(() => {
+      app.showSection("maintenance");
+      return app.SECTIONS.map((s) => [s.id, !!document.querySelector(
+        `#section-${s.id}`).hidden]);
+    })()""")
+    assert shown == [["library", True], ["maintenance", False],
+                     ["keys", True], ["bundles", True]]
+
+
+def test_unknown_hash_falls_back_to_library():
+    # a stale bookmark, or a hand-typed hash, must not leave a blank page
+    hidden = eval_js("""(() => {
+      app.showSection("nonsense");
+      return document.querySelector("#section-library").hidden;
+    })()""")
+    assert hidden is False
+
+
+def test_current_section_reads_the_hash_and_rejects_junk():
+    assert eval_js('(() => { location.hash = "#/bundles";'
+                   ' return app.currentSection(); })()') == "bundles"
+    assert eval_js('(() => { location.hash = "#/nope";'
+                   ' return app.currentSection(); })()') == "library"
+    assert eval_js('(() => { location.hash = "";'
+                   ' return app.currentSection(); })()') == "library"

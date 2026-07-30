@@ -98,6 +98,11 @@ const sandbox = {
     };
   })(),
   Autocomplete: { attach() {} },
+  // The shell routes off location.hash and listens for hashchange. A
+  // plain mutable object is enough: nothing here navigates, and a test
+  // that sets .hash is expressing exactly what a bookmark would.
+  location: { hash: "" },
+  addEventListener() {},
 };
 sandbox.globalThis = sandbox;
 sandbox.window = sandbox;
@@ -111,6 +116,7 @@ const publish = `
   tagBadges, person, personField, esc, highlight, chipFilters, passesChipFilters,
   visible, render, tagCounts, shouldPostEnrichmentEdit, load, loadReview, shownRows,
   refreshStats, renderStats, SECTION_FILTERS,
+  SECTIONS, currentSection, showSection,
   previewBundle, renderBundlePreview, money,
   setBundlePreview: (v) => { bundlePreview = v; },
   setGenresShowAll: (v) => { genresShowAll = v; },

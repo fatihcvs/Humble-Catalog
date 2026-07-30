@@ -21,6 +21,15 @@
     <button id="theme-toggle" type="button" title="Toggle light/dark"
             aria-label="Toggle light/dark theme">☾</button></h1>
   <div id="run-banner" hidden></div>
+  <nav id="tabs" aria-label="Sections">
+    <a id="tab-library" href="#/library">Library<span class="badge-count"></span></a>
+    <a id="tab-maintenance" href="#/maintenance">Maintenance<span class="badge-count"></span></a>
+    <a id="tab-keys" href="#/keys">Keys<span class="badge-count"></span></a>
+    <a id="tab-bundles" href="#/bundles">Bundles<span class="badge-count"></span></a>
+  </nav>
+</header>
+<main>
+  <section id="section-library" hidden>
   <div id="controls">
     <label id="search-label" for="search">Search</label>
     <span id="search-wrap" class="ac-wrap"><input id="search" type="search" placeholder="Name..." autofocus></span>
@@ -82,17 +91,7 @@
     <button id="bulk-remove">Remove</button>
     <span id="bulk-note"></span>
   </div>
-</header>
-<main>
-  <div id="review-panel" hidden></div>
-  <div id="dupes-panel" hidden></div>
   <div id="stats-panel" hidden></div>
-  <div id="bundle-form">
-    <input id="bundle-url" type="url" size="60"
-           placeholder="Paste a HumbleBundle page URL to see what you already own">
-    <button id="bundle-go">Check bundle</button>
-  </div>
-  <div id="bundle-panel" hidden></div>
   <div id="table-wrap">
   <table id="catalog">
     <thead><tr>
@@ -112,6 +111,22 @@
     <tbody></tbody>
   </table>
   </div>
+  </section>
+  <section id="section-maintenance" hidden>
+    <div id="review-panel" hidden></div>
+    <div id="dupes-panel" hidden></div>
+  </section>
+  <section id="section-keys" hidden>
+    <p class="section-empty">The unredeemed key report will live here.</p>
+  </section>
+  <section id="section-bundles" hidden>
+    <div id="bundle-form">
+      <input id="bundle-url" type="url" size="60"
+             placeholder="Paste a HumbleBundle page URL to see what you already own">
+      <button id="bundle-go">Check bundle</button>
+    </div>
+    <div id="bundle-panel" hidden></div>
+  </section>
 </main>
 <script src="/static/autocomplete.js"></script>
 <script src="/static/fuzzy.js"></script>

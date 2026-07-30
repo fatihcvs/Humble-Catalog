@@ -670,8 +670,14 @@ document.addEventListener("click", async (ev) => {
     // Jump to the owned row, so "you may own part of this" becomes one
     // click to WHICH part. Sets relevanceSort like the search box's own
     // input listener does, so the jumped-to row ranks first.
+    //
+    // The row is in Library and the click came from Bundles, so this
+    // navigates as well as filters. Setting the hash rather than calling
+    // showSection puts the jump in history, so Back returns to the bundle
+    // the question was asked about.
     $("#search").value = el.textContent.trim();
     relevanceSort = true;
+    location.hash = "#/library";
     render();
   } else if (el.classList.contains("stat-show-all")) {
     genresShowAll = true;
