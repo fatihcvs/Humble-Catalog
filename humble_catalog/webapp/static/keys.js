@@ -63,6 +63,7 @@ function renderKeys() {
       was only displayed, which is not the same as activated.</p>
     <div id="key-chips">${chips}</div>
     ${libraries ? `<p class="keys-libraries">Libraries: ${libraries}</p>` : ""}
+    <div id="key-table-wrap">
     <table id="key-table"><thead><tr>
       <th>Product</th><th>Store</th><th>Bundle</th><th>Purchased</th>
       <th>Expires</th><th>Revealed</th><th>State</th>
@@ -80,7 +81,8 @@ function renderKeys() {
       <td>${r.revealed ? "yes" : "no"}</td>
       <td>${esc((KEY_STATES.find((s) => s.state === r.state) || {}).label
                 || r.state)}</td>
-    </tr>`).join("")}</tbody></table>`;
+    </tr>`).join("")}</tbody></table>
+    </div>`;
 }
 
 // One delegated listener rather than one per chip, because renderKeys()

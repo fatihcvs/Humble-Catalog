@@ -387,12 +387,26 @@ a { color: var(--accent); }
 .bundle-keyed li { color: var(--fg); }
 
 /* ---- Keys section ---- */
-.keys-summary, .keys-libraries { opacity: .8; font-size: .9em; }
+/* The panel is the section's flex column, so the table wrapper below can
+   take the leftover height instead of the table growing the page. */
+#keys-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.keys-summary, .keys-libraries { opacity: .8; font-size: .9em; margin: .3rem 0; }
 #key-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .5rem 0; }
-.key-chip { cursor: pointer; font-size: .85em; }
-.key-chip.on { outline: 2px solid var(--accent); }
+/* Same recipe as #status-filter's chips. An unstyled <button> keeps the
+   browser's grey default, which glares in dark mode -- the statistics
+   panel shipped exactly that bug once already. */
+.key-chip { cursor: pointer; font-size: .85em;
+            border: 1px solid var(--border-strong); border-radius: 4px;
+            padding: 1px 6px; background: var(--surface); color: var(--fg); }
+.key-chip.on { outline: 2px solid var(--accent); font-weight: 600; }
+/* The table's own scrollport, exactly as #table-wrap is the catalog's: a
+   sticky header needs a scroller of its own to stick within, and no
+   padding, since a scroller clips at its padding box. */
+#key-table-wrap { flex: 1; min-height: 0; overflow: auto; }
 #key-table { width: 100%; border-collapse: collapse; }
 #key-table th, #key-table td { text-align: left; padding: .25rem .5rem; }
+#key-table thead th { position: sticky; top: 0; background: var(--surface);
+                      z-index: 5; }
 /* Same custom property as the catalog's zebra rows, so both tables stripe
    identically in light and dark. */
 #key-table tbody tr:nth-child(even) { background: var(--surface-alt); }

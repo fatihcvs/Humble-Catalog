@@ -1316,3 +1316,10 @@ def test_a_bundle_with_no_url_renders_as_plain_text():
     })()""")
     assert "Humble Game Bundle: Key Vault" in html
     assert 'href="null"' not in html
+
+
+def test_the_key_table_gets_its_own_scrollport():
+    # A sticky header needs a scroller of its own to stick within, and 722
+    # rows must scroll inside the section rather than growing the page.
+    html = _with_keys('(app.renderKeys(), dom.writes["#keys-panel"])')
+    assert '<div id="key-table-wrap">' in html
