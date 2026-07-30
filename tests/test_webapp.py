@@ -1502,3 +1502,26 @@ def test_hidden_sections_are_actually_hidden():
     # stays correct throughout -- el.hidden really is true -- so no DOM
     # assertion can catch this; only the explicit guard prevents it.
     assert 'section[id^="section-"][hidden] { display: none; }' in css
+
+
+def test_filter_chips_live_outside_the_collapsible_sidebar():
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    # a collapsed sidebar must never hide a filter that is narrowing the
+    # table, so the summary renders in the main column, not the aside
+    aside = html[html.index('<aside id="filters"'):html.index("</aside>")]
+    assert 'id="filter-chips"' not in aside
+    assert 'id="filter-chips"' in html
+    # search likewise stays in the header, above the tabs
+    assert html.index('id="search-wrap"') < html.index('<nav id="tabs"')
+
+
+def test_collapsing_the_sidebar_does_not_collapse_the_table():
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    # display:none takes the aside out of grid layout, so a collapsed
+    # layout declaring two tracks auto-places the table into the FIRST.
+    # With a first track of 0 the table went to zero width -- collapsing
+    # the filters collapsed the catalog. One track is the fix.
+    assert "#library-layout.collapsed { grid-template-columns: 1fr; }" in css
+    assert "grid-template-columns: 0 1fr" not in css

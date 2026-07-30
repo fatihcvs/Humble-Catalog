@@ -81,6 +81,9 @@ header { flex: none; background: var(--surface); padding: 0.5rem 1rem;
          box-shadow: 0 1px 4px var(--shadow); z-index: 6; }
 h1 { margin: 0 0 .5rem; font-size: 1.2rem; }
 #controls { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+/* Search sits in the header, above the tabs: it is how most sessions
+   start, and it is the one control that should never be a fold away. */
+#search-row { display: flex; gap: .5rem; align-items: center; }
 #search-label { font-weight: 600; color: var(--fg); }
 #search-wrap { flex: 1 1 16rem; }
 #search { width: 100%; padding: .4rem; }
@@ -119,6 +122,46 @@ section[id^="section-"][hidden] { display: none; }
                            border-radius: 999px; font-size: .75rem;
                            background: var(--accent); color: var(--surface); }
 .section-empty { opacity: .7; }
+
+/* Library layout: filters aside, table beside it. The aside is a grid
+   column rather than a float so collapsing is one track width. */
+#library-layout { display: grid; grid-template-columns: 15rem 1fr;
+                  gap: 1rem; flex: 1; min-height: 0; }
+/* One track, not a zero-width first one. display:none takes the aside
+   out of grid layout entirely, so with two tracks declared the table
+   auto-places into the FIRST -- and a first track of 0 made collapsing
+   the sidebar collapse the table with it. */
+#library-layout.collapsed { grid-template-columns: 1fr; }
+#library-layout.collapsed #filters { display: none; }
+#filters { overflow-y: auto; min-width: 0; }
+#filters #controls { flex-direction: column; align-items: stretch; }
+/* border-box or width:100% adds the control's own padding on top of the
+   column and every field overflows the aside by its padding alone. */
+#filters #controls select, #filters #controls input { width: 100%;
+                                                     box-sizing: border-box; }
+/* The wrapper's left padding spaced chips from the input when these sat
+   in a horizontal bar; stacked, it just indents every field. */
+#filters .chip-filter { display: block; padding-left: 0; }
+/* Five status buttons cannot sit on one 15rem line. */
+#filters #status-filter { flex-wrap: wrap; }
+#library-main { display: flex; flex-direction: column; gap: .6rem;
+                min-height: 0; min-width: 0; }
+#table-toolbar { display: flex; gap: .5rem; align-items: center;
+                 flex-wrap: wrap; }
+/* The chips take the slack so the export controls stay right-aligned. */
+#filter-chips { display: flex; flex-wrap: wrap; gap: .3rem; flex: 1; }
+.active-filter { background: var(--surface-alt); }
+.active-x { background: none; border: none; cursor: pointer;
+            color: var(--accent); font-size: 1rem; line-height: 1;
+            padding: 0 0 0 .25rem; }
+#sidebar-toggle { flex: none; }
+/* Below this the sidebar costs more than it gives, and the phone viewer
+   on the backlog starts here rather than being retrofitted onto a layout
+   that never considered it. */
+@media (max-width: 900px) {
+  #library-layout { grid-template-columns: 1fr; }
+  #library-layout:not(.expanded) #filters { display: none; }
+}
 /* The table's scroll container, in both axes: horizontal because the 13
    columns outrun the viewport, vertical because the sticky <thead> below
    needs a scrollport of its own to stick within. No padding here - a

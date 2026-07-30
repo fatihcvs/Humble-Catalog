@@ -433,7 +433,70 @@ async function runBulk(el, action) {
   });
 }
 
+// Every filter currently narrowing the table, summarised in the main
+// column so it survives the sidebar being folded away. This is the rule
+// that makes collapsing safe: a filter you cannot see is a filter you
+// cannot know to clear, and a folded sidebar would otherwise hide the
+// reason the table looks empty.
+//
+// The remove buttons deliberately do NOT carry `tag-x`. That class is
+// tested in the click chain AFTER `chip-x`, so an element carrying it
+// without `chip-x` falls through to the row-edit branch and splices the
+// edit buffer instead of clearing a filter.
+// Sidebar collapse, persisted beside the theme. Safe only because
+// renderActiveFilters() keeps every active filter visible in the main
+// column regardless of what the sidebar is doing.
+const sidebarCollapsed = () =>
+  (typeof localStorage !== "undefined")
+  && localStorage.getItem("hc-sidebar") === "1";
+
+function applySidebar() {
+  const on = sidebarCollapsed();
+  $("#library-layout")?.classList.toggle("collapsed", on);
+  $("#sidebar-toggle")?.setAttribute("aria-expanded", String(!on));
+}
+
+function toggleSidebar() {
+  if (typeof localStorage !== "undefined")
+    localStorage.setItem("hc-sidebar", sidebarCollapsed() ? "0" : "1");
+  applySidebar();
+}
+
+function renderActiveFilters() {
+  const box = $("#filter-chips");
+  if (!box) return;
+  // selectedOptions is absent in the test harness's element stub; the
+  // raw value is a fine label there and never reaches a browser.
+  const label = (el) => (el.selectedOptions && el.selectedOptions[0])
+    ? el.selectedOptions[0].text : el.value;
+  const out = [];
+  const chip = (text, attrs) => out.push(
+    `<span class="tag active-filter">${esc(text)}<button class="active-x" ${attrs}
+       title="Clear this filter">&times;</button></span>`);
+
+  for (const [id, name] of [["f-type", "Type"], ["f-rating", "Rating"],
+                            ["f-flag", "Flag"]]) {
+    const el = $(`#${id}`);
+    if (el && el.value) chip(`${name}: ${label(el)}`,
+                             `data-kind="select" data-target="${id}"`);
+  }
+  for (const s of statusFilter)
+    chip(`Status: ${READ_STATUS_LABEL[s] || s}`,
+         `data-kind="status" data-status="${esc(s)}"`);
+  for (const [field, f] of Object.entries(chipFilters)) {
+    f.chips.forEach((c, i) => chip(`${field}: ${c}`,
+      `data-kind="chip" data-field="${field}" data-i="${i}"`));
+    if (f.text) chip(`${field}: "${f.text}"`,
+                     `data-kind="text" data-field="${field}"`);
+  }
+  const q = $("#search");
+  if (q && q.value.trim()) chip(`Search: ${q.value.trim()}`,
+                                'data-kind="search"');
+  box.innerHTML = out.join("");
+}
+
 function render() {
+  renderActiveFilters();
   const rows = visible();
   $("#count").textContent = `${rows.length} / ${items.length} items`
     + (relevanceActive() ? " · by relevance" : "");
@@ -655,6 +718,31 @@ document.addEventListener("click", async (ev) => {
   } else if (el.classList.contains("edit-cancel")) {
     editingId = null;
     editingTags = null;
+    render();
+  } else if (el.id === "sidebar-toggle") {
+    toggleSidebar();
+  } else if (el.classList.contains("active-x")) {
+    // Clearing from the summary strip. Each kind clears the control the
+    // chip stands for, so the sidebar agrees whether it is open or not.
+    const k = el.dataset.kind;
+    if (k === "select") {
+      $(`#${el.dataset.target}`).value = "";
+    } else if (k === "status") {
+      statusFilter.delete(el.dataset.status);
+      document.querySelector(`.status-chip[data-status="${el.dataset.status}"]`)
+        ?.classList.remove("on");
+    } else if (k === "chip") {
+      chipFilters[el.dataset.field].chips.splice(+el.dataset.i, 1);
+      renderFilterChips();
+    } else if (k === "text") {
+      chipFilters[el.dataset.field].text = "";
+      const input = document.querySelector(
+        `.chip-filter[data-field="${el.dataset.field}"] input`);
+      if (input) input.value = "";
+    } else if (k === "search") {
+      $("#search").value = "";
+      relevanceSort = false;
+    }
     render();
   } else if (el.classList.contains("chip-x")) {
     const f = chipFilters[el.dataset.field];
@@ -882,3 +970,7 @@ document.addEventListener("click", (ev) => {
   const picker = $("#column-picker");
   if (picker?.open && !picker.contains(ev.target)) picker.open = false;
 });
+
+// The stored collapse state has to reach the DOM before the first paint,
+// or the sidebar flashes open on every load for someone who keeps it shut.
+applySidebar();

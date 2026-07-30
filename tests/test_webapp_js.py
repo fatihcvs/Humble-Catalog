@@ -1164,3 +1164,48 @@ def test_an_optional_backlog_never_badges_the_library_tab():
               dom.writes["#tab-maintenance .badge-count:text"]];
     })()""")
     assert written == ["", "3"]
+
+
+def test_sidebar_collapse_persists():
+    stored = eval_js("""(() => {
+      app.toggleSidebar();
+      return [globalThis.localStorage.getItem("hc-sidebar"),
+              app.sidebarCollapsed()];
+    })()""")
+    assert stored == ["1", True]
+
+
+def test_active_filters_are_summarised_outside_the_sidebar():
+    # The summary is what makes collapsing safe, so it must name every
+    # kind of filter, not only the chips.
+    html = eval_js("""(() => {
+      dom.reset();
+      for (const f of Object.values(app.chipFilters)) { f.chips = []; f.text = ""; }
+      app.setItems([]);
+      app.chipFilters.genre.chips = ["Fantasy"];
+      app.chipFilters.user_comment.text = "gift";
+      app.setStatusFilter(["reading"]);
+      app.setFlag("nocover");
+      app.render();
+      return dom.writes["#filter-chips"];
+    })()""")
+    assert "genre: Fantasy" in html
+    assert 'user_comment: &quot;gift&quot;' in html
+    assert "Status: Reading" in html
+    assert "Flag:" in html
+
+
+def test_active_filter_remove_buttons_avoid_the_tag_x_class():
+    # tag-x is tested after chip-x in the click chain; an element with
+    # tag-x but no chip-x splices the row-edit buffer instead of clearing
+    # a filter. The summary's buttons must not carry it.
+    html = eval_js("""(() => {
+      dom.reset();
+      for (const f of Object.values(app.chipFilters)) { f.chips = []; f.text = ""; }
+      app.setItems([]);
+      app.chipFilters.genre.chips = ["Fantasy"];
+      app.render();
+      return dom.writes["#filter-chips"];
+    })()""")
+    assert "active-x" in html
+    assert "tag-x" not in html

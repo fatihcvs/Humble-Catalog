@@ -21,6 +21,10 @@
     <button id="theme-toggle" type="button" title="Toggle light/dark"
             aria-label="Toggle light/dark theme">☾</button></h1>
   <div id="run-banner" hidden></div>
+  <div id="search-row">
+    <label id="search-label" for="search">Search</label>
+    <span id="search-wrap" class="ac-wrap"><input id="search" type="search" placeholder="Name..." autofocus></span>
+  </div>
   <nav id="tabs" aria-label="Sections">
     <a id="tab-library" href="#/library">Library<span class="badge-count"></span></a>
     <a id="tab-maintenance" href="#/maintenance">Maintenance<span class="badge-count"></span></a>
@@ -30,9 +34,9 @@
 </header>
 <main>
   <section id="section-library" hidden>
+  <div id="library-layout">
+  <aside id="filters" aria-label="Filters">
   <div id="controls">
-    <label id="search-label" for="search">Search</label>
-    <span id="search-wrap" class="ac-wrap"><input id="search" type="search" placeholder="Name..." autofocus></span>
     <select id="f-type"><option value="">All types</option>
       <option value="ebook">E-books</option><option value="audiobook">Audiobooks</option>
       <option value="comic">Comics</option><option value="music">Music/Soundtracks</option>
@@ -70,6 +74,13 @@
       <button type="button" class="status-chip" data-status="read">Read</button>
       <button type="button" class="status-chip" data-status="dnf">DNF</button>
     </span>
+  </div>
+  </aside>
+  <div id="library-main">
+  <div id="table-toolbar">
+    <button id="sidebar-toggle" type="button"
+            aria-controls="filters" aria-expanded="true">Filters</button>
+    <div id="filter-chips"></div>
     <span id="count"></span>
     <select id="export-format" aria-label="Export format">
       <option value="csv">CSV</option>
@@ -110,6 +121,8 @@
     </tr></thead>
     <tbody></tbody>
   </table>
+  </div>
+  </div>
   </div>
   </section>
   <section id="section-maintenance" hidden>
