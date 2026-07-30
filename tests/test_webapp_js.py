@@ -1094,3 +1094,11 @@ def test_bundle_panel_escapes_titles_from_the_bundle_page():
     html = _render_bundle(report)
     assert "<img src=x" not in html
     assert "&lt;img" in html
+
+
+def test_harness_loads_every_viewer_script():
+    # the harness used to take one path; the split needs it to take the
+    # list, in load order, or a moved function becomes an undefined name
+    from tests.js_harness import VIEWER_JS
+    assert [p.name for p in VIEWER_JS] == ["app.js"]
+    assert eval_js("typeof app.esc") == "function"

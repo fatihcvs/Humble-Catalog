@@ -8,6 +8,19 @@ from openpyxl import load_workbook
 from humble_catalog import db, export, stats
 from humble_catalog.webapp import create_app
 
+
+def _viewer_js():
+    """Every viewer script concatenated, in load order.
+
+    These assertions pin that the viewer does something, not that one
+    file does. Reading app.js alone made them break when a function moved
+    between scripts, which is a fact about the file layout and not about
+    the behaviour they were written to protect.
+    """
+    from tests.js_harness import VIEWER_JS
+    return "\n".join(p.read_text(encoding="utf-8") for p in VIEWER_JS)
+
+
 def test_index_offers_android_type_filter():
     html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
             / "static" / "index.html").read_text(encoding="utf-8")
@@ -66,8 +79,7 @@ def test_only_the_table_scrolls_sideways():
     assert "max-height: 50%" in css
 
 def test_app_wires_every_registered_chip_filter():
-    js = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-          / "static" / "app.js").read_text(encoding="utf-8")
+    js = _viewer_js()
     for field in ("genre", "series", "authors", "narrator", "publisher",
                   "bundle"):
         assert f"{field}:" in js
@@ -76,8 +88,7 @@ def test_app_wires_every_registered_chip_filter():
     assert "for (const field of Object.keys(chipFilters)) wireChipFilter(field);" in js
 
 def test_narrator_filter_spans_illustrator():
-    js = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-          / "static" / "app.js").read_text(encoding="utf-8")
+    js = _viewer_js()
     # the Narrator/Artist column shows narrator || illustrator, so a
     # narrator-only filter would silently miss every comic illustrator
     assert "[...i.narrator, ...i.illustrator]" in js
@@ -85,7 +96,7 @@ def test_narrator_filter_spans_illustrator():
 def test_search_matches_name_only():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")
-    js = (static / "app.js").read_text(encoding="utf-8")
+    js = _viewer_js()
     # every other field the old haystack spanned now has its own filter.
     # Matching became fuzzy (fuzzy.js), but the haystack is still the
     # name and nothing else.
@@ -101,7 +112,7 @@ def test_series_filter_suppresses_all_any_toggle():
               / "static")
     html = (static / "index.html").read_text(encoding="utf-8")
     assert '<input id="f-series"' in html
-    js = (static / "app.js").read_text(encoding="utf-8")
+    js = _viewer_js()
     # series is one-per-item, so "all" with 2+ chips is unsatisfiable:
     # the flag hides a toggle that could only ever empty the table
     assert "scalar: true" in js
@@ -164,7 +175,7 @@ def test_search_box_has_title_typeahead():
     assert 'id="search-wrap"' in html
     css = (static / "style.css").read_text(encoding="utf-8")
     assert "#search-wrap" in css
-    js = (static / "app.js").read_text(encoding="utf-8")
+    js = _viewer_js()
     # one stray keystroke should not open a list drawn from every title
     assert "length < 2" in js
     assert 'Autocomplete.attach(\n  $("#search")' in js
@@ -346,7 +357,7 @@ def test_index_has_the_stats_panel():
     # the two panels it replaced are gone, not merely hidden
     assert "genres-panel" not in html and "gaps-panel" not in html
     # genre management survives inside it, behind the Edit tags toggle
-    js = (static / "app.js").read_text(encoding="utf-8")
+    js = _viewer_js()
     assert "/api/genres/rename" in js and "/api/genres/delete" in js
 
 def _seed_genres_app(tmp_path):
@@ -650,7 +661,7 @@ def test_autocomplete_supports_tag_counts():
 def test_app_passes_tag_counts_to_autocomplete():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")
-    js = (static / "app.js").read_text(encoding="utf-8")
+    js = _viewer_js()
     assert "tagCounts" in js
     # both the tag editors and the chip filters supply a counts source
     assert js.count("tagCounts(") >= 2   # the two call sites
@@ -709,14 +720,12 @@ def test_fetch_url_rejects_bad_scheme_without_link_only(tmp_path, monkeypatch):
 def test_app_js_escapes_candidate_source():
     # source used to be a hardcoded literal from _HANDLERS; it is now a
     # hostname from a pasted URL, and urlparse does not validate netloc.
-    app_js = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-              / "static" / "app.js").read_text(encoding="utf-8")
+    app_js = _viewer_js()
     assert "(${c.source})" not in app_js
     assert "esc(c.source)" in app_js
 
 def test_app_js_renders_link_only_candidates():
-    app_js = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-              / "static" / "app.js").read_text(encoding="utf-8")
+    app_js = _viewer_js()
     assert "link_only" in app_js
     assert "esc(c.reason)" in app_js
 
@@ -828,15 +837,13 @@ def test_edit_clears_source_url(tmp_path):
 def test_app_js_renders_source_link_as_trailing_icon():
     # The whole title used to be the anchor, so selecting or copying a
     # title risked navigating. The link is now a trailing glyph.
-    app_js = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-              / "static" / "app.js").read_text(encoding="utf-8")
+    app_js = _viewer_js()
     assert "src-link" in app_js
     assert "&#x2197;" in app_js
     assert 'title="Open source page"' in app_js
 
 def test_app_js_edits_source_url():
-    app_js = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-              / "static" / "app.js").read_text(encoding="utf-8")
+    app_js = _viewer_js()
     assert 'data-f="source_url"' in app_js
 
 def test_set_user_tags(tmp_path):
@@ -954,12 +961,8 @@ def test_user_tag_rename_does_not_touch_genre(tmp_path):
     assert item["user_tags"] == ["space"]
     assert item["genre"] == ["SF"]          # genre pool untouched
 
-def _app_js():
-    return (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-            / "static" / "app.js").read_text(encoding="utf-8")
-
 def test_user_fields_never_reach_the_edit_endpoint():
-    js = _app_js()
+    js = _viewer_js()
     # user_tags is destructured out before the /edit payload is assembled;
     # sending it would 400, since it is not in EDITABLE_FIELDS
     assert "const {user_tags, ...enrichmentTags} = editingTags;" in js
@@ -970,7 +973,7 @@ def test_user_fields_never_reach_the_edit_endpoint():
     assert "edit-field edit-comment" not in js
 
 def test_save_skips_edit_when_only_user_fields_changed():
-    js = _app_js()
+    js = _viewer_js()
     # every /edit call snapshots the row and marks it hand-edited, so a
     # save that changed only the note or the user tags must not post it
     assert "function shouldPostEnrichmentEdit(item, fields)" in js
@@ -990,10 +993,10 @@ def test_user_tags_filter_is_registered():
     # filterable column; the wiring loops pick it up from there
     assert 'data-field="user_tags"' in _index_html()
     assert '<input id="f-user-tags"' in _index_html()
-    assert "user_tags: {accessor: i => i.user_tags," in _app_js()
+    assert "user_tags: {accessor: i => i.user_tags," in _viewer_js()
 
 def test_user_tags_filter_pool_is_separate_from_genre():
-    js = _app_js()
+    js = _viewer_js()
     # genre and user tags are independent pools: a genre "Fantasy" and a
     # personal tag "fantasy" mean different things and must stay
     # separately selectable, so no accessor may union the two
@@ -1005,22 +1008,22 @@ def test_tag_badges_tolerates_a_missing_field():
     # exception here blanks the whole page, not just one column. An item
     # served without user_tags (an older API, a partial payload) must not
     # be able to do that.
-    js = _app_js()
+    js = _viewer_js()
     assert "const tagBadges = (arr) =>\n  (arr || []).map(" in js
 
 def test_notes_filter_is_registered():
     assert 'data-field="user_comment"' in _index_html()
     assert '<input id="f-notes"' in _index_html()
-    assert "user_comment: {accessor: i => i.user_comment ? [i.user_comment] : []," in _app_js()
+    assert "user_comment: {accessor: i => i.user_comment ? [i.user_comment] : []," in _viewer_js()
 
 def test_notes_filter_has_no_autocomplete():
     # a dropdown suggesting whole note bodies would be useless
-    assert "if (!f.textOnly) Autocomplete.attach(" in _app_js()
+    assert "if (!f.textOnly) Autocomplete.attach(" in _viewer_js()
 
 def test_chip_filter_text_is_lowercased_on_input():
     # passesChipFilters lowercases the value but not f.text, so every
     # place that writes f.text has to lowercase it first
-    js = _app_js()
+    js = _viewer_js()
     assert "f.text = input.value.trim().toLowerCase();" in js
     assert "f.text = value.toLowerCase();" in js
 
@@ -1029,7 +1032,7 @@ def test_search_box_is_still_names_only():
     # matching may widen it. Asserted against the source rather than
     # behaviour only for the negative half -- the positive half moved to
     # test_webapp_js.py, where it runs the real visible().
-    js = _app_js()
+    js = _viewer_js()
     assert "i.user_comment.toLowerCase().includes(q)" not in js
 
 def test_bulk_add_and_remove(tmp_path):
@@ -1090,7 +1093,7 @@ def test_bulk_bar_is_present():
 
 def test_bulk_remove_is_gated_on_an_active_filter():
     # user_tags has no pre_edit snapshot, so a bulk remove cannot be undone
-    assert "removeBtn.disabled = !tag || count === 0 || !filtered;" in _app_js()
+    assert "removeBtn.disabled = !tag || count === 0 || !filtered;" in _viewer_js()
 
 def test_bulk_bar_lives_outside_the_table():
     # the table rebuilds via innerHTML; controls inside it would be destroyed

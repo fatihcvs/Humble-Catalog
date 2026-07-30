@@ -17,7 +17,11 @@ import pytest
 
 _ROOT = Path(__file__).parent.parent
 _HARNESS = Path(__file__).parent / "js" / "harness.mjs"
-_APP_JS = _ROOT / "humble_catalog" / "webapp" / "static" / "app.js"
+_STATIC = _ROOT / "humble_catalog" / "webapp" / "static"
+# The viewer's own scripts in <script> order. fuzzy.js is loaded by the
+# harness itself (it has to be published by hand), so it is not listed.
+# Appending here is the whole cost of adding a viewer script.
+VIEWER_JS = [_STATIC / "app.js"]
 
 
 def eval_js(expression):
@@ -37,7 +41,7 @@ def eval_js(expression):
     # as its own trailing byte -- so no test could assert on rendered
     # currency, punctuation or an accented title.
     proc = subprocess.run(
-        [node, str(_HARNESS), str(_APP_JS), expression],
+        [node, str(_HARNESS), ",".join(str(p) for p in VIEWER_JS), expression],
         capture_output=True, text=True, encoding="utf-8", timeout=30)
     if proc.returncode != 0:
         raise AssertionError(

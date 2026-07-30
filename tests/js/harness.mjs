@@ -14,13 +14,18 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 
-const [appPath, expr] = process.argv.slice(2);
-const src = fs.readFileSync(appPath, "utf8");
-// fuzzy.js is a sibling script that app.js depends on. It has to run in
+// A comma-separated list of the viewer's scripts, in <script> order.
+// They are concatenated into ONE context because that is what the browser
+// does: classic scripts share the global lexical environment, which is why
+// none of them import anything.
+const [appPaths, expr] = process.argv.slice(2);
+const paths = appPaths.split(",");
+const src = paths.map((p) => fs.readFileSync(p, "utf8")).join("\n;\n");
+// fuzzy.js is a sibling script the viewer depends on. It has to run in
 // the same context and be published by hand: a top-level `const` inside
 // runInContext never reaches globalThis.
 const fuzzySrc = fs.readFileSync(
-  path.join(path.dirname(appPath), "fuzzy.js"), "utf8");
+  path.join(path.dirname(paths[0]), "fuzzy.js"), "utf8");
 
 // Records innerHTML writes per selector, so a test can ask which
 // renderers actually ran.
