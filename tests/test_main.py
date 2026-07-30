@@ -1,3 +1,4 @@
+import json
 import sys
 import pytest
 from openpyxl import load_workbook
@@ -284,3 +285,38 @@ def test_harvest_accepts_ignore_quota(monkeypatch):
                         ["humble_catalog", "harvest", "--ignore-quota"])
     main()
     assert seen == {"ignore_quota": True}
+
+
+def _seed_one_key(tmp_path, monkeypatch):
+    """A catalog holding a single unactivated steam key."""
+    monkeypatch.chdir(tmp_path)
+    conn = db.connect("catalog.db")
+    conn.execute("INSERT INTO bundles (gamekey, name, url, purchased_at) "
+                 "VALUES ('kv789', 'Humble Game Bundle: Key Vault', "
+                 "'https://example.invalid/kv789', '2024-01-02T00:00:00')")
+    conn.execute(
+        "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
+        "VALUES ('kv789', 'Cinder Vale', 'steam', ?)",
+        (json.dumps({"human_name": "Cinder Vale", "key_type": "steam",
+                     "machine_name": "cindervale_ex"}),))
+    conn.commit()
+    conn.close()
+
+
+def test_keys_command_prints_the_summary(monkeypatch, tmp_path, capsys):
+    _seed_one_key(tmp_path, monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "keys"])
+    main()
+    out = capsys.readouterr().out
+    # "1 key", not "1 keys" -- a one-item tier read "1 items" in the bundle
+    # preview, which no test caught and a browser did.
+    assert "1 key -" in out
+    # Undated, so the default report counts it without listing it.
+    assert "Cinder Vale" not in out
+
+
+def test_keys_all_lists_the_undated_rows(monkeypatch, tmp_path, capsys):
+    _seed_one_key(tmp_path, monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "keys", "--all"])
+    main()
+    assert "Cinder Vale" in capsys.readouterr().out

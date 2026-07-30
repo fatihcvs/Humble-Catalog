@@ -17,8 +17,9 @@ library is still an unactivated steam key.
 """
 import datetime as dt
 import json
+import sys
 
-from humble_catalog import game_match, import_games
+from humble_catalog import db, game_match, import_games, stats
 
 # Every key lands in exactly one of these, so the counts partition
 # external_keys. `matched` is the only one not reported.
@@ -192,3 +193,103 @@ def report(conn, now=None):
         "libraries": libraries,
         "rows": rows,
     }
+
+
+# Longest product name the table pads to. One 92-character bundle-as-a-key
+# name was pushing every other row's remaining columns off an 80-column
+# console; past this a name overflows its own row rather than widening all
+# of them. Same cap, and same reason, as the xlsx export's column widths.
+MAX_NAME = 60
+
+
+def _line(row, width):
+    """One reported row, as a printable line."""
+    days = row["days_left"]
+    # "today", not "in 0 days" -- and it matches what keys.js renders, so
+    # the same key does not read differently in the two surfaces.
+    when = ("" if days is None else ("today" if days == 0 else f"in {days} days"))
+    if days is None and row["expired"]:
+        when = "expired"
+    line = (f"    {when:>12}  {row['product'] or '':<{width}}  "
+            f"{row['key_type_label']:<12}  {row['bundle']}")
+    if row["near_match"]:
+        line += (f"  ~ {row['near_match']['owned_title']}"
+                 f" ({row['near_match']['score']:.2f})?")
+    if row["state"] == "uncheckable":
+        line += "  [no importer]"
+    return line.rstrip()
+
+
+def _block(lines, heading, rows):
+    """One headed block, padded to its OWN widest name.
+
+    Per block rather than per report: the undated rows are the great
+    majority and hold the longest names, so a shared width made the
+    default report's 63 lines carry ~40 columns of padding for rows it
+    was not even printing.
+    """
+    if not rows:
+        return
+    width = min(max(len(r["product"] or "") for r in rows), MAX_NAME)
+    lines.append(f"  {heading} ({len(rows)}):")
+    lines.extend(_line(row, width) for row in rows)
+    lines.append("")
+
+
+def format_report(report, encoding="utf-8", show_all=False):
+    """The report as printable text, safe for a console using `encoding`.
+
+    The default prints the counts plus only the rows with a live expiry --
+    what needs attention this week. `--all` adds the undated and the
+    already-expired rows, which together are the great majority: a report
+    that leads with 700 lines is one nobody reads to the end.
+    """
+    counts = report["counts"]
+    # "1 key", not "1 keys": a one-item tier read "1 items" in the bundle
+    # preview, and no test caught it -- a browser did.
+    noun = "key" if report["total"] == 1 else "keys"
+    lines = [f"{report['total']:,} {noun} - {counts['matched']:,} in a library, "
+             f"{counts['unredeemed'] + counts['uncertain']:,} not, "
+             f"{counts['uncheckable']:,} uncheckable", ""]
+    rows = report["rows"]
+    live = [r for r in rows if r["expires"] and not r["expired"]]
+    undated = [r for r in rows if not r["expires"]]
+    expired = [r for r in rows if r["expired"]]
+    _block(lines, "Expiring", live)
+    if show_all:
+        _block(lines, "No expiry date", undated)
+        _block(lines, "Already expired", expired)
+    elif undated or expired:
+        lines.append(f"  ('keys --all' for the other "
+                     f"{len(undated) + len(expired):,}: {len(undated):,} "
+                     f"undated, {len(expired):,} already expired)")
+        lines.append("")
+    libraries = report["libraries"]
+    if libraries:
+        listed = ", ".join(
+            f"{store} {info['count']:,} "
+            f"{'game' if info['count'] == 1 else 'games'} "
+            f"(imported {info['imported_at'][:10]})"
+            for store, info in sorted(libraries.items()))
+        lines.append(f"  Libraries: {listed}")
+    if counts["uncheckable"]:
+        lines.append(f"  {counts['uncheckable']:,} keys are for stores with "
+                     f"no importer -- for those, 'in no library' cannot be "
+                     f"checked at all.")
+    lines.append("  Matching is by title and APPROXIMATE. A revealed key was "
+                 "only displayed, which is not the same as activated.")
+    # Degraded at the CLI boundary only, exactly as bundle_preview does:
+    # the web route keeps the real characters, and product names are
+    # arbitrary data that may hold anything.
+    return stats.console_safe("\n".join(lines).rstrip(), encoding)
+
+
+def run(show_all=False):
+    """Count and print. The `keys` subcommand's entry point."""
+    conn = db.connect()
+    try:
+        built = report(conn)
+    finally:
+        conn.close()
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(format_report(built, encoding, show_all=show_all))

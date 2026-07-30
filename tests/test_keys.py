@@ -242,3 +242,107 @@ def test_expiring_counts_only_rows_that_can_still_be_lost(tmp_path):
         assert keys.report(conn, now=NOW)["expiring"] == 1
     finally:
         conn.close()
+
+
+def _text(tmp_path, rows, show_all=False, **kw):
+    conn = _conn(tmp_path, rows, **kw)
+    try:
+        report = keys.report(conn, now=NOW)
+    finally:
+        conn.close()
+    return keys.format_report(report, show_all=show_all)
+
+
+def test_the_summary_line_accounts_for_every_key(tmp_path):
+    text = _text(tmp_path, [("Widget Quest", "steam", None),
+                            ("Cinder Vale", "steam", None),
+                            ("Verdant Reach", "uplay", None)])
+    assert "3 keys - 1 in a library, 1 not, 1 uncheckable" in text
+
+
+def test_the_default_prints_only_the_rows_that_can_still_be_lost(tmp_path):
+    text = _text(tmp_path, [
+        ("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"}),
+        ("Cinder Vale", "steam", None)])
+    assert "Amber Hollow" in text
+    assert "in 12 days" in text
+    assert "Cinder Vale" not in text
+    assert "keys --all" in text
+
+
+def test_all_prints_the_undated_and_expired_rows_too(tmp_path):
+    text = _text(tmp_path, [
+        ("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"}),
+        ("Cinder Vale", "steam", None),
+        ("Glass Meridian", "steam", {"expiry_date": "2026-07-01T00:00:00"})],
+        show_all=True)
+    for name in ("Amber Hollow", "Cinder Vale", "Glass Meridian"):
+        assert name in text
+    assert "keys --all" not in text     # nothing left to point at
+
+
+def test_an_uncertain_row_prints_what_it_nearly_matched(tmp_path):
+    text = _text(tmp_path, [("Starfall Rally Turbo", "steam", None)],
+                 show_all=True, library=(("steam", "Starfall Rally"),))
+    assert "Starfall Rally Turbo" in text
+    assert "~ Starfall Rally" in text
+
+
+def test_the_report_says_which_stores_it_could_not_check(tmp_path):
+    # Without this the reader cannot tell "checked and absent" from
+    # "unfalsifiable", which is the difference the third state exists for.
+    text = _text(tmp_path, [("Verdant Reach", "uplay", None)], show_all=True)
+    assert "no importer" in text
+    assert "Verdant Reach" in text
+
+
+def test_the_report_dates_the_libraries_it_matched_against(tmp_path):
+    # An approximate answer from a stale library is the one worth
+    # distrusting most, so the answer carries its age.
+    text = _text(tmp_path, [("Cinder Vale", "steam", None)])
+    assert "Libraries: steam" in text
+
+
+def test_an_empty_catalog_prints_a_well_formed_report(tmp_path):
+    text = _text(tmp_path, [], library=(), imported=())
+    assert "0 keys" in text
+
+
+def test_format_report_degrades_for_a_console_that_cannot_encode(tmp_path):
+    # Product names are arbitrary data. cp437 is the Windows console
+    # default and cannot encode most of Latin-1, let alone anything above.
+    conn = _conn(tmp_path, [("Cafe\u0301 of Broken Clocks", "steam", None)])
+    try:
+        report = keys.report(conn, now=NOW)
+    finally:
+        conn.close()
+    text = keys.format_report(report, encoding="cp437", show_all=True)
+    text.encode("cp437")     # must not raise
+
+
+def test_a_key_expiring_today_says_today(tmp_path):
+    # "in 0 days" is what the arithmetic produces and not what anyone
+    # says. Found by running the command, not by a test -- and keys.js
+    # renders the same word, so one key cannot read two ways.
+    text = _text(tmp_path, [("Amber Hollow", "steam",
+                             {"expiry_date": "2026-07-30T18:00:00"})])
+    assert "today" in text
+    assert "in 0 days" not in text
+
+
+def test_one_long_name_does_not_widen_every_other_row(tmp_path):
+    # A 92-character key name was padding all 63 default rows out past an
+    # 80-column console. Past MAX_NAME a name overflows its own row only,
+    # so how far past makes no difference to anyone else's line.
+    expiry = {"expiry_date": "2026-08-11T00:00:00"}
+    lines = []
+    for n, length in enumerate((keys.MAX_NAME + 1, keys.MAX_NAME + 60)):
+        room = tmp_path / str(n)
+        room.mkdir()
+        text = _text(room, [("Long" + "g" * length, "steam", expiry),
+                            ("Amber Hollow", "steam", expiry)])
+        lines.append(next(ln for ln in text.splitlines()
+                          if "Amber Hollow" in ln))
+    assert lines[0] == lines[1]
+    # and the column it pads to is MAX_NAME, not either long name
+    assert "Amber Hollow".ljust(keys.MAX_NAME) in lines[0]
