@@ -98,7 +98,8 @@ def _key_rows(conn):
     for row in conn.execute(
             "SELECT k.human_name AS product, k.key_type AS key_type, "
             "       k.gamekey AS gamekey, k.raw AS raw, "
-            "       b.name AS bundle, b.purchased_at AS purchased_at "
+            "       b.name AS bundle, b.url AS bundle_url, "
+            "       b.purchased_at AS purchased_at "
             "FROM external_keys k JOIN bundles b ON b.gamekey = k.gamekey"):
         try:
             raw = json.loads(row["raw"]) if row["raw"] else {}
@@ -168,6 +169,10 @@ def report(conn, now=None):
             "key_type_label": raw.get("key_type_human_name")
                               or row["key_type"] or "",
             "bundle": row["bundle"],
+            # The stored bundles.url -- the same address the Library
+            # table's bundle tags link to, rather than a second copy of
+            # the /downloads?key= format built from the gamekey here.
+            "bundle_url": row["bundle_url"],
             "purchased_at": row["purchased_at"],
             "expires": expires.isoformat() if expires else None,
             "expired": expired,

@@ -346,3 +346,11 @@ def test_one_long_name_does_not_widen_every_other_row(tmp_path):
     assert lines[0] == lines[1]
     # and the column it pads to is MAX_NAME, not either long name
     assert "Amber Hollow".ljust(keys.MAX_NAME) in lines[0]
+
+
+def test_a_row_carries_its_bundle_url(tmp_path):
+    # The stored bundles.url, not one rebuilt from the gamekey here: the
+    # catalog already knows the address, and deriving a second copy of the
+    # format would be a thing to keep in step for no gain.
+    rows = _rows(tmp_path, [("Cinder Vale", "steam", None)])
+    assert rows[0]["bundle_url"] == "https://example.invalid/kv789"

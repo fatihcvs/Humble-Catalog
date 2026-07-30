@@ -71,7 +71,10 @@ function renderKeys() {
         ? ` <span class="key-near">~ ${esc(r.near_match.owned_title)} (${
             r.near_match.score.toFixed(2)})?</span>` : ""}</td>
       <td>${esc(r.key_type_label || "")}</td>
-      <td>${esc(r.bundle || "")}</td>
+      <td>${r.bundle_url
+        ? `<a class="tag tag-link" href="${esc(r.bundle_url)}" target="_blank"
+             rel="noopener">${esc(r.bundle || "")}</a>`
+        : esc(r.bundle || "")}</td>
       <td>${esc((r.purchased_at || "").slice(0, 10))}</td>
       <td>${esc(keyWhen(r))}</td>
       <td>${r.revealed ? "yes" : "no"}</td>

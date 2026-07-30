@@ -1219,17 +1219,20 @@ _KEY_PAYLOAD = """{
     {product: "Amber Hollow", machine_name: "amberhollow_ex", gamekey: "kv789",
      store: "steam", key_type_label: "Steam",
      bundle: "Humble Game Bundle: Expiring Keys",
+     bundle_url: "https://example.invalid/kv789",
      purchased_at: "2024-01-02T00:00:00", expires: "2099-08-11T00:00:00+00:00",
      expired: false, days_left: 12, revealed: true, state: "unredeemed",
      near_match: null},
     {product: "Starfall Rally Turbo", machine_name: "srt_ex", gamekey: "kv789",
      store: "steam", key_type_label: "Steam",
-     bundle: "Humble Game Bundle: Key Vault", purchased_at: null,
+     bundle: "Humble Game Bundle: Key Vault",
+     bundle_url: "https://example.invalid/kv789", purchased_at: null,
      expires: null, expired: false, days_left: null, revealed: false,
      state: "uncertain", near_match: {owned_title: "Starfall Rally", score: 0.86}},
     {product: "Verdant Reach", machine_name: "verdantreach_ex", gamekey: "kv789",
      store: "uplay", key_type_label: "Uplay",
-     bundle: "Humble Game Bundle: Key Vault", purchased_at: null,
+     bundle: "Humble Game Bundle: Key Vault", bundle_url: null,
+     purchased_at: null,
      expires: null, expired: false, days_left: null, revealed: false,
      state: "uncheckable", near_match: null}
   ]
@@ -1292,3 +1295,24 @@ def test_the_keys_section_markup_exists():
             / "static" / "index.html").read_text(encoding="utf-8")
     assert '<div id="keys-panel"></div>' in html
     assert '<script src="/static/keys.js"></script>' in html
+
+
+def test_the_bundle_column_links_to_the_bundle():
+    # Same markup as the Library table's bundle tags, so a bundle name
+    # behaves the same wherever it appears.
+    html = _with_keys('(app.renderKeys(), dom.writes["#keys-panel"])')
+    assert ('<a class="tag tag-link" href="https://example.invalid/kv789"'
+            in html)
+    assert 'rel="noopener"' in html
+
+
+def test_a_bundle_with_no_url_renders_as_plain_text():
+    # A row whose bundle carries no url must still show its name rather
+    # than an <a> pointing at nothing.
+    html = _with_keys("""(() => {
+      app.setKeyStates(["uncheckable"]);
+      app.renderKeys();
+      return dom.writes["#keys-panel"];
+    })()""")
+    assert "Humble Game Bundle: Key Vault" in html
+    assert 'href="null"' not in html
