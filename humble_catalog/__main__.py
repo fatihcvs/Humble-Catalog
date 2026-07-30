@@ -141,6 +141,14 @@ def main():
         "import-games",
         help="Import your Steam/Heroic game libraries, so `bundle` can "
              "count games you already own (approximate; title-matched)")
+    p_keys = sub.add_parser(
+        "keys",
+        help="Report Humble store keys whose game is in no imported "
+             "library -- probably never claimed")
+    p_keys.add_argument(
+        "--all", action="store_true",
+        help="Also list the keys with no expiry date and the ones that "
+             "have already expired")
     args = parser.parse_args()
     # After parsing, so --help still works on a broken environment: it is
     # stdlib-only, and it is how you find the command names to begin with.
@@ -233,6 +241,9 @@ def main():
     elif args.command == "import-games":
         from humble_catalog import import_games
         import_games.run()
+    elif args.command == "keys":
+        from humble_catalog import keys
+        keys.run(show_all=args.all)
     elif args.command == "bundle":
         from humble_catalog import bundle_preview
         try:

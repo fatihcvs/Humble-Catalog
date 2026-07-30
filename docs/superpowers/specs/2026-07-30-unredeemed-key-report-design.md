@@ -186,8 +186,12 @@ A row:
  purchased_at, expires, expired, revealed, state, near_match}
 ```
 
-`machine_name` comes from the stored `raw` blob via `json_extract`, so
-no column is added to `external_keys`. `near_match` is
+`machine_name` comes from the stored `raw` blob, so no column is added to
+`external_keys`. The blob is parsed in Python rather than reached with
+SQL `json_extract`: one parse yields `machine_name`, `expiry_date`,
+`redeemed_key_val` and `key_type_human_name`, where SQL would need four
+calls, and a row whose blob is not JSON skips itself instead of failing
+the whole query. `near_match` is
 `{owned_title, score}` on `uncertain` rows and `None` elsewhere.
 `revealed` is the presence of `redeemed_key_val`, and is labelled
 "revealed" and never "redeemed" — Humble sets that field the moment the

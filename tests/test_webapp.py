@@ -1525,3 +1525,35 @@ def test_collapsing_the_sidebar_does_not_collapse_the_table():
     # the filters collapsed the catalog. One track is the fix.
     assert "#library-layout.collapsed { grid-template-columns: 1fr; }" in css
     assert "grid-template-columns: 0 1fr" not in css
+
+def test_api_keys_matches_the_report_over_the_same_db(tmp_path):
+    # A reshaping of report(), never a second count -- the /api/stats rule.
+    dbp = tmp_path / "t.db"
+    conn = db.connect(dbp)
+    conn.execute("INSERT INTO bundles (gamekey, name, url, purchased_at) "
+                 "VALUES ('kv789', 'Humble Game Bundle: Key Vault', "
+                 "'https://example.invalid/kv789', '2024-01-02T00:00:00')")
+    conn.execute(
+        "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
+        "VALUES ('kv789', 'Cinder Vale', 'steam', ?)",
+        (json.dumps({"human_name": "Cinder Vale", "key_type": "steam",
+                     "machine_name": "cindervale_ex"}),))
+    conn.commit()
+    conn.close()
+    client = create_app(db_path=str(dbp)).test_client()
+
+    body = client.get("/api/keys").get_json()
+    assert body["total"] == 1
+    assert body["counts"]["uncheckable"] == 1     # steam never imported
+    assert [r["product"] for r in body["rows"]] == ["Cinder Vale"]
+
+def test_api_keys_of_an_empty_catalog_is_well_formed(tmp_path):
+    dbp = tmp_path / "t.db"
+    db.connect(str(dbp)).close()
+    client = create_app(db_path=str(dbp)).test_client()
+
+    body = client.get("/api/keys").get_json()
+    assert body["total"] == 0
+    assert body["rows"] == []
+    assert set(body["counts"]) == {
+        "matched", "unredeemed", "uncertain", "uncheckable"}

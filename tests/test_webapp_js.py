@@ -1209,3 +1209,86 @@ def test_active_filter_remove_buttons_avoid_the_tag_x_class():
     })()""")
     assert "active-x" in html
     assert "tag-x" not in html
+
+
+_KEY_PAYLOAD = """{
+  total: 4, reported: 3, expiring: 1,
+  counts: {matched: 1, unredeemed: 1, uncertain: 1, uncheckable: 1},
+  libraries: {steam: {count: 2, imported_at: "2026-07-25T00:00:00"}},
+  rows: [
+    {product: "Amber Hollow", machine_name: "amberhollow_ex", gamekey: "kv789",
+     store: "steam", key_type_label: "Steam",
+     bundle: "Humble Game Bundle: Expiring Keys",
+     purchased_at: "2024-01-02T00:00:00", expires: "2099-08-11T00:00:00+00:00",
+     expired: false, days_left: 12, revealed: true, state: "unredeemed",
+     near_match: null},
+    {product: "Starfall Rally Turbo", machine_name: "srt_ex", gamekey: "kv789",
+     store: "steam", key_type_label: "Steam",
+     bundle: "Humble Game Bundle: Key Vault", purchased_at: null,
+     expires: null, expired: false, days_left: null, revealed: false,
+     state: "uncertain", near_match: {owned_title: "Starfall Rally", score: 0.86}},
+    {product: "Verdant Reach", machine_name: "verdantreach_ex", gamekey: "kv789",
+     store: "uplay", key_type_label: "Uplay",
+     bundle: "Humble Game Bundle: Key Vault", purchased_at: null,
+     expires: null, expired: false, days_left: null, revealed: false,
+     state: "uncheckable", near_match: null}
+  ]
+}"""
+
+
+def _with_keys(expression):
+    """Run `expression` after loadKeys() has consumed the payload above."""
+    # The payload is parenthesised: `async () => {...}` reads the object
+    # literal as a function body and yields undefined, not a syntax error
+    # you would notice from the assertion.
+    return eval_js("""(async () => {
+      app.setFetch(async () => ({json: async () => (%s)}));
+      await app.loadKeys();
+      return (%s);
+    })()""" % (_KEY_PAYLOAD, expression))
+
+
+def test_the_keys_panel_lists_the_reported_rows():
+    html = _with_keys('(app.renderKeys(), dom.writes["#keys-panel"])')
+    assert "Amber Hollow" in html
+    assert "Humble Game Bundle: Expiring Keys" in html
+
+
+def test_an_uncertain_row_shows_what_it_nearly_matched():
+    html = _with_keys('(app.renderKeys(), dom.writes["#keys-panel"])')
+    assert "Starfall Rally" in html
+
+
+def test_uncheckable_rows_are_hidden_by_default():
+    # The default view is the falsifiable one: a store with no importer
+    # cannot be checked, so its keys are not evidence of anything.
+    shown = _with_keys('app.shownKeys().map((r) => r.product)')
+    assert shown == ["Amber Hollow", "Starfall Rally Turbo"]
+
+
+def test_a_state_chip_toggles_its_rows():
+    shown = _with_keys("""(() => {
+      app.setKeyStates(["uncheckable"]);
+      return app.shownKeys().map((r) => r.product);
+    })()""")
+    assert shown == ["Verdant Reach"]
+
+
+def test_the_keys_badge_counts_expiring_rows_not_unredeemed_ones():
+    # Hundreds of unredeemed keys would light the tab permanently, which is
+    # the policy shell.js already settled against for Library. Expiring
+    # keys are a queue; unredeemed ones are a standing fact.
+    written = _with_keys("""(() => {
+      dom.reset();
+      app.setPending({keys: app.keysExpiring()});
+      app.renderBadges();
+      return dom.writes["#tab-keys .badge-count:text"];
+    })()""")
+    assert written == "1"
+
+
+def test_the_keys_section_markup_exists():
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    assert '<div id="keys-panel"></div>' in html
+    assert '<script src="/static/keys.js"></script>' in html
