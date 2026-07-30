@@ -106,6 +106,84 @@ its own; none is committed to.
   same `games` table. Revisit if cache staleness or a Heroic format
   change actually bites.
 
+### External keys (requested 2026-07-30)
+
+- **Unredeemed key report** — a table of Humble store keys held whose game
+  appears in no imported store library, i.e. probably never activated.
+  This is [`_keyed_games`](../humble_catalog/bundle_preview.py) inverted:
+  that helper answers "do I already own this bundle's games somehow", and
+  the same `external_keys` → `bundles` join plus `clean_game_title`
+  matching against `games.normalized_title` answers the complementary
+  question, "what have I paid for and never claimed". Surfaced behind one
+  shared API route rendered as both a viewer panel and a CLI subcommand,
+  the way `stats` is, so the two cannot drift.
+
+  Columns, defaulting to expiry ascending with undated rows last so the
+  rows that can still be lost come first:
+
+  | Column | Source | Note |
+  |---|---|---|
+  | Product | `human_name` | |
+  | Key type | `key_type_human_name` | 52 distinct strings including `Other` and `other`; needs the case folding `specs/2026-07-18-genre-case-normalization-design.md` established |
+  | Bundle | `bundles.name` via `gamekey` | |
+  | Purchased | `bundles.purchased_at` | how long the key has sat |
+  | Expires | `expiry_date` / `expiration_date`, `is_expired` as backstop | present on ~1 key in 5; blank otherwise |
+  | Revealed? | `redeemed_key_val` present | the interesting row is revealed-but-unmatched |
+  | Checkable? | does the key's store have an importer | see the third state below |
+
+  Three limits belong in the report's own output, not just here:
+
+  - **Only steam/gog/epic can be checked at all.** Those are the stores
+    `import_games` covers, and about a twentieth of the keys are for
+    stores with no importer — Uplay, Paizo, DriveThruRPG, Desura and a
+    long tail below them. For those, "not in any library" is
+    unfalsifiable. They are *unknown*, a third state, not unredeemed;
+    collapsing them into the main list would make the report mostly
+    noise. This is the same point the out-of-scope note on keys makes.
+  - **Humble's redeemed flag means revealed, not activated** — already
+    recorded under the keyed-ownership fix below. It says the key's value
+    was displayed once, which is why library matching and not the flag is
+    the primary signal.
+  - **Title matching is fuzzy both ways.** A key can read as unredeemed
+    because the store spells the game differently, and a coincidental
+    match can hide a key that really is unclaimed. The report suggests
+    where to look; it does not adjudicate.
+
+  `num_days_until_expired` is non-zero on nearly every row and is
+  therefore almost certainly a never-expires sentinel rather than a real
+  deadline. Confirm that before any column trusts it.
+
+- **Hiding a resolved row** — the owner asserting "wherever this one
+  ended up, I know it is redeemed", so it stops reappearing. Follows the
+  `dismissed_pairs` shape: `hidden_keys(machine_name TEXT PRIMARY KEY,
+  hidden_at TEXT NOT NULL)`, idempotent hide and unhide routes, the main
+  report excluding hidden rows behind a count, and a companion view
+  listing them with `hidden_at` and an unhide control. Same columns in
+  both views, so nothing is learned only by hiding it. Hiding stays
+  viewer-only; the CLI subcommand gets a flag to include or show only
+  hidden rows.
+
+  Two deliberate departures from the `dismissed_pairs` precedent:
+
+  - **Keyed on the tpk's own `machine_name`**, which every stored `raw`
+    blob carries, rather than on `human_name` — the rebuild-stable
+    identifier convention `user_item_data` follows. It needs either
+    `json_extract` at query time or a `machine_name` column added to
+    `external_keys`.
+  - **Kept out of `DERIVED_TABLES`, so `reset` preserves it.** Dedupe
+    dismissals can afford to be wiped because a rebuild re-derives the
+    pairs and the owner re-judges them from data still on disk. A
+    redeemed-key assertion is knowledge about what happened beyond this
+    machine, which no rebuild can recover, so wiping it would refill
+    with rows already resolved. The cost is the opposite failure: a hide
+    can outlive the key it referred to, so the hidden view should mark
+    rows whose key no longer exists rather than dropping them silently.
+    `backup.py` copies the whole database file, so no backup work is
+    needed either way.
+
+  Note the hide is per key, not per game: the same game keyed in two
+  bundles stays two rows, because one may have landed and the other not.
+
 ### Harvest (identified 2026-07-26 while debugging resume)
 
 Surfaced by investigating a harvest that appeared to restart from
@@ -143,7 +221,9 @@ worklist order; these are what is left.
 - Desktop game downloads and Steam/GOG keys as catalog items — keys
   stay in `external_keys`. Still true after the bundle preview began
   *reading* that table for ownership: it matches against keys, it does not
-  promote them to `items` rows.
+  promote them to `items` rows. The unredeemed key report under **Open**
+  is the same bargain — reporting on keys is in scope, and a report is not
+  a promotion.
 - Game-metadata enrichment sources (Google Play/IGDB) for Android
   items — Humble's own data is all we store.
 - Tracking non-book HumbleBundle purchases beyond the above.
