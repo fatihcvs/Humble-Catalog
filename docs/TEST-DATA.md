@@ -22,6 +22,7 @@ or fixtures that name books, bundles, or people.
 | Humble Game Bundle: Samples | game/music (soundtrack) classification |
 | Sample Studios: TTRPG Audio Compendium | non-"Humble"-prefixed audio bundle |
 | Bundle One | minimal placeholder bundle |
+| Humble Game Bundle: Key Vault | a past order whose games arrived as store keys, not as items (`external_keys`); bundle-preview keyed-ownership example |
 
 ## E-books
 
@@ -90,6 +91,8 @@ records: `steam`, `gog`, `epic`, `amazon`, `zoom`.
 | Starfall Rally Turbo | — (offered only) | close but not equal — the **possible** bucket, counted neither way |
 | Lantern & Lockpick | — (offered only) | offered and owned nowhere — the plain **new** case |
 | Humble Game Bundle: Story Sampler | — | invented game bundle for the preview fixture |
+| Cinder Vale | — (keyed only) | held as an unactivated Humble **steam** key from *Key Vault*, so it is in no imported library — must read as **owned**, flagged as key-only |
+| Verdant Reach | — (keyed only) | held as a Humble **uplay** key; uplay has no importer at all, so a key is the only evidence there can be |
 
 ## RPG supplements
 

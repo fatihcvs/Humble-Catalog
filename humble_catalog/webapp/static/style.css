@@ -308,3 +308,12 @@ a { color: var(--accent); }
 .bundle-adds ul { margin: .15rem 0 .4rem; padding-left: 1.2rem;
                   columns: 18rem; }
 .bundle-adds li { color: var(--fg); }
+/* Same block shape as the adds list -- it belongs to a tier the same way --
+   but no columns: this list is short by nature, and a keyed match is a
+   caveat about the owned count rather than a list to scan for a title. */
+.bundle-keyed { border-top: 1px solid var(--border); margin-top: .5rem;
+                padding-top: .4rem; }
+.bundle-keyed h4 { margin: 0 0 .1rem; font-size: .9rem; font-weight: 600;
+                   color: var(--muted); }
+.bundle-keyed ul { margin: .15rem 0 .4rem; padding-left: 1.2rem; }
+.bundle-keyed li { color: var(--fg); }

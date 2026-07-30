@@ -990,6 +990,47 @@ def test_bundle_panel_omits_the_overlap_block_when_there_is_none():
     assert "Possibly already owned" not in _render_bundle(report)
 
 
+_KEYED_REPORT = {
+    "name": "Humble Game Bundle: Story Sampler",
+    "url": "https://www.humblebundle.com/games/story-sampler",
+    "currency": "EUR",
+    "tiers": [
+        {"price": 7.5, "total": 2, "owned": 2, "new": 0, "adds": [],
+         "keyed": 1, "keyed_items": [
+             {"offered": "Cinder Vale", "owned_title": "Cinder Vale",
+              "score": 1.0, "key_type": "steam",
+              "bundle": "Humble Game Bundle: Key Vault"}]},
+    ],
+    "overlaps": [],
+}
+
+
+def test_bundle_panel_lists_a_game_owned_only_via_a_key():
+    # Counted in `owned` on the row above, named here: the panel must not
+    # let an unactivated key pass as a library match.
+    html = _render_bundle(_KEYED_REPORT)
+    assert "Cinder Vale" in html
+    assert "owned via a Humble key (not in any imported library)" in html
+    assert "steam" in html
+    assert "Humble Game Bundle: Key Vault" in html
+
+
+def test_bundle_panel_omits_the_keyed_block_when_nothing_is_keyed():
+    assert "Humble key" not in _render_bundle(_BUNDLE_REPORT)
+
+
+def test_bundle_panel_survives_a_tier_with_no_keyed_field():
+    # _BUNDLE_REPORT carries no keyed_items at all, which is exactly what a
+    # response from an older server looks like. Throwing here would blank
+    # the whole panel, the failure mode js_harness exists to catch.
+    assert eval_js_error(
+        """(async () => {
+             app.setFetch(() => Promise.resolve(
+               {ok: true, json: () => Promise.resolve(%s)}));
+             await app.previewBundle("https://www.humblebundle.com/books/x");
+           })()""" % json.dumps(_BUNDLE_REPORT)) is None
+
+
 def test_bundle_panel_shows_the_error_from_a_rejected_url():
     html = eval_js(
         """(async () => {

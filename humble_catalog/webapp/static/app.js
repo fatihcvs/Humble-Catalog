@@ -873,6 +873,30 @@ function renderBundlePreview() {
       <h4>${esc(money(t.price, bundlePreview.currency))} adds ${t.adds.length} new</h4>
       <ul>${t.adds.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
     </section>`).join("");
+  // Inside the owned count on the row above, not beside it -- so this
+  // explains a number rather than adding a fourth one. A game reached only
+  // by a key is paid for but not yet in any library, which can fail in ways
+  // an owned row cannot (expired, region-locked), so the panel says which
+  // games the count is trusting a key for. `|| []` because a tier from an
+  // older server carries no keyed_items at all.
+  // Never "unredeemed": Humble marks a key redeemed the moment its value is
+  // revealed, which says nothing about whether the game ever reached a store
+  // account -- the bug that started this counted a revealed-but-unactivated
+  // key's game as new. Absence from every imported library is what is
+  // actually known, so it is what is said. One line, not a wrapped template:
+  // the heading is asserted as a substring, and indentation would split it.
+  const keyedNoun = (n) =>
+    `${n} owned via ${n === 1 ? "a Humble key" : "Humble keys"}`
+    + " (not in any imported library)";
+  const keyed = bundlePreview.tiers
+    .filter((t) => (t.keyed_items || []).length).map((t) => `
+    <section class="bundle-keyed">
+      <h4>${esc(money(t.price, bundlePreview.currency))} — ${keyedNoun(t.keyed_items.length)}</h4>
+      <ul>${t.keyed_items.map((k) => `<li>${esc(k.offered)}
+        <span class="bundle-score">(${esc([
+          k.key_type ? k.key_type + " key" : null, k.bundle,
+        ].filter(Boolean).join(", "))})</span></li>`).join("")}</ul>
+    </section>`).join("");
   // Kept visually separate from the counts above, and labelled a
   // suspicion: owned/new are exact-id facts, these are guesses. If the
   // two ever merge into one number, that number stops being a fact.
@@ -888,7 +912,7 @@ function renderBundlePreview() {
   panel.innerHTML = `<details${bundlePreviewOpen ? " open" : ""}>
     <summary>${esc(bundlePreview.name)}</summary>
     <table class="bundle-tiers"><tbody>${rows}</tbody></table>
-    ${lists}${overlaps}</details>`;
+    ${lists}${keyed}${overlaps}</details>`;
   panel.querySelector("details").addEventListener("toggle",
     (ev) => { bundlePreviewOpen = ev.target.open; });
 }

@@ -141,7 +141,9 @@ worklist order; these are what is left.
 
 - Downloading the actual book/audio files — the catalog links to them.
 - Desktop game downloads and Steam/GOG keys as catalog items — keys
-  stay in `external_keys`.
+  stay in `external_keys`. Still true after the bundle preview began
+  *reading* that table for ownership: it matches against keys, it does not
+  promote them to `items` rows.
 - Game-metadata enrichment sources (Google Play/IGDB) for Android
   items — Humble's own data is all we store.
 - Tracking non-book HumbleBundle purchases beyond the above.
@@ -164,6 +166,38 @@ worklist order; these are what is left.
   purchases can outrun a day's budget.
 
 ## Done (formerly on this list)
+
+- **A game held only as a Humble key read as new** — fixed 2026-07-30 (no
+  spec; a bug found by using the feature). `preview` decided game ownership
+  from two pools, `items`+`merges` by machine_name and the `games` table
+  from imported store libraries, and never looked at `external_keys` — where
+  `harvest` files the store keys from past orders. A game bought in an
+  earlier bundle is therefore invisible until its key is not just revealed
+  but *activated* into a library the importer reads, so the report told the
+  owner to buy something already paid for. Found on a live bundle every one
+  of whose games came from a single past order: all but one had been
+  activated on Steam and matched, and the one that had not was reported as
+  the bundle's sole new item. Not an edge case — a third of the distinct
+  keyed titles in the catalog are in no imported library.
+  `_keyed_games` is consulted only *after* the libraries have returned
+  "new", and only an outright `owned` verdict is honoured. Both halves
+  matter: library-first keeps a keyed-and-activated game reporting as the
+  plain library match it is, so the keyed list stays a short list of
+  caveats rather than most of the library, and refusing a keyed `possible`
+  avoids stacking one fuzzy guess on another.
+  **Expired keys count as owned.** 111 rows carry `is_expired`, and `raw`
+  could filter them; it deliberately does not. The report answers "should I
+  buy this", and having already paid once is that answer whether or not the
+  key can still be claimed — excluding them pushes toward a second
+  purchase, the more expensive of the two available mistakes.
+  The heading says "not in any imported library", never "unredeemed": Humble
+  marks a key redeemed the moment its value is *revealed*, which says
+  nothing about whether the game reached a store account. The key that
+  started this reads as redeemed, so "unredeemed" would have been false on
+  the very case the feature exists for.
+  Left open by this fix: the `unimported_stores` warning still asserts that
+  a never-imported store's items were "counted as new by default", which a
+  keyed match can now make false.
 
 - **Worklist order is guaranteed, not incidental** —
   `docs/superpowers/specs/2026-07-30-harvest-worklist-order-design.md`.

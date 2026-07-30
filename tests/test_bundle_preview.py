@@ -590,3 +590,177 @@ def test_possible_matches_are_listed_under_their_tier(tmp_path):
         conn.close()
     assert "Starfall Rally Turbo" in text
     assert "possible" in text
+
+
+# --- Ownership held as a Humble key -------------------------------------
+#
+# A game bought in an earlier Humble bundle arrives as a store key, not as
+# an items row: harvest files it in external_keys. Until the owner actually
+# activates that key it is in no imported library either, so the preview
+# used to report a game the owner had already paid for as new -- observed
+# live on a bundle whose games all came from one past order.
+#
+# Built inline rather than added to game_bundle_data.json on purpose: that
+# fixture's counts are pinned by the tests above, and this case needs rows
+# in two more tables (bundles, external_keys) to mean anything.
+
+def _keyed_bundle():
+    """A one-tier bundle offering two games that exist only as keys."""
+    return {
+        "basic_data": {"human_name": "Humble Game Bundle: Story Sampler",
+                       "currency": "EUR"},
+        "tier_pricing_data": {"initial": {"price|money": {"currency": "EUR",
+                                                         "amount": 7.5}}},
+        "tier_display_data": {"initial": {"tier_item_machine_names": [
+            "cindervale_examplegames", "verdantreach_examplegames"]}},
+        "tier_item_data": {
+            "cindervale_examplegames": {
+                "human_name": "Cinder Vale", "item_content_type": "game",
+                "platforms_and_oses": {"game": {"steam": ["windows"]}}},
+            "verdantreach_examplegames": {
+                "human_name": "Verdant Reach", "item_content_type": "game",
+                "platforms_and_oses": {"game": {"uplay": ["windows"]}}}},
+    }
+
+
+def _keyed_conn(tmp_path):
+    """A catalog whose only game ownership is two unactivated keys.
+
+    The games table is deliberately non-empty but irrelevant: an empty one
+    would also make every item "new", and this must fail for the right
+    reason.
+    """
+    conn = db.connect(tmp_path / "catalog.db")
+    conn.execute("INSERT INTO bundles (gamekey, name, url) VALUES "
+                 "('kv789', 'Humble Game Bundle: Key Vault', "
+                 "'https://example.invalid/kv789')")
+    for name, key_type in (("Cinder Vale", "steam"),
+                           ("Verdant Reach", "uplay")):
+        conn.execute(
+            "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
+            "VALUES ('kv789', ?, ?, ?)",
+            (name, key_type, json.dumps({"human_name": name,
+                                         "key_type": key_type})))
+    conn.commit()
+    import_games.store_games(conn, "steam", [
+        {"store_id": "440", "title": "Widget Quest",
+         "normalized_title": titles.clean_game_title("Widget Quest"),
+         "source_timestamp": None}], "test")
+    return conn
+
+
+def test_a_game_held_only_as_a_humble_key_counts_as_owned(tmp_path):
+    # The reported bug: both games were already paid for in an earlier
+    # bundle, and both read as new.
+    conn = _keyed_conn(tmp_path)
+    try:
+        tier = bundle_preview.preview(conn, _keyed_bundle())["tiers"][0]
+    finally:
+        conn.close()
+    assert (tier["total"], tier["owned"], tier["new"]) == (2, 2, 0)
+    assert tier["adds"] == []
+
+
+def test_a_keyed_game_is_listed_apart_from_a_library_match(tmp_path):
+    # Counted inside `owned`, but named: an unactivated key can be dead or
+    # region-locked in a way a library entry cannot, and folding the two
+    # together would hide which kind of answer the number rests on.
+    conn = _keyed_conn(tmp_path)
+    try:
+        tier = bundle_preview.preview(conn, _keyed_bundle())["tiers"][0]
+    finally:
+        conn.close()
+    assert [k["offered"] for k in tier["keyed_items"]] == ["Cinder Vale",
+                                                          "Verdant Reach"]
+    assert tier["keyed"] == 2
+    steam_hit = tier["keyed_items"][0]
+    assert steam_hit["key_type"] == "steam"
+    assert steam_hit["bundle"] == "Humble Game Bundle: Key Vault"
+
+
+def test_a_key_for_a_store_with_no_importer_still_counts(tmp_path):
+    # uplay has no importer at all, so a key is the only evidence of
+    # ownership there will ever be. Steam-only would leave it unmatched.
+    conn = _keyed_conn(tmp_path)
+    try:
+        tier = bundle_preview.preview(conn, _keyed_bundle())["tiers"][0]
+    finally:
+        conn.close()
+    assert [k["key_type"] for k in tier["keyed_items"]
+            if k["offered"] == "Verdant Reach"] == ["uplay"]
+
+
+def test_a_game_both_keyed_and_activated_is_not_flagged_as_keyed(tmp_path):
+    # The precedence rule. Once a key is activated the library knows the
+    # game outright, and reporting it as "unredeemed" would make the flag
+    # meaningless -- most keys in a real library are activated.
+    conn = _keyed_conn(tmp_path)
+    try:
+        import_games.store_games(conn, "steam", [
+            {"store_id": sid, "title": t,
+             "normalized_title": titles.clean_game_title(t),
+             "source_timestamp": None}
+            for sid, t in (("440", "Widget Quest"), ("550", "Cinder Vale"))],
+            "test")
+        tier = bundle_preview.preview(conn, _keyed_bundle())["tiers"][0]
+    finally:
+        conn.close()
+    assert tier["owned"] == 2
+    assert [k["offered"] for k in tier["keyed_items"]] == ["Verdant Reach"]
+
+
+def test_the_same_game_keyed_in_two_bundles_counts_once(tmp_path):
+    conn = _keyed_conn(tmp_path)
+    try:
+        conn.execute("INSERT INTO bundles (gamekey, name, url) VALUES "
+                     "('kv790', 'Bundle One', 'https://example.invalid/kv790')")
+        conn.execute("INSERT INTO external_keys (gamekey, human_name, "
+                     "key_type, raw) VALUES ('kv790', 'Cinder Vale', "
+                     "'steam', NULL)")
+        conn.commit()
+        tier = bundle_preview.preview(conn, _keyed_bundle())["tiers"][0]
+    finally:
+        conn.close()
+    assert tier["keyed"] == 2
+    assert tier["owned"] + tier["possible"] + tier["new"] == tier["total"]
+
+
+def test_format_report_lists_keyed_games_under_their_tier(tmp_path):
+    conn = _keyed_conn(tmp_path)
+    try:
+        text = bundle_preview.format_report(
+            bundle_preview.preview(conn, _keyed_bundle()))
+    finally:
+        conn.close()
+    # "unredeemed" would be a lie: Humble marks a key redeemed as soon as
+    # its value is revealed, which says nothing about whether the game ever
+    # reached a store account. Absence from every imported library is the
+    # condition actually detected, so it is the condition named.
+    assert "2 owned via Humble keys (not in any imported library):" in text
+    assert "Cinder Vale  (steam key, Humble Game Bundle: Key Vault)" in text
+
+
+def test_format_report_says_key_not_keys_for_a_single_keyed_game(tmp_path):
+    # Activating one of the two leaves exactly one keyed game behind.
+    conn = _keyed_conn(tmp_path)
+    try:
+        import_games.store_games(conn, "steam", [
+            {"store_id": "550", "title": "Cinder Vale",
+             "normalized_title": titles.clean_game_title("Cinder Vale"),
+             "source_timestamp": None}], "test")
+        text = bundle_preview.format_report(
+            bundle_preview.preview(conn, _keyed_bundle()))
+    finally:
+        conn.close()
+    assert "1 owned via a Humble key (not in any imported library):" in text
+
+
+def test_format_report_omits_the_keyed_block_when_nothing_is_keyed(tmp_path):
+    # A book bundle's report must stay byte-identical to before keys existed.
+    conn = _game_conn(tmp_path)
+    try:
+        text = bundle_preview.format_report(
+            bundle_preview.preview(conn, _game_bundle()))
+    finally:
+        conn.close()
+    assert "Humble key" not in text

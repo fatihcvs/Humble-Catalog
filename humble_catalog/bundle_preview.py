@@ -206,6 +206,47 @@ def _owned_games(conn):
     return out
 
 
+def _keyed_games(conn):
+    """[(normalized_title, display_title, key_type, bundle_name)] for games
+    the owner holds as a Humble store key rather than as a library entry.
+
+    A game bought in an earlier bundle arrives as a key, not as an items
+    row, and stays invisible to every imported library until the owner
+    actually activates it. That is real ownership -- it is already paid for
+    -- so it belongs in this report; the caller counts these as owned but
+    lists them apart, because a key is a claim on a game and not the game.
+
+    Deduped on the normalized title, like _owned_games: the same game keyed
+    in two bundles must not be able to count twice.
+
+    An expired key still counts. `raw` carries `is_expired` and could filter
+    them out, and deliberately does not: the question this report answers is
+    "should I buy this bundle", and having already paid for a game once is
+    the answer whether or not the key can still be claimed. Excluding them
+    would push the report toward recommending a second purchase, which is
+    the more expensive of the two mistakes available here.
+
+    Ordered so the dedupe is deterministic rather than dependent on the
+    order sqlite happens to return rows in -- the same reason build_worklist
+    sorts.
+    """
+    rows = conn.execute(
+        "SELECT k.human_name AS human_name, k.key_type AS key_type, "
+        "       b.name AS bundle_name "
+        "FROM external_keys k JOIN bundles b ON b.gamekey = k.gamekey "
+        "WHERE k.human_name IS NOT NULL AND k.human_name != '' "
+        "ORDER BY k.human_name, b.name").fetchall()
+    seen, out = set(), []
+    for row in rows:
+        normalized = clean_game_title(row["human_name"])
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append((normalized, row["human_name"], row["key_type"],
+                    row["bundle_name"]))
+    return out
+
+
 def preview(conn, bundle, url=None):
     """The ownership report for one parsed bundleData dict.
 
@@ -218,6 +259,15 @@ def preview(conn, bundle, url=None):
     """
     owned = _owned(conn)
     games = _owned_games(conn)
+    # Tried only after the imported libraries have said "new", so a game
+    # that is both keyed and activated reports as the plain library match
+    # it is, and the keyed list stays what it claims to be: the games whose
+    # only evidence is a key.
+    keyed = _keyed_games(conn)
+    keyed_pool = [(normalized, display) for normalized, display, _t, _b in keyed]
+    # Keyed on the display title, which is what classify_game hands back.
+    keyed_extra = {display: (key_type, bundle_name)
+                   for _n, display, key_type, bundle_name in keyed}
     basic = bundle.get("basic_data") or {}
     pricing = bundle.get("tier_pricing_data") or {}
     items = bundle.get("tier_item_data") or {}
@@ -226,7 +276,7 @@ def preview(conn, bundle, url=None):
     ordered = []
     for key, display in (bundle.get("tier_display_data") or {}).items():
         names = display.get("tier_item_machine_names") or []
-        new_names, possible, owned_count = [], [], 0
+        new_names, possible, owned_count, keyed_hits = [], [], 0, []
         for name in names:
             item = items.get(name) or {}
             if name in owned:
@@ -237,8 +287,20 @@ def preview(conn, bundle, url=None):
                 continue
             game_names.add(name)
             delivered |= delivery_stores(item)
-            verdict, match = classify_game(
-                item.get("human_name") or name, games)
+            offered = item.get("human_name") or name
+            verdict, match = classify_game(offered, games)
+            if verdict == "new":
+                # Only an outright keyed 'owned' is honoured. A keyed
+                # 'possible' would be a guess about a guess, so it is left
+                # to fall through to whatever the libraries decided.
+                keyed_verdict, keyed_match = classify_game(offered, keyed_pool)
+                if keyed_verdict == "owned":
+                    key_type, bundle_name = keyed_extra.get(
+                        keyed_match["owned_title"], (None, None))
+                    keyed_hits.append({**keyed_match, "key_type": key_type,
+                                       "bundle": bundle_name})
+                    owned_count += 1
+                    continue
             if verdict == "owned":
                 owned_count += 1
             elif verdict == "possible":
@@ -253,6 +315,13 @@ def preview(conn, bundle, url=None):
             "possible": len(possible),
             "possible_items": sorted(possible,
                                      key=lambda p: p["offered"].lower()),
+            # Counted inside `owned` above, listed separately here: the
+            # count answers "how much of this do I already have", the list
+            # answers "and how sure is that" -- an unactivated key can be
+            # region-locked or dead in a way a library entry cannot.
+            "keyed": len(keyed_hits),
+            "keyed_items": sorted(keyed_hits,
+                                  key=lambda k: k["offered"].lower()),
             "new": len(new_names),
         }, new_names))
     # Sorted on the numeric amount, never on tier_order: that key was
@@ -320,6 +389,25 @@ def format_report(report, encoding="utf-8"):
         if tier["adds"]:
             lines.append(f"              adds {len(tier['adds'])} new:")
             lines.extend(f"                {name}" for name in tier["adds"])
+            lines.append("")
+        # Inside the owned count, so this heading explains a number rather
+        # than adding one -- which is why there is no column for it above.
+        # Never "unredeemed": Humble marks a key redeemed the moment its
+        # value is revealed, which says nothing about whether the game ever
+        # reached a store account -- the bug that started this counted a
+        # revealed-but-unactivated key's game as new. Absence from every
+        # imported library is what is actually known, so it is what is said.
+        if tier.get("keyed_items"):
+            count = len(tier["keyed_items"])
+            noun = "a Humble key" if count == 1 else "Humble keys"
+            lines.append(f"              {count} owned via {noun} "
+                         f"(not in any imported library):")
+            for hit in tier["keyed_items"]:
+                where = ", ".join(part for part in (
+                    f"{hit['key_type']} key" if hit.get("key_type") else None,
+                    hit.get("bundle")) if part)
+                lines.append(f"                {hit['offered']}"
+                             + (f"  ({where})" if where else ""))
             lines.append("")
         # Listed, never folded into owned or new. The whole point of the
         # middle band is that the tool declines to decide, so printing a
