@@ -1471,3 +1471,17 @@ def test_loopback_callers_are_unaffected(tmp_path):
         resp = client.get("/api/items", headers={"Host": host})
         assert resp.status_code == 200, host
         assert resp.get_json()["items"][0]["name"] == "All Systems Red"
+
+
+def test_index_loads_the_viewer_scripts_in_dependency_order():
+    from tests.js_harness import VIEWER_JS
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    # Classic scripts run in <script> order and share one global scope,
+    # so order is a real dependency, not a formatting choice: app.js's
+    # helpers must exist before any section defines a renderer that calls
+    # them, and shell.js boots last because load() calls every renderer.
+    positions = [html.index(f'/static/{p.name}"') for p in VIEWER_JS]
+    assert positions == sorted(positions)
+    assert VIEWER_JS[0].name == "app.js"
+    assert VIEWER_JS[-1].name == "shell.js"

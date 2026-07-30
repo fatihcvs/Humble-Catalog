@@ -680,8 +680,8 @@ def test_unparseable_stored_state_means_every_column():
 def test_app_js_column_list_matches_the_exporter():
     # COLUMNS now exists twice, once per language. Duplicated constants
     # across a language boundary are fine; unpinned ones are not.
-    src = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
-           / "static" / "app.js").read_text(encoding="utf-8")
+    from tests.js_harness import VIEWER_JS
+    src = "\n".join(p.read_text(encoding="utf-8") for p in VIEWER_JS)
     listed = re.search(r"const EXPORT_COLUMNS = \[(.*?)\];", src, re.S).group(1)
     assert re.findall(r'"([a-z_]+)"', listed) == list(export.COLUMNS)
 
