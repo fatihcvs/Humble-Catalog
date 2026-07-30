@@ -1098,7 +1098,12 @@ def test_bundle_panel_escapes_titles_from_the_bundle_page():
 
 def test_harness_loads_every_viewer_script():
     # the harness used to take one path; the split needs it to take the
-    # list, in load order, or a moved function becomes an undefined name
+    # list, in load order, or a moved function becomes an undefined name.
+    # Deliberately not a list of filenames: that pins the file layout,
+    # which is the very thing VIEWER_JS exists to stop the tests caring
+    # about. app.js leading is the one ordering fact worth asserting here
+    # -- it holds the helpers every later script calls.
     from tests.js_harness import VIEWER_JS
-    assert [p.name for p in VIEWER_JS] == ["app.js"]
+    assert VIEWER_JS[0].name == "app.js"
+    assert all(p.exists() for p in VIEWER_JS)
     assert eval_js("typeof app.esc") == "function"

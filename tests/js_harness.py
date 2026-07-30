@@ -21,7 +21,7 @@ _STATIC = _ROOT / "humble_catalog" / "webapp" / "static"
 # The viewer's own scripts in <script> order. fuzzy.js is loaded by the
 # harness itself (it has to be published by hand), so it is not listed.
 # Appending here is the whole cost of adding a viewer script.
-VIEWER_JS = [_STATIC / "app.js"]
+VIEWER_JS = [_STATIC / "app.js", _STATIC / "maintenance.js"]
 
 
 def eval_js(expression):
