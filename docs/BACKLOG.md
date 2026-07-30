@@ -118,6 +118,13 @@ its own; none is committed to.
   shared API route rendered as both a viewer panel and a CLI subcommand,
   the way `stats` is, so the two cannot drift.
 
+  The viewer half lands in the **Keys** section, which
+  `specs/2026-07-30-viewer-multi-section-layout-design.md` shipped empty
+  and wired for exactly this. The hidden-rows companion is the second
+  view in that section rather than a sixth stacked panel — two views
+  sharing a column set is what the one-page layout could not express,
+  and is why the sections were built before the report.
+
   Columns, defaulting to expiry ascending with undated rows last so the
   rows that can still be lost come first:
 

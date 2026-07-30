@@ -16,7 +16,18 @@ Runs on Windows, macOS, and Linux. Python 3.12 or newer.
 ![The catalog viewer: a sortable table of owned books with genre, author, publisher and bundle columns, filtered here to a single bundle](docs/screenshot-viewer.png)
 
 _The viewer, filtered to one bundle — search, the column filters and the
-status chips all narrow the same table._
+status chips all narrow the same table. This screenshot predates the
+sections described below and shows the older one-page layout._
+
+The viewer has four sections, switched by the tabs and addressable by
+URL: **Library** (the table, its filters and the statistics summary),
+**Maintenance** (the review queue and possible duplicates), **Keys**, and
+**Bundles** (paste a bundle URL to see what you already own). A tab shows
+a count when its section is waiting on something — a queue you can empty,
+never an optional backlog. In Library the filters live in a sidebar that
+folds away; whatever is currently narrowing the table stays listed beside
+the toolbar, so a folded sidebar can never hide the reason a search looks
+empty.
 
 ## One-time setup
 
