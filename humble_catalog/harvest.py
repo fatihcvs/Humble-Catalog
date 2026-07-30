@@ -13,8 +13,22 @@ def build_worklist(conn):
 
     Every non-music/android item contributes its cleaned title to each
     source in SOURCE_ORDER for its type. Titles are de-duped per source so
-    two items with the same cleaned title cost one request, and order is
-    preserved for stable, resumable progress.
+    two items with the same cleaned title cost one request.
+
+    Each list is sorted by casefolded title, which makes the order a pure
+    function of the item set rather than of SQLite's row order - the query
+    has no ORDER BY, so a reset, reparse or merge could reshuffle the scan.
+    Resume does not depend on this (it is keyed on the cache, not on
+    position); what the sort buys is that two runs over an unchanged
+    catalog present the same work in the same sequence, and that a test
+    can assert an order at all.
+
+    The key is (casefold, raw) rather than casefold alone because Python's
+    sort is stable: a case-only tie would otherwise fall back to that same
+    unordered scan. Accents are not folded, so a title whose first letter
+    is accented sorts past 'z' - determinism is the property needed here
+    and codepoint order has it. See
+    docs/superpowers/specs/2026-07-30-harvest-worklist-order-design.md.
     """
     worklist = {name: [] for name in SOURCE_CLASSES}
     seen = {name: set() for name in SOURCE_CLASSES}
@@ -27,7 +41,8 @@ def build_worklist(conn):
             if cleaned not in seen[sname]:
                 seen[sname].add(cleaned)
                 worklist[sname].append(cleaned)
-    return {name: titles for name, titles in worklist.items() if titles}
+    return {name: sorted(titles, key=lambda t: (t.casefold(), t))
+            for name, titles in worklist.items() if titles}
 
 def _is_429(exc):
     resp = getattr(exc, "response", None)

@@ -42,6 +42,40 @@ def test_worklist_dedupes_titles_per_source(tmp_path):
     wl = harvest.build_worklist(conn)
     assert wl["hardcover"].count("Gray Waters") == 1
 
+def test_worklist_is_sorted_regardless_of_row_order(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    # Seeded deliberately out of alphabetical order: the guarantee is that
+    # the list does not inherit the row order of an ORDER BY-less SELECT.
+    _seed(conn, "Wings of Autumn Dusk (Book 1)", "ebook")
+    _seed(conn, "Axebearer (Grim & Fell)", "ebook")
+    _seed(conn, "Café of Broken Clocks", "ebook")
+    wl = harvest.build_worklist(conn)
+    # clean_title strips the parentheticals; the accent is not the deciding
+    # character, so this title sorts at C rather than past z.
+    assert wl["hardcover"] == ["Axebearer",
+                               "Café of Broken Clocks",
+                               "Wings of Autumn Dusk"]
+    for titles in wl.values():
+        assert titles == sorted(titles, key=lambda t: (t.casefold(), t))
+
+def test_worklist_order_breaks_case_ties_by_content(tmp_path):
+    """A case-only tie must be decided by the titles, not by row order.
+
+    With key=str.casefold alone the two seedings below return different
+    lists, because Python's stable sort falls back to the input order -
+    which is the unordered SELECT this change exists to stop relying on.
+    """
+    def worklist(dbname, first, second):
+        conn = db.connect(tmp_path / dbname)
+        _seed(conn, first, "ebook")
+        _seed(conn, second, "ebook")
+        return harvest.build_worklist(conn)["hardcover"]
+    # Distinct filenames on purpose: Windows paths are case-insensitive, so
+    # naming these after the titles would collide on one file.
+    forwards = worklist("one.db", "Gray Waters", "gray waters")
+    backwards = worklist("two.db", "gray waters", "Gray Waters")
+    assert forwards == backwards == ["Gray Waters", "gray waters"]
+
 def _fake(cands=None):
     src = Mock()
     src.lookup.return_value = cands or []

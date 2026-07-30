@@ -34,7 +34,8 @@ or fixtures that name books, bundles, or people.
 | The Quiet Harbor: A Novel | — | — | subtitle cleanup |
 | Wings of Autumn Dusk (Book 1) | — | — | series-number-in-title cleanup |
 | Unrelated Book | — | — | non-duplicate control row |
-| Café of Broken Clocks | — | — | accent folding in fuzzy search |
+| Café of Broken Clocks | — | — | accent folding in fuzzy search; also the accent-not-the-deciding-character case in the harvest worklist sort |
+| Gray Waters / gray waters | — | — | case-only pair for the worklist-order tie test; `Gray Waters` alone is the plain ebook row in `test_harvest.py` |
 | A Quiet Life in Harbors | — | — | relevance-ordering foil for *The Quiet Harbor* |
 | The World of Examplia | — | — | acronym-tier fuzzy search ("woe"); also a bundle name |
 
