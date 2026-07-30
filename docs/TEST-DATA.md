@@ -23,6 +23,7 @@ or fixtures that name books, bundles, or people.
 | Sample Studios: TTRPG Audio Compendium | non-"Humble"-prefixed audio bundle |
 | Bundle One | minimal placeholder bundle |
 | Humble Game Bundle: Key Vault | a past order whose games arrived as store keys, not as items (`external_keys`); bundle-preview keyed-ownership example |
+| Humble Game Bundle: Expiring Keys | an order whose keys carry expiry dates; key-report sort-order example |
 
 ## E-books
 
@@ -94,6 +95,8 @@ records: `steam`, `gog`, `epic`, `amazon`, `zoom`.
 | Cinder Vale | — (keyed only) | held as an unactivated Humble **steam** key from *Key Vault*, so it is in no imported library — must read as **owned**, flagged as key-only |
 | Verdant Reach | — (keyed only) | held as a Humble **uplay** key; uplay has no importer at all, so a key is the only evidence there can be |
 | Quartz Meridian | — (offered only) | offered on uplay and owned nowhere, keyed or otherwise — the unmatched item that keeps the never-imported-store warning honest. Renamed once already: the first invented title contained a private term as a substring, invisibly. Vet a new title against `leak_check.build_terms()` before using it — `leak_check` matches substrings, so a word buried mid-title trips it |
+| Amber Hollow | — (keyed only) | held as a Humble **steam** key carrying a live `expiry_date`; the key-report row that can still be lost |
+| Glass Meridian | — (keyed only) | held as a Humble **steam** key whose `expiry_date` has passed; the key-report row that was lost |
 
 ## RPG supplements
 

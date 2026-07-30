@@ -21,7 +21,8 @@ sections described below and shows the older one-page layout._
 
 The viewer has four sections, switched by the tabs and addressable by
 URL: **Library** (the table, its filters and the statistics summary),
-**Maintenance** (the review queue and possible duplicates), **Keys**, and
+**Maintenance** (the review queue and possible duplicates), **Keys**
+(store keys whose game is in none of your imported libraries), and
 **Bundles** (paste a bundle URL to see what you already own). A tab shows
 a count when its section is waiting on something — a queue you can empty,
 never an optional backlog. In Library the filters live in a sidebar that
@@ -270,6 +271,23 @@ stores normally.
   an error rather than as "you own nothing". Games are kept apart from
   the book catalog: they are never enriched, never given covers, and
   never shown in the viewer - your launchers already do that.
+- `python -m humble_catalog keys` - list the store keys from past
+  bundles whose game appears in none of the libraries you have imported:
+  what you have paid for and, as far as this can tell, never claimed. It
+  prints the counts and the keys with an expiry date still ahead of them,
+  which are the ones you can still lose; `--all` adds the undated ones
+  and the ones already expired. A key is matched only against **its own
+  store** - a Steam key whose game sits in your GOG library is still an
+  unactivated Steam key - and the match is **by title and approximate**,
+  the same warning `bundle` carries, so treat a row as somewhere to look
+  rather than as a verdict. Keys for stores with no importer (Uplay,
+  Paizo, DriveThruRPG and a long tail below them) are reported apart and
+  never counted as unclaimed: with no library to check against, "not in
+  any library" cannot be true or false there. Note also that Humble marks
+  a key redeemed the moment its value is *revealed*, which says nothing
+  about whether the game ever reached a store account - which is why the
+  report matches libraries instead of trusting that flag. Read-only:
+  nothing is written to the catalog.
 - In the viewer, the Download button exports the rows currently on
   screen, in the order shown - filter or search first and the button says
   how many rows will leave. The dropdown beside it picks CSV or XLSX, and

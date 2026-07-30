@@ -108,58 +108,6 @@ its own; none is committed to.
 
 ### External keys (requested 2026-07-30)
 
-- **Unredeemed key report** — a table of Humble store keys held whose game
-  appears in no imported store library, i.e. probably never activated.
-  This is [`_keyed_games`](../humble_catalog/bundle_preview.py) inverted:
-  that helper answers "do I already own this bundle's games somehow", and
-  the same `external_keys` → `bundles` join plus `clean_game_title`
-  matching against `games.normalized_title` answers the complementary
-  question, "what have I paid for and never claimed". Surfaced behind one
-  shared API route rendered as both a viewer panel and a CLI subcommand,
-  the way `stats` is, so the two cannot drift.
-
-  The viewer half lands in the **Keys** section, which
-  `specs/2026-07-30-viewer-multi-section-layout-design.md` shipped empty
-  and wired for exactly this. The hidden-rows companion is the second
-  view in that section rather than a sixth stacked panel — two views
-  sharing a column set is what the one-page layout could not express,
-  and is why the sections were built before the report.
-
-  Columns, defaulting to expiry ascending with undated rows last so the
-  rows that can still be lost come first:
-
-  | Column | Source | Note |
-  |---|---|---|
-  | Product | `human_name` | |
-  | Key type | `key_type_human_name` | 52 distinct strings including `Other` and `other`; needs the case folding `specs/2026-07-18-genre-case-normalization-design.md` established |
-  | Bundle | `bundles.name` via `gamekey` | |
-  | Purchased | `bundles.purchased_at` | how long the key has sat |
-  | Expires | `expiry_date` / `expiration_date`, `is_expired` as backstop | present on ~1 key in 5; blank otherwise |
-  | Revealed? | `redeemed_key_val` present | the interesting row is revealed-but-unmatched |
-  | Checkable? | does the key's store have an importer | see the third state below |
-
-  Three limits belong in the report's own output, not just here:
-
-  - **Only steam/gog/epic can be checked at all.** Those are the stores
-    `import_games` covers, and about a twentieth of the keys are for
-    stores with no importer — Uplay, Paizo, DriveThruRPG, Desura and a
-    long tail below them. For those, "not in any library" is
-    unfalsifiable. They are *unknown*, a third state, not unredeemed;
-    collapsing them into the main list would make the report mostly
-    noise. This is the same point the out-of-scope note on keys makes.
-  - **Humble's redeemed flag means revealed, not activated** — already
-    recorded under the keyed-ownership fix below. It says the key's value
-    was displayed once, which is why library matching and not the flag is
-    the primary signal.
-  - **Title matching is fuzzy both ways.** A key can read as unredeemed
-    because the store spells the game differently, and a coincidental
-    match can hide a key that really is unclaimed. The report suggests
-    where to look; it does not adjudicate.
-
-  `num_days_until_expired` is non-zero on nearly every row and is
-  therefore almost certainly a never-expires sentinel rather than a real
-  deadline. Confirm that before any column trusts it.
-
 - **Hiding a resolved row** — the owner asserting "wherever this one
   ended up, I know it is redeemed", so it stops reappearing. Follows the
   `dismissed_pairs` shape: `hidden_keys(machine_name TEXT PRIMARY KEY,
@@ -172,11 +120,21 @@ its own; none is committed to.
 
   Two deliberate departures from the `dismissed_pairs` precedent:
 
-  - **Keyed on the tpk's own `machine_name`**, which every stored `raw`
-    blob carries, rather than on `human_name` — the rebuild-stable
-    identifier convention `user_item_data` follows. It needs either
-    `json_extract` at query time or a `machine_name` column added to
-    `external_keys`.
+  - **Keyed on `(gamekey, machine_name)`**, not on `machine_name` alone.
+    Measured 2026-07-30 while building the report: 2,275 keys hold only
+    2,117 distinct `machine_name`s, because 128 games are keyed in more
+    than one bundle — so a `machine_name`-keyed table would hide both
+    rows and contradict this entry's own closing note that the hide is
+    per key, not per game. The pair is unique across all 2,275. Still the
+    rebuild-stable identifier convention `user_item_data` follows, and
+    still needs either `json_extract` at query time or a `machine_name`
+    column added to `external_keys`.
+  - **Fix `external_keys`'s primary key in the same migration.** It is
+    `(gamekey, human_name)`, and `raw_orders` holds 2,278 tpks against
+    the table's 2,275: three orders carry two keys under one display
+    name, and the third is silently dropped. `(gamekey, machine_name)` is
+    the key both problems want, so it should be migrated once rather than
+    twice.
   - **Kept out of `DERIVED_TABLES`, so `reset` preserves it.** Dedupe
     dismissals can afford to be wiped because a rebuild re-derives the
     pairs and the owner re-judges them from data still on disk. A
@@ -253,6 +211,49 @@ worklist order; these are what is left.
   purchases can outrun a day's budget.
 
 ## Done (formerly on this list)
+
+- **Unredeemed key report** —
+  `docs/superpowers/specs/2026-07-30-unredeemed-key-report-design.md`.
+  `keys` (and the viewer's Keys section) lists the Humble store keys whose
+  game appears in none of the imported store libraries — 624 of 2,275,
+  with 98 more for stores that have no importer and therefore cannot be
+  checked at all. Read-only: no schema change, no migration, no writes.
+  Four measurements changed the plan this entry recorded.
+  `num_days_until_expired` turned out not to be a sentinel to be
+  distrusted but a redundant column to ignore: it reads `-1` on the 1,782
+  keys with no expiry, `0` on exactly the 111 flagged `is_expired`, and a
+  positive number on the remaining 382 — 382+111 being precisely the set
+  carrying `expiry_date`, which is the only absolute one of the three and
+  so the only one read. `key_type` carries 12 clean machine values beside
+  `key_type_human_name`'s 52, so deriving the store from it sidesteps the
+  case folding this entry expected to need and leaves `Other`/`other` a
+  cosmetic wart on a label. Checkability is derived from `game_imports`
+  rather than hardcoded to steam/gog/epic, so a machine that has never
+  imported a store reports its keys there as uncheckable instead of
+  falsely unredeemed. The `machine_name` and primary-key findings went to
+  the hiding entry above, which needs one migration for both.
+  Matching is scoped to the key's **own** store, unlike
+  `bundle_preview`'s pooled libraries — a steam key whose game sits only
+  in GOG is still an unactivated steam key. Worth 59 keys, and the reason
+  `classify_game` and its two cutoffs moved to a shared `game_match.py`:
+  the two callers treat the 80–92 band oppositely on purpose. There a
+  `possible` is excluded, because the expensive mistake is a second
+  purchase; here it is listed and annotated, because the expensive
+  mistake is a key that quietly expires.
+  Sorting is three groups rather than one ascending column — live expiry
+  soonest first, then undated, then expired most-recent-first. Plain
+  ascending puts the 40 dead rows above the 63 that can still be lost,
+  which is the opposite of what this entry asked for.
+  The badge counts expiring keys, not unredeemed ones: 624 never reaches
+  zero, and `shell.js` had already settled that an always-lit badge costs
+  the badge beside it its meaning.
+  Two things only showed up in the doing, both in output rather than
+  logic. A key expiring today printed "in 0 days", which is what the
+  arithmetic produces and not what anyone says. And the CLI padded its
+  name column to the widest name in the whole report, so one 92-character
+  bundle-as-a-key name pushed all 63 default rows past an 80-column
+  console — the padding is per printed block now, capped at the same 60
+  the xlsx export uses.
 
 - **A game held only as a Humble key read as new** — fixed 2026-07-30 (no
   spec; a bug found by using the feature). `preview` decided game ownership
