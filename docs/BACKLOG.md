@@ -5,7 +5,7 @@ extensions" / "out of scope" sections. When an item ships, move it to the
 **Done** list at the bottom with its version. When a new design doc defers
 something, record it here so the deferral has a home.
 
-Last updated: 2026-07-26.
+Last updated: 2026-07-30.
 
 ## Privacy
 
@@ -109,29 +109,10 @@ its own; none is committed to.
 ### Harvest (identified 2026-07-26 while debugging resume)
 
 Surfaced by investigating a harvest that appeared to restart from
-scratch on every rerun. The two bugs behind that are fixed, and the
-quota-budgeting entry has since shipped; these are what is left.
+scratch on every rerun. The two bugs behind that are fixed, and three
+entries have since shipped - quota budgeting, the retry spend, and the
+worklist order; these are what is left.
 
-- **Retries spend quota, and google_books is where that hurts**
-  (measured 2026-07-26) — `_with_retries` retries 5xx twice more, and
-  every attempt costs a quota unit. Google Books returns `503
-  backendFailed` often enough that the median item costs two to three
-  requests rather than one, so roughly half the 1,000/day allowance is
-  spent re-asking questions that already failed.
-  The evidence is in the cache timings. On 2026-07-26 google_books wrote
-  302 rows over 85.5 minutes, a median gap of 7.6s where the 2.0s
-  throttle plus ~0.6s latency predicts 2.6s — one backoff (5s) on the
-  *median* request. The previous day's median was 17.9s, which is two
-  (5s + 10s). If only successful requests counted against the quota the
-  ceiling would look like ~300/day, which matches no Google limit; at two
-  to three attempts each it lands at ~1,000, which is exactly the
-  documented default.
-  Directions, none costed yet: skip the retry for a source whose quota is
-  the binding constraint (a 503 under load may itself be a soft rate
-  signal, in which case retrying is actively counterproductive); make the
-  backoff cheaper for the first attempt; or raise the quota, which is a
-  Cloud Console request rather than a code change and would help most.
-  Worth measuring the 503 rate over a full run before choosing.
 - **Shorten the google_books worklist** — it is fetched for every type,
   so its list is roughly twice the size of any other source's, which is
   why its small daily quota takes so many days to work through. Dropping
@@ -140,15 +121,6 @@ quota-budgeting entry has since shipped; these are what is left.
   matching-quality decision and wants its own measurement. Split out of
   the quota-budget entry (now shipped) precisely so the two effects stay
   measurable apart.
-- **`build_worklist` order is incidental, not guaranteed** — the
-  docstring promises "order is preserved for stable, resumable
-  progress", but the query is `SELECT name, type FROM items` with no
-  `ORDER BY`. Today SQLite returns insertion order and the promise
-  holds by accident; a `reparse`, a merge, or a schema change could
-  reorder it. Resume itself does not depend on this (it is keyed on the
-  cache, not on position), so the cost of a reshuffle is only that a
-  partly-fetched source resumes in a different order — but the
-  docstring states a guarantee the code does not make.
 - **A rate-limited source still walks its whole list** — after the
   quota dies the pool keeps going so cached titles still count, which
   is the point, but it does so with one cache lookup per remaining
@@ -174,8 +146,76 @@ quota-budgeting entry has since shipped; these are what is left.
   items — Humble's own data is all we store.
 - Tracking non-book HumbleBundle purchases beyond the above.
 - Any cloud/hosted component — everything runs locally.
+- **Ordering the harvest worklist by newest purchase first** — measured
+  2026-07-30 and rejected, not postponed. It looks like the right answer
+  under a starved quota, but order only decides anything while the
+  uncached remainder exceeds the daily budget: a cache hit costs no
+  request, so if every uncached title fits in one day's quota they are all
+  fetched today whatever position they hold. At ~2,300 eligible items and
+  ~1,000 requests/day that window is days wide and closing, and reopening
+  it would need one day's purchases to leave more than ~1,000 titles
+  uncached when the largest bundle in the catalog is ~150 items. It is
+  also a *superset* of the shipped sort rather than an alternative:
+  `purchased_at` lives on `bundles`, so a large bundle gives up to ~150
+  identical keys and a content tiebreak is needed underneath it anyway.
+  Its two edge cases — a bundle with no date, an item in no bundle — exist
+  nowhere in the catalog, so they would be defensive branches no test
+  could exercise. Revisit only if the quota tightens or a single day's
+  purchases can outrun a day's budget.
 
 ## Done (formerly on this list)
+
+- **Worklist order is guaranteed, not incidental** —
+  `docs/superpowers/specs/2026-07-30-harvest-worklist-order-design.md`.
+  `build_worklist` sorts each source's list by `(casefold, raw)`, so the
+  order is a pure function of the item set instead of a property of an
+  `ORDER BY`-less `SELECT` that SQLite happened to answer in insertion
+  order. Sorting the finished lists rather than adding `ORDER BY`, because
+  the lists hold *cleaned* titles: `clean_title` strips edition suffixes
+  and trailing parentheticals, so a SQL order would still be one
+  derivation away from what the list contains, and the guarantee would
+  still rest on the query plan.
+  The second key element is the whole subtlety. Python's sort is stable, so
+  `key=str.casefold` alone would break a case-only tie by falling back to
+  the unordered scan — the bug surviving inside its own fix, narrowed to
+  case-differing pairs, which `clean_title` makes reachable because it
+  preserves case. `test_worklist_order_breaks_case_ties_by_content` seeds
+  the pair in both orders and demands the same answer, which is exactly the
+  assertion `casefold` alone fails; before the fix it failed on
+  `forwards == backwards` rather than on the expected value.
+  Accents stay unfolded: determinism is the property wanted and codepoint
+  order has it, and an accent misplaces a title only when it is the
+  deciding character. `static/fuzzy.js` does fold accents, because there it
+  is load-bearing and must keep an index map back to the original string;
+  nobody searches the worklist.
+  Framed by measurement as a **tidiness fix, not a performance one**, which
+  is the opposite of how it first read. Order chooses which titles a
+  rate-limited source enriches today only while the uncached remainder
+  exceeds the daily quota — a cache hit costs no request — and at ~1,750
+  uncached google_books titles against ~1,000/day that window was days
+  wide and closing. The same measurement moved newest-purchase-first from
+  a deferral to the decided-against list.
+
+- **Retries spend quota, and google_books is where that hurts** — fixed
+  2026-07-26 in `82d178b` (no spec; a one-source policy change).
+  `_with_retries` retried 5xx twice more and every attempt costs a quota
+  unit, so Google's frequent `503 backendFailed` made the median title cost
+  two to three requests out of 1,000/day against a ~2,300-title worklist —
+  roughly half the day's allowance spent re-asking questions that had
+  already failed. A new `Source.retry_server_errors` gates it, so the
+  policy lives in the source that has the constraint rather than in the
+  shared retry helper.
+  Connection errors and timeouts keep retrying everywhere, deliberately: a
+  5xx came from Google and was almost certainly counted, while a connection
+  error may never have reached the quota system at all. A skipped title is
+  not lost — it stays uncached, so the next run has it at the head of the
+  queue, trading same-run recovery for twice as many titles per day, which
+  is the right way round for a source that needs several days regardless.
+  The diagnosis came from cache timings rather than from any error log: 302
+  rows over 85.5 minutes gave a median gap of 7.6s where the 2.0s throttle
+  plus ~0.6s latency predicts 2.6s — one 5s backoff on the *median*
+  request. The entry was left on the Open list by mistake and is recorded
+  here on 2026-07-30.
 
 - **Quota budgeting across harvest runs** —
   `docs/superpowers/specs/2026-07-26-harvest-quota-budget-design.md`.
