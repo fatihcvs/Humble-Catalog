@@ -4,7 +4,8 @@ import webbrowser
 from pathlib import Path
 import requests
 from flask import Flask, Response, g, jsonify, request, send_from_directory
-from humble_catalog import bundle_preview, db, dedupe, export, stats, url_import
+from humble_catalog import (bundle_preview, db, dedupe, export, keys, stats,
+                            url_import)
 from humble_catalog.enrich import EDITABLE_FIELDS, apply_candidate
 from humble_catalog.sources.base import candidate
 
@@ -99,6 +100,15 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
                  "rows": [{"label": row_label, "count": count}
                           for row_label, count in rows]}
                 for key, label, rows in sections]})
+
+    @app.get("/api/keys")
+    def key_report():
+        # The same shape keys.report returns, jsonified and nothing more:
+        # the CLI and this panel must not be able to disagree, which is the
+        # rule /api/stats follows. GET with no parameters -- the report is
+        # always the whole key set, so there is nothing to pass, and
+        # nothing about the library reaches a query string.
+        return jsonify(keys.report(conn()))
 
     @app.post("/api/items/<int:item_id>/rating")
     def set_rating(item_id):
