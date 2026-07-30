@@ -33,7 +33,7 @@ async function load() {
   // with a missing field threw here and left the table AND all three
   // panels empty, with nothing on screen to say why. Failures are now
   // contained and reported, so the rest of the page still comes up.
-  for (const step of [render, loadReview, loadDupes, refreshStats]) {
+  for (const step of [render, loadReview, loadDupes, refreshStats, loadKeys]) {
     try {
       await step();
     } catch (err) {
@@ -46,7 +46,10 @@ async function load() {
   pending = {
     library: items.filter((i) => !i.my_rating).length,
     maintenance: reviewCount + dupeGroups.length,
-    keys: 0,
+    // Expiring keys, NOT the unredeemed count: see badgeCount in shell.js.
+    // Unredeemed keys number in the hundreds and never reach zero, which
+    // is exactly the always-lit badge that policy rules out.
+    keys: keysExpiring(),
     bundles: 0,
   };
   renderBadges();

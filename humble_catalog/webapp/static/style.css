@@ -385,3 +385,16 @@ a { color: var(--accent); }
                    color: var(--muted); }
 .bundle-keyed ul { margin: .15rem 0 .4rem; padding-left: 1.2rem; }
 .bundle-keyed li { color: var(--fg); }
+
+/* ---- Keys section ---- */
+.keys-summary, .keys-libraries { opacity: .8; font-size: .9em; }
+#key-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .5rem 0; }
+.key-chip { cursor: pointer; font-size: .85em; }
+.key-chip.on { outline: 2px solid var(--accent); }
+#key-table { width: 100%; border-collapse: collapse; }
+#key-table th, #key-table td { text-align: left; padding: .25rem .5rem; }
+/* Same custom property as the catalog's zebra rows, so both tables stripe
+   identically in light and dark. */
+#key-table tbody tr:nth-child(even) { background: var(--surface-alt); }
+.key-near { opacity: .7; font-size: .85em; }
+.key-uncheckable td { opacity: .75; }
