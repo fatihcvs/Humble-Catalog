@@ -195,9 +195,15 @@ worklist order; these are what is left.
   nothing about whether the game reached a store account. The key that
   started this reads as redeemed, so "unredeemed" would have been false on
   the very case the feature exists for.
-  Left open by this fix: the `unimported_stores` warning still asserts that
-  a never-imported store's items were "counted as new by default", which a
-  keyed match can now make false.
+  The `unimported_stores` warning was corrected in the same breath (2026-07-30,
+  a follow-up commit). It was fed by every store the bundle delivered on, and
+  claimed "its items are counted as new by default" — which keys made false in
+  both halves at once. It now collects only stores that still hold an item with
+  a `new` verdict, and says "its unmatched items". A `possible` verdict does not
+  feed it either: that item was not counted as new. This matters most for the
+  stores with no importer at all, where a key is the only evidence there will
+  ever be: a warning that fires when everything is in fact owned is the kind
+  that teaches an owner to ignore the warning that isn't.
 
 - **Worklist order is guaranteed, not incidental** —
   `docs/superpowers/specs/2026-07-30-harvest-worklist-order-design.md`.

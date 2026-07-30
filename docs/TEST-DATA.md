@@ -93,6 +93,7 @@ records: `steam`, `gog`, `epic`, `amazon`, `zoom`.
 | Humble Game Bundle: Story Sampler | — | invented game bundle for the preview fixture |
 | Cinder Vale | — (keyed only) | held as an unactivated Humble **steam** key from *Key Vault*, so it is in no imported library — must read as **owned**, flagged as key-only |
 | Verdant Reach | — (keyed only) | held as a Humble **uplay** key; uplay has no importer at all, so a key is the only evidence there can be |
+| Quartz Meridian | — (offered only) | offered on uplay and owned nowhere, keyed or otherwise — the unmatched item that keeps the never-imported-store warning honest. Renamed once already: the first invented title contained a private term as a substring, invisibly. Vet a new title against `leak_check.build_terms()` before using it — `leak_check` matches substrings, so a word buried mid-title trips it |
 
 ## RPG supplements
 

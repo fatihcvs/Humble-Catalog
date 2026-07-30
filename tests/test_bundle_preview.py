@@ -755,6 +755,41 @@ def test_format_report_says_key_not_keys_for_a_single_keyed_game(tmp_path):
     assert "1 owned via a Humble key (not in any imported library):" in text
 
 
+def test_a_store_whose_every_item_is_covered_by_a_key_is_not_named(tmp_path):
+    # uplay has no importer, but a key already answered for everything it
+    # delivers here. Warning about it would be noise, and the sentence it
+    # prints -- that those items were counted as new -- would be false.
+    conn = _keyed_conn(tmp_path)
+    try:
+        report = bundle_preview.preview(conn, _keyed_bundle())
+    finally:
+        conn.close()
+    assert report["unimported_stores"] == []
+    assert "never been imported" not in bundle_preview.format_report(report)
+
+
+def test_a_store_is_still_named_when_one_of_its_items_matched_nothing(tmp_path):
+    # The other direction, and the reason the warning exists: an unmatched
+    # item on a store nothing has imported was counted as new by default,
+    # which is a guess. One keyed sibling must not silence that.
+    bundle = _keyed_bundle()
+    bundle["tier_item_data"]["quartzmeridian_examplegames"] = {
+        "human_name": "Quartz Meridian", "item_content_type": "game",
+        "platforms_and_oses": {"game": {"uplay": ["windows"]}}}
+    bundle["tier_display_data"]["initial"]["tier_item_machine_names"].append(
+        "quartzmeridian_examplegames")
+    conn = _keyed_conn(tmp_path)
+    try:
+        report = bundle_preview.preview(conn, bundle)
+    finally:
+        conn.close()
+    assert report["unimported_stores"] == ["uplay"]
+    text = bundle_preview.format_report(report)
+    # Reworded with the fix: "its items are counted as new" claimed all of
+    # them, and one of uplay's two is owned via a key.
+    assert "its unmatched items are counted as new by default" in text
+
+
 def test_format_report_omits_the_keyed_block_when_nothing_is_keyed(tmp_path):
     # A book bundle's report must stay byte-identical to before keys existed.
     conn = _game_conn(tmp_path)

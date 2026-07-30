@@ -272,7 +272,13 @@ def preview(conn, bundle, url=None):
     pricing = bundle.get("tier_pricing_data") or {}
     items = bundle.get("tier_item_data") or {}
     game_names = set()   # machine_names routed to title matching
-    delivered = set()    # storefronts this bundle delivers games on
+    # Storefronts this bundle delivers on that still have an item nothing
+    # accounted for. Deliberately not every store it delivers on: the
+    # warning these feed says those items were counted as new by default,
+    # and a store whose every item matched -- by key, or by a title the
+    # owner has on another store -- makes that sentence false. Only a `new`
+    # verdict counts; a `possible` was not counted as new either.
+    unmatched_stores = set()
     ordered = []
     for key, display in (bundle.get("tier_display_data") or {}).items():
         names = display.get("tier_item_machine_names") or []
@@ -286,7 +292,6 @@ def preview(conn, bundle, url=None):
                 new_names.append(name)
                 continue
             game_names.add(name)
-            delivered |= delivery_stores(item)
             offered = item.get("human_name") or name
             verdict, match = classify_game(offered, games)
             if verdict == "new":
@@ -307,6 +312,7 @@ def preview(conn, bundle, url=None):
                 possible.append(match)
             else:
                 new_names.append(name)
+                unmatched_stores |= delivery_stores(item)
         ordered.append(({
             "price": ((pricing.get(key) or {}).get("price|money")
                       or {}).get("amount", 0.0),
@@ -337,10 +343,14 @@ def preview(conn, bundle, url=None):
         "tiers": tiers,
         "game_matching": bool(game_names),
         "libraries": libraries,
-        # A store this bundle delivers on that has never been imported.
-        # Its items were just counted as "new" by default, which is a
-        # guess dressed as a fact -- so the report says so out loud.
-        "unimported_stores": sorted(delivered - set(libraries)),
+        # A store this bundle delivers on that has never been imported and
+        # still has an item nothing accounted for. That item was counted as
+        # "new" by default, which is a guess dressed as a fact -- so the
+        # report says so out loud. Scoped to the unmatched ones since keys
+        # began answering for stores that have no importer at all: warning
+        # about a store whose every item is already owned is noise, and the
+        # kind that teaches an owner to skip the warning that matters.
+        "unimported_stores": sorted(unmatched_stores - set(libraries)),
         # Game items are excluded from the book overlap pass. Without this
         # a game title fuzzy-matches the book catalog and invents an
         # overlap across media -- observed on a live bundle.
@@ -442,9 +452,12 @@ def format_report(report, encoding="utf-8"):
                 for store, info in sorted(libraries.items()))
             lines.append(f"  Libraries: {listed}")
         for store in report.get("unimported_stores") or []:
+            # "its unmatched items", not "its items": the store is only
+            # named when at least one item there matched nothing, and its
+            # others may well be owned via a key.
             lines.append(f"  WARNING: this bundle delivers on '{store}', which "
-                         f"has never been imported -- its items are counted "
-                         f"as new by default.")
+                         f"has never been imported -- its unmatched items are "
+                         f"counted as new by default.")
         if report.get("unimported_stores"):
             lines.append("  Run `python -m humble_catalog import-games` first.")
     # Degraded at the CLI boundary only: the web route keeps the symbol,
