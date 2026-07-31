@@ -1,9 +1,9 @@
 import threading
 from datetime import datetime, timezone
-from humble_catalog import db, quota
+from humble_catalog import db, failures, quota
 from humble_catalog.enrich import SOURCE_ORDER, SOURCE_CLASSES
 from humble_catalog.progress import HarvestProgress, duration
-from humble_catalog.sources.base import CacheMiss
+from humble_catalog.sources.base import CacheMiss, redact
 from humble_catalog.titles import clean_title
 
 SKIP_TYPES = ("music", "android")
@@ -70,10 +70,18 @@ def _run_pool(name, src, titles, prog, incomplete, lock, conn):
             continue  # nothing cached and nothing left to fetch it with
         except Exception as exc:  # noqa: BLE001
             failed = True
+            # Scrubbed once and used for both the log line and the stored
+            # row: a requests HTTPError embeds the request URL, and for a
+            # keyed source that URL carries the key.
+            detail = redact(str(exc))
             with lock:
                 incomplete.add(name)
             if not _is_429(exc):
-                prog.log(f"  {name} failed for '{title}': {exc}")
+                prog.log(f"  {name} failed for '{title}': {detail}")
+                # A 429 is deliberately not recorded here: it says nothing
+                # about the title, and source_quota already holds it.
+                with lock:
+                    failures.record(conn, name, title, detail)
                 continue  # skip this title, keep draining the queue
             if quota_dead:
                 break  # offline was ignored: stop before we hammer the API

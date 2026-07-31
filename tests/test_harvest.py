@@ -267,3 +267,65 @@ def test_ignore_quota_overrides_a_live_record_without_deleting_it(tmp_path):
                 _conn=conn, ignore_quota=True)
     assert src.live == 1
     assert conn.execute("SELECT COUNT(*) FROM source_quota").fetchone()[0] == 1
+
+def _rows(conn):
+    return conn.execute(
+        "SELECT * FROM source_failure ORDER BY source, title").fetchall()
+
+def test_a_failed_title_is_recorded(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    boom = Mock(); boom.lookup.side_effect = RuntimeError("503 backendFailed")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": boom}, _conn=conn)
+    rows = _rows(conn)
+    assert len(rows) == 1
+    assert rows[0]["source"] == "hardcover"
+    assert rows[0]["title"] == "Gray Waters"
+    assert rows[0]["failures"] == 1
+    assert "503 backendFailed" in rows[0]["last_error"]
+
+def test_the_same_title_failing_again_counts_the_second_run(tmp_path):
+    # The property the whole feature exists to produce: because the pool
+    # visits a title once per run, the counter counts runs. If anyone
+    # reintroduces per-run retries this turns into "attempts" and lies.
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    boom = Mock(); boom.lookup.side_effect = RuntimeError("503 backendFailed")
+    for _ in range(2):
+        harvest.run(db_path=tmp_path / "t.db",
+                    sources={"hardcover": boom}, _conn=conn)
+    assert _rows(conn)[0]["failures"] == 2
+
+def test_a_rate_limit_is_not_recorded_as_a_title_failure(tmp_path):
+    # A 429 is a fact about the quota, not about the title, and
+    # source_quota already holds it. Both errors arrive at the same
+    # `except`, so this pins the branch that keeps them apart.
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    boom = Mock(); boom.lookup.side_effect = _429()
+    boom.quota_resets_at.return_value = RESET
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": boom}, _conn=conn)
+    assert _rows(conn) == []
+    assert conn.execute(
+        "SELECT COUNT(*) FROM source_quota").fetchone()[0] == 1
+
+def test_a_cache_miss_records_nothing(tmp_path):
+    # An offline source declining to fetch is not a failure.
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    miss = Mock(); miss.lookup.side_effect = CacheMiss("x")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": miss}, _conn=conn)
+    assert _rows(conn) == []
+
+def test_a_recorded_error_never_contains_the_api_key(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    boom = Mock(); boom.lookup.side_effect = RuntimeError(
+        "503 Server Error for url: https://api.example/v1?q=x&key=SECRETKEY")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": boom}, _conn=conn)
+    assert "SECRETKEY" not in _rows(conn)[0]["last_error"]
+    assert "SECRETKEY" not in capsys.readouterr().out
