@@ -74,10 +74,6 @@ Two things that stay true regardless:
   be subtly wrong, since Humble's title conventions are not consistent.
   Revisit once the overlap list has shown how often ranges appear in
   practice.
-- **Past/expired bundles as a gap-finder** — running the preview against
-  bundles that have closed, to see what was missed. The shipped feature
-  aims at live purchase decisions and reports a dead page as a plain
-  404.
 - **GOG/Epic OAuth instead of Heroic's caches** (deferred from
   `specs/2026-07-25-game-library-ownership-design.md`) — talk to
   `auth.gog.com` and `galaxy-library.gog.com` directly rather than
@@ -174,6 +170,39 @@ worklist order; these are what is left.
   nowhere in the catalog, so they would be defensive branches no test
   could exercise. Revisit only if the quota tightens or a single day's
   purchases can outrun a day's budget.
+- **Past/expired bundles as a gap-finder** — running the preview against
+  bundles that have closed, to see what was missed. Measured 2026-07-31
+  and rejected for want of data, not for want of value: there is nowhere
+  to get a closed bundle's contents from. Three probes, each closing one
+  route.
+  A closed bundle does **not** 404, which is what this entry used to
+  claim, and it does not redirect either — `fetch_bundle`'s error text
+  said "redirects to the storefront" and was wrong about the mechanism.
+  It serves its own URL with its own `<title>` and ~530 KB of marketing
+  shell, carrying `main-js`, `base-webpack-json-data` and
+  `overpage-json-data` but not `webpack-bundle-page-data`. The blob the
+  parser reads is not merely truncated; nothing of the bundle survives,
+  down to the `machine_name`, so there is not even an id left to look
+  the contents up by. The shipped parser is fine — four live bundles
+  still carry the blob.
+  The Wayback Machine does not have it. All 11 archived captures of one
+  sampled closed book bundle top out at 43 KB against a live page's
+  ~610 KB, including captures taken while it was still selling, and none
+  contains the blob. A crawler gets the shell.
+  And there is no JSON endpoint to ask instead: `/api/v1/bundle/<mn>`,
+  `/bundle/<mn>`, `/api/v1/bundles/<mn>` and `/store/api/bundle/<mn>`
+  all 404 even for a **live** bundle, given the `machine_name` read out
+  of that bundle's own blob. The order API this project already uses
+  answers for orders, which are purchases — the opposite of the set this
+  entry wanted.
+  So the data exists only while a bundle is selling, which makes any
+  real gap-finder *prospective*: it would have to snapshot live bundles
+  and report over the ones that later closed, answering nothing about
+  the past and starting from the day it is first run. That is a
+  different feature from the one this entry described, and it was not
+  wanted enough to build. Reopens if Humble publishes bundle contents,
+  or if an archive turns up that captured the blob rather than the
+  shell — one grep for `webpack-bundle-page-data` settles either.
 
 ## Done (formerly on this list)
 

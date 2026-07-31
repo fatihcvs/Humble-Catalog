@@ -60,9 +60,18 @@ def fetch_bundle(url, http=None):
         url_import._fetch_html(parts.geturl(), http), limit=MAX_PAGE_BYTES)
     match = _BLOB.search(page)
     if not match:
+        # Measured 2026-07-31, and the old wording was wrong: a closed
+        # bundle does not redirect. It serves its own URL with its own
+        # <title>, ~530 KB of marketing shell, and no blob -- not even
+        # its machine_name survives. Nor does an archive have it: every
+        # Wayback capture of a sampled bundle is the shell, and Humble
+        # exposes no JSON endpoint. So the message closes the door
+        # rather than inviting a hunt for the working URL; the reasoning
+        # is the out-of-scope entry in docs/BACKLOG.md.
         raise ValueError(
-            "not a Humble bundle page (no bundle data found) -- an expired "
-            "bundle redirects to the storefront, which looks like this")
+            "not a Humble bundle page (no bundle data found) -- a bundle "
+            "that has closed still serves its page, but without its "
+            "contents; they are not recoverable")
     return json.loads(match.group(1)).get("bundleData") or {}
 
 
