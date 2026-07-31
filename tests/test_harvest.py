@@ -381,3 +381,63 @@ def test_report_failures_on_an_empty_table_says_so(tmp_path, capsys):
     conn = db.connect(tmp_path / "t.db")
     harvest.report_failures(_conn=conn)
     assert "No source failures recorded" in capsys.readouterr().out
+
+def _caching(conn, source, ok_title):
+    """A source that caches a row for one title and fails for any other.
+
+    A real Source writes source_cache on a live fetch, which is what
+    `succeeded` counts; a bare Mock would never write one, so the count
+    would be untestable.
+    """
+    def lookup(title):
+        if title != ok_title:
+            raise RuntimeError("503 backendFailed")
+        conn.execute(
+            "INSERT OR REPLACE INTO source_cache "
+            "(source, query, fetched_at, json) VALUES (?,?,?,?)",
+            (source, title, datetime.now(timezone.utc).isoformat(), "{}"))
+        conn.commit()
+        return []
+    src = Mock(); src.lookup.side_effect = lookup
+    return src
+
+def _run_rows(conn):
+    return conn.execute("SELECT * FROM harvest_run ORDER BY source").fetchall()
+
+def test_a_run_records_its_successes_and_failures(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    _seed(conn, "Learn C#", "ebook")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": _caching(conn, "hardcover", "Gray Waters")},
+                _conn=conn)
+    rows = _run_rows(conn)
+    assert len(rows) == 1
+    assert rows[0]["source"] == "hardcover"
+    assert rows[0]["answered"] == 1      # only the cached title ticked
+    assert rows[0]["succeeded"] == 1
+    assert rows[0]["failed"] == 1
+    assert rows[0]["quota_died"] == 0
+    assert rows[0]["ended_at"] >= rows[0]["started_at"]
+
+def test_a_run_that_exhausts_the_budget_is_marked(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    boom = Mock(); boom.lookup.side_effect = _429()
+    boom.quota_resets_at.return_value = RESET
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": boom}, _conn=conn)
+    assert _run_rows(conn)[0]["quota_died"] == 1
+
+def test_a_source_already_out_of_quota_is_not_marked_as_dying_here(tmp_path):
+    # paused conflates these two; a measured rate must not.
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    conn.execute("INSERT INTO source_quota (source, hit_at, resets_at) "
+                 "VALUES (?,?,?)",
+                 ("hardcover", "2020-01-01T00:00:00+00:00", RESET.isoformat()))
+    conn.commit()
+    miss = Mock(); miss.lookup.side_effect = CacheMiss("x")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": miss}, _conn=conn)
+    assert _run_rows(conn)[0]["quota_died"] == 0
