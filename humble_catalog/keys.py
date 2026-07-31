@@ -68,12 +68,17 @@ def parse_expiry(value):
 
 
 def _store_pools(conn):
-    """{store: [(normalized_title, display_title)]}, deduped per store.
+    """{store: Pool}, deduped per store and ready to score against.
 
     One pool per store rather than one pooled list: see the module
     docstring. Ordered so the dedupe is deterministic rather than dependent
     on the order sqlite happens to return rows in -- the same reason
     build_worklist sorts.
+
+    Prepared here rather than by the caller because this is the pool
+    builder: sorting each title's tokens is part of building a pool that
+    can be scored against, and doing it once per store instead of once per
+    key is what makes the report fast.
     """
     pools = {}
     for row in conn.execute(
@@ -84,7 +89,8 @@ def _store_pools(conn):
         if pool and pool[-1][0] == row["normalized_title"]:
             continue
         pool.append((row["normalized_title"], row["title"]))
-    return pools
+    return {store: game_match.prepare_pool(entries)
+            for store, entries in pools.items()}
 
 
 def _key_rows(conn):
@@ -197,8 +203,12 @@ def report(conn, now=None):
         if store is None or store not in libraries:
             state = "uncheckable"
         else:
+            # EMPTY, not []: a store can be in `libraries` -- it has a
+            # game_imports row -- while holding no games rows at all, so
+            # `pools` has no entry for it. Both classify every title as
+            # `new`, which is the answer that store deserves.
             verdict, match = game_match.classify_game(
-                row["product"] or "", pools.get(store, []))
+                row["product"] or "", pools.get(store, game_match.EMPTY))
             state = _VERDICTS[verdict]
             if state == "uncertain":
                 near = {"owned_title": match["owned_title"],

@@ -65,3 +65,26 @@ def sequel_mismatch(a, b):
     na = ta.pop() if ta and _NUMERAL.match(ta[-1]) else None
     nb = tb.pop() if tb and _NUMERAL.match(tb[-1]) else None
     return ta == tb and na != nb
+
+def sort_tokens(cleaned):
+    """A cleaned title's tokens in sorted order -- a scoring key.
+
+    token_sort_ratio(a, b) is ratio(sort_tokens(a), sort_tokens(b)) by
+    definition. So sorting a match pool ONCE here and scoring with the
+    much cheaper fuzz.ratio computes the same number as scoring the
+    unsorted pool with token_sort_ratio -- measured identical on every
+    key in the catalog, and 8x faster, because the pool's half of that
+    sorting was otherwise redone on all ~6.1M comparisons.
+
+    ONLY ever a scoring key. It must not reach sequel_mismatch, which
+    decides on the TRAILING token: sorted, "widget quest ii" becomes
+    "ii quest widget", the numeral is no longer last, nothing is popped,
+    and the rule that stops a game matching its own sequel silently stops
+    firing. See game_match.classify_game, which indexes back to the
+    unsorted title before asking.
+
+    Takes an ALREADY-cleaned title. clean_game_title has collapsed runs
+    of whitespace, which is what makes split()/join here reproduce
+    exactly what token_sort_ratio does internally.
+    """
+    return " ".join(sorted(cleaned.split()))

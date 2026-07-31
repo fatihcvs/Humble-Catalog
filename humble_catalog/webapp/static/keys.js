@@ -121,10 +121,11 @@ function renderKeys() {
 }
 
 // Posts, then patches the row in place. Deliberately NOT a loadKeys()
-// refetch: keys.report classifies every key against the store pools and
-// measures ~2.5s on the author's catalog, which is not a button click.
-// Same trade the statistics panel made -- touch the mutation call site
-// rather than reload everything.
+// refetch: hiding changes one field on one row, so refetching and
+// reclassifying every key to learn that is wasteful at the ~0.33s the
+// report now costs, as it was at the ~2.5s it used to. Same trade the
+// statistics panel made -- touch the mutation call site rather than
+// reload everything.
 async function toggleKeyHidden(gamekey, machine) {
   const row = keyRows.find(
     (r) => r.gamekey === gamekey && r.machine_name === machine);

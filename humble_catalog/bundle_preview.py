@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 from rapidfuzz import fuzz, process
 
 from humble_catalog import db, import_games, stats, url_import
-from humble_catalog.game_match import classify_game
+from humble_catalog.game_match import classify_game, prepare_pool
 from humble_catalog.titles import clean_game_title, clean_title
 
 # Titles that clear this score are shown as a possible partial overlap.
@@ -217,13 +217,18 @@ def preview(conn, bundle, url=None):
     bucket -- `possible` -- for the band where the tool declines to guess.
     """
     owned = _owned(conn)
-    games = _owned_games(conn)
+    # Prepared once, above the per-tier loop. This module scores tens of
+    # items rather than thousands and was never slow; it prepares its
+    # pools so game_match owns the sorted-key invariant, rather than
+    # having it stated in the key report and not here.
+    games = prepare_pool(_owned_games(conn))
     # Tried only after the imported libraries have said "new", so a game
     # that is both keyed and activated reports as the plain library match
     # it is, and the keyed list stays what it claims to be: the games whose
     # only evidence is a key.
     keyed = _keyed_games(conn)
-    keyed_pool = [(normalized, display) for normalized, display, _t, _b in keyed]
+    keyed_pool = prepare_pool(
+        [(normalized, display) for normalized, display, _t, _b in keyed])
     # Keyed on the display title, which is what classify_game hands back.
     keyed_extra = {display: (key_type, bundle_name)
                    for _n, display, key_type, bundle_name in keyed}

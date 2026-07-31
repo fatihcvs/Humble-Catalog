@@ -106,17 +106,6 @@ its own; none is committed to.
   same `games` table. Revisit if cache staleness or a Heroic format
   change actually bites.
 
-### Keys (identified 2026-07-31 while building hiding)
-
-- **`/api/keys` takes ~2.5 s** — `keys.report` classifies all 2,275 keys
-  against the store pools on every call, which is why the Keys tab is
-  slow to populate, and why hiding patches its row in place rather than
-  refetching. Pre-existing and unrelated to hiding; measured only because
-  the hide handler had to choose between the two. The likely shapes are
-  caching the per-store pools or memoizing the classification, but it
-  wants measuring before it wants fixing — `_store_pools` and
-  `classify_game` are not obviously the same share of the 2.5 s.
-
 ### Harvest (identified 2026-07-26 while debugging resume)
 
 Surfaced by investigating a harvest that appeared to restart from
@@ -205,6 +194,47 @@ worklist order; these are what is left.
   purchases can outrun a day's budget.
 
 ## Done (formerly on this list)
+
+- **`/api/keys` took ~2.5 s** —
+  `docs/superpowers/specs/2026-07-31-key-report-matching-cost-design.md`.
+  Now ~0.33 s. The entry proposed caching the store pools or memoizing
+  the classification, and measurement rejected **both**: the pools cost
+  6 ms of 2,400, and memoizing by title buys 19%, because the keys are
+  nearly all distinct titles already — 1,840 of 2,125 steam keys. The
+  obvious structural suspect, `classify_game` rebuilding its `names` list
+  on every call, was worth 0.08 s of 2.20.
+  The cost was that `token_sort_ratio` re-splits and re-sorts **both**
+  sides' tokens on each of ~6.1M comparisons, and the pool's half of that
+  is identical every time. `token_sort_ratio(a, b)` is
+  `ratio(sort(a), sort(b))` by definition, so `prepare_pool` sorts each
+  pool title once and `classify_game` scores with `fuzz.ratio`: the
+  matching went 2.20 s → 0.27 s with **zero** verdict, title or score
+  differences across every checkable key in the catalog. Not an
+  approximation accepted for speed — the same function, evaluated in a
+  better order.
+  The sorted string is a scoring key and nothing else, which is the trap.
+  `sequel_mismatch` decides on the **trailing** token, so on
+  "ii quest widget" the numeral is no longer last, nothing is popped, and
+  a sequel reports as `possible` against the game it is a sequel to
+  rather than as `new` — failing open, silently, in the one direction
+  this rule exists to prevent. `classify_game` indexes back through the
+  index-parallel `Pool` to the unsorted entry before asking, and
+  `test_game_match.py` is the module's first direct test precisely
+  because that identity had nothing watching it.
+  `bundle_preview` was converted too although it scores tens of items and
+  was never slow, so the invariant is owned by `game_match` rather than
+  stated in one caller and not the other.
+  A report cache was designed as far as `PRAGMA data_version` and then
+  declined, and the measurement is in the spec so the question reopens
+  cheaply: four of the six writers of the tables the report reads are
+  separate CLI processes — `import-games` being the one that actually
+  flips a key to matched — so they cannot invalidate an in-process cache
+  at all, and "remember to invalidate" was never the available rule.
+  `data_version` costs 3.7 µs and catches every out-of-process commit
+  including ones not yet written; its one blind spot is a connection's
+  own commits, which is exactly hide/unhide. It was declined on
+  proportion — it would save 0.3 s and buy back a surface on which a
+  wrong answer can be served, where the presort has none.
 
 - **Hiding a resolved key** —
   `docs/superpowers/specs/2026-07-31-hidden-keys-design.md`.
