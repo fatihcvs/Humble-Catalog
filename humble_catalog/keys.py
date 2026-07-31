@@ -132,15 +132,48 @@ def stale_hides(conn):
         "     AND k.machine_name = h.machine_name)").fetchone()[0]
 
 
+def missing_keys(conn):
+    """Products whose tpks are in raw_orders but not in external_keys.
+
+    Non-zero only until the first `reparse` after external_keys was
+    re-keyed on (gamekey, machine_name). The old (gamekey, human_name)
+    key silently dropped every storefront but the last of a multi-store
+    product, and a migration that copies the table cannot recover rows
+    that were never in it -- only a reparse from the cached orders can.
+
+    Reported here rather than from the migration because db.py never
+    prints: connect() runs in every command, in every test, and once per
+    thread in the viewer. A line in a report the owner already reads is
+    also the better home, since it self-clears after the reparse where a
+    one-shot migration message can be missed forever.
+
+    One row-value NOT IN against the migrated table, measured at 33 ms on
+    a 2,275-key catalog. json_each(NULL) yields no rows, so an order with
+    no tpkd_dict needs no guard.
+
+    A tpk carrying no machine_name would compare NULL and be skipped
+    rather than reported. None exists -- 2,278 of 2,278, across 13 key
+    types -- and parse_order subscripts the field for the same reason.
+    """
+    return [{"product": r["product"], "lost": r["lost"]} for r in conn.execute(
+        "SELECT json_extract(t.value, '$.human_name') AS product, "
+        "       COUNT(*) AS lost "
+        "  FROM raw_orders r, "
+        "       json_each(json_extract(r.json, '$.tpkd_dict.all_tpks')) t "
+        " WHERE (r.gamekey, json_extract(t.value, '$.machine_name')) NOT IN "
+        "       (SELECT gamekey, machine_name FROM external_keys) "
+        " GROUP BY product ORDER BY lost DESC, product")]
+
+
 def report(conn, now=None):
     """Every key's state, and the reported rows in display order.
 
     `now` is injectable so the expiry arithmetic is testable; it defaults
     to the current UTC time.
 
-    Returns {total, counts, reported, expiring, stale_hides, libraries,
-    rows}. `rows` holds only the reported states -- `matched` is the
-    answer "nothing to do here" and lives in `counts` alone.
+    Returns {total, counts, reported, expiring, stale_hides, missing_keys,
+    libraries, rows}. `rows` holds only the reported states -- `matched`
+    is the answer "nothing to do here" and lives in `counts` alone.
 
     Each row carries `hidden_at`; rows are never filtered here. Both
     surfaces filter that one field, so the CLI and the viewer cannot
@@ -240,6 +273,7 @@ def report(conn, now=None):
                         if r["expires"] is not None and not r["expired"]
                         and not r["hidden_at"]),
         "stale_hides": stale_hides(conn),
+        "missing_keys": missing_keys(conn),
         "libraries": libraries,
         "rows": rows,
     }

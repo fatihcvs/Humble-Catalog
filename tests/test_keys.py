@@ -434,3 +434,53 @@ def test_a_hide_on_a_matched_key_is_not_stale(tmp_path):
         assert built["stale_hides"] == 0
     finally:
         conn.close()
+
+
+def test_missing_keys_names_what_the_old_primary_key_dropped(tmp_path):
+    # Non-zero only until the first reparse after the re-key. Reported
+    # here rather than from the migration because db.py never prints, and
+    # because a line in the report the owner already reads self-clears
+    # once they reparse, where a one-shot message can be missed forever.
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        order = {"gamekey": "kv789", "tpkd_dict": {"all_tpks": [
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_ex"},
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_gog"},
+            {"human_name": "Hollowmere", "machine_name": "hollowmere_gog"},
+        ]}}
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('kv789', '2026-07-31T00:00:00', ?)",
+                     (json.dumps(order),))
+        conn.commit()
+        assert keys.report(conn, now=NOW)["missing_keys"] == [
+            {"product": "Hollowmere", "lost": 1},
+            {"product": "Twin Lantern", "lost": 1}]
+    finally:
+        conn.close()
+
+
+def test_missing_keys_is_empty_when_every_tpk_is_stored(tmp_path):
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        order = {"gamekey": "kv789", "tpkd_dict": {"all_tpks": [
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_ex"}]}}
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('kv789', '2026-07-31T00:00:00', ?)",
+                     (json.dumps(order),))
+        conn.commit()
+        assert keys.report(conn, now=NOW)["missing_keys"] == []
+    finally:
+        conn.close()
+
+
+def test_missing_keys_tolerates_an_order_with_no_keys(tmp_path):
+    # json_each(NULL) yields no rows, so an order without tpkd_dict needs
+    # no guard -- verified against SQLite 3.49.
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('abc123', '2026-07-31T00:00:00', '{}')")
+        conn.commit()
+        assert keys.report(conn, now=NOW)["missing_keys"] == []
+    finally:
+        conn.close()
