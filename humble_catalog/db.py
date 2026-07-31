@@ -25,6 +25,19 @@ CREATE TABLE IF NOT EXISTS external_keys (
   machine_name TEXT NOT NULL,
   human_name TEXT, key_type TEXT, raw TEXT,
   PRIMARY KEY (gamekey, machine_name));
+/* The owner's "wherever this one ended up, I know it is resolved". Keyed
+   on the pair rather than machine_name alone because 128 games are keyed
+   in more than one bundle, and one bundle's key may have landed while the
+   other's did not -- the hide is per key, not per game.
+   No foreign key to external_keys, deliberately and against the
+   convention around it: a hide has to OUTLIVE the row it names. It is
+   absent from reset.DERIVED_TABLES on purpose, so a reset wipes the keys
+   and keeps the hides, and an FK would either cascade them away or make
+   the reset fail. keys.stale_hides reports the hides left dangling. */
+CREATE TABLE IF NOT EXISTS hidden_keys (
+  gamekey TEXT NOT NULL, machine_name TEXT NOT NULL,
+  hidden_at TEXT NOT NULL,
+  PRIMARY KEY (gamekey, machine_name));
 CREATE TABLE IF NOT EXISTS enrichment (
   item_id INTEGER PRIMARY KEY REFERENCES items(id),
   genre TEXT, series TEXT, series_number REAL, authors TEXT, narrator TEXT,
