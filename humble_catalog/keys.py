@@ -88,24 +88,48 @@ def _store_pools(conn):
 
 
 def _key_rows(conn):
-    """Every key joined to its bundle, with its raw blob already parsed.
+    """Every key joined to its bundle and any hide, blob already parsed.
 
     Parsed in Python rather than with SQL json_extract: one parse yields
-    machine_name, expiry_date, redeemed_key_val and key_type_human_name,
-    where SQL would need four calls, and a blob that is not JSON skips its
-    row instead of failing the whole query.
+    expiry_date, redeemed_key_val and key_type_human_name, where SQL would
+    need three calls, and a blob that is not JSON skips its row instead of
+    failing the whole query. machine_name used to come out of the blob too
+    and is now a column, so the field that decides a key's identity is no
+    longer read out of JSON.
     """
     for row in conn.execute(
             "SELECT k.human_name AS product, k.key_type AS key_type, "
-            "       k.gamekey AS gamekey, k.raw AS raw, "
+            "       k.gamekey AS gamekey, k.machine_name AS machine_name, "
+            "       k.raw AS raw, h.hidden_at AS hidden_at, "
             "       b.name AS bundle, b.url AS bundle_url, "
             "       b.purchased_at AS purchased_at "
-            "FROM external_keys k JOIN bundles b ON b.gamekey = k.gamekey"):
+            "FROM external_keys k JOIN bundles b ON b.gamekey = k.gamekey "
+            "LEFT JOIN hidden_keys h ON h.gamekey = k.gamekey "
+            "                       AND h.machine_name = k.machine_name"):
         try:
             raw = json.loads(row["raw"]) if row["raw"] else {}
         except ValueError:
             raw = {}
         yield row, raw
+
+
+def stale_hides(conn):
+    """How many hides name a key that is no longer in the catalog.
+
+    `hidden_keys` has no foreign key and survives `reset`, so a hide can
+    outlive the row it named -- and straight after a reset, before a
+    reparse, every hide is stale.
+
+    Its own query rather than "hides minus hidden rows shown", because
+    that derivation is wrong: a hide on a key that has since become
+    `matched` is not stale, but `matched` rows are not in `rows` either,
+    so the cheap version would count it.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) FROM hidden_keys h WHERE NOT EXISTS ("
+        "  SELECT 1 FROM external_keys k "
+        "   WHERE k.gamekey = h.gamekey "
+        "     AND k.machine_name = h.machine_name)").fetchone()[0]
 
 
 def report(conn, now=None):
@@ -114,9 +138,19 @@ def report(conn, now=None):
     `now` is injectable so the expiry arithmetic is testable; it defaults
     to the current UTC time.
 
-    Returns {total, counts, reported, expiring, libraries, rows}. `rows`
-    holds only the reported states -- `matched` is the answer "nothing to
-    do here" and lives in `counts` alone.
+    Returns {total, counts, reported, expiring, stale_hides, libraries,
+    rows}. `rows` holds only the reported states -- `matched` is the
+    answer "nothing to do here" and lives in `counts` alone.
+
+    Each row carries `hidden_at`; rows are never filtered here. Both
+    surfaces filter that one field, so the CLI and the viewer cannot
+    disagree about what is hidden.
+
+    There is deliberately no `hidden` count: format_report counts `rows`
+    and the viewer computes its own chip counts, so a stored total would
+    be a second copy of a number derivable from the rows beside it.
+    `stale_hides` is the opposite case, and that is why it is here -- it
+    cannot be derived from `rows` at all.
     """
     now = now or dt.datetime.now(dt.timezone.utc)
     pools = _store_pools(conn)
@@ -160,7 +194,7 @@ def report(conn, now=None):
             rank = (0, expires.timestamp(), *tie)
         ranked.append((rank, {
             "product": row["product"],
-            "machine_name": raw.get("machine_name"),
+            "machine_name": row["machine_name"],
             "gamekey": row["gamekey"],
             "store": store,
             # The 52-value display string, used ONLY as a label. Every
@@ -185,6 +219,11 @@ def report(conn, now=None):
             # feature reads as redeemed and had never been activated.
             "revealed": bool(raw.get("redeemed_key_val")),
             "state": state,
+            # An annotation, not a fourth state: the row keeps whichever
+            # of the three it earned, and `counts` still holds it. The
+            # viewer presents hidden as a fourth chip, which is a display
+            # choice in keys.js and does not travel back across the route.
+            "hidden_at": row["hidden_at"],
             "near_match": near,
         }))
     ranked.sort(key=lambda pair: pair[0])
@@ -193,8 +232,14 @@ def report(conn, now=None):
         "total": total,
         "counts": counts,
         "reported": len(rows),
+        # Excludes hidden rows, unlike `counts` and `reported`. This is the
+        # sibling of the tab badge -- "what needs attention this week" --
+        # and a hide that leaves the badge lit has not stopped the row
+        # reappearing, which is the whole point of hiding.
         "expiring": sum(1 for r in rows
-                        if r["expires"] is not None and not r["expired"]),
+                        if r["expires"] is not None and not r["expired"]
+                        and not r["hidden_at"]),
+        "stale_hides": stale_hides(conn),
         "libraries": libraries,
         "rows": rows,
     }

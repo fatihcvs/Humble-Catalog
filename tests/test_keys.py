@@ -7,12 +7,13 @@ NOW = dt.datetime(2026, 7, 30, tzinfo=dt.timezone.utc)
 
 
 def _conn(tmp_path, rows, library=(("steam", "Widget Quest"),),
-          imported=("steam",)):
+          imported=("steam",), hidden=()):
     """A catalog holding `rows` as keys and `library` as imported games.
 
     `rows` is [(product, key_type, raw_extra)]; raw_extra is merged into
     the stored blob, so a test names only the fields it cares about.
-    Every key belongs to one invented bundle.
+    Every key belongs to one invented bundle. `hidden` names the products
+    the owner has marked resolved.
     """
     conn = db.connect(tmp_path / "catalog.db")
     conn.execute("INSERT INTO bundles (gamekey, name, url, purchased_at) "
@@ -29,6 +30,11 @@ def _conn(tmp_path, rows, library=(("steam", "Widget Quest"),),
             "(gamekey, machine_name, human_name, key_type, raw) "
             "VALUES ('kv789', ?, ?, ?, ?)",
             (machine, product, key_type, json.dumps(raw)))
+    for product in hidden:
+        conn.execute(
+            "INSERT INTO hidden_keys (gamekey, machine_name, hidden_at) "
+            "VALUES ('kv789', ?, '2026-07-31T00:00:00+00:00')",
+            (product.lower().replace(" ", "") + "_ex",))
     conn.commit()
     for store in imported:
         games = [{"store_id": f"{store}-{n}", "title": title,
@@ -356,3 +362,75 @@ def test_a_row_carries_its_bundle_url(tmp_path):
     # format would be a thing to keep in step for no gain.
     rows = _rows(tmp_path, [("Cinder Vale", "steam", None)])
     assert rows[0]["bundle_url"] == "https://example.invalid/kv789"
+
+
+def test_a_hidden_row_is_annotated_not_removed(tmp_path):
+    # report() annotates and never filters: the CLI and the viewer then
+    # filter the same field, so they cannot disagree about what is hidden.
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)],
+                 hidden=["Cinder Vale"])
+    try:
+        rows = keys.report(conn, now=NOW)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["hidden_at"] == "2026-07-31T00:00:00+00:00"
+    finally:
+        conn.close()
+
+
+def test_an_unhidden_row_has_no_hidden_at(tmp_path):
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)])
+    try:
+        assert keys.report(conn, now=NOW)["rows"][0]["hidden_at"] is None
+    finally:
+        conn.close()
+
+
+def test_hiding_does_not_change_the_state_counts(tmp_path):
+    # Hidden is an annotation on the server, not a fourth state: `counts`
+    # must keep partitioning every key. The viewer's fourth chip is a
+    # display choice that does not travel back across the route.
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    plain = _states(tmp_path / "a", [("Cinder Vale", "steam", None)])
+    hid = _states(tmp_path / "b", [("Cinder Vale", "steam", None)],
+                  hidden=["Cinder Vale"])
+    assert plain == hid
+    assert hid["unredeemed"] == 1
+
+
+def test_expiring_ignores_a_hidden_row(tmp_path):
+    # The sibling of the tab badge. A hide that silences the row but
+    # leaves the badge lit has not stopped the row reappearing.
+    rows = [("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"})]
+    conn = _conn(tmp_path, rows, hidden=["Amber Hollow"])
+    try:
+        assert keys.report(conn, now=NOW)["expiring"] == 0
+    finally:
+        conn.close()
+
+
+def test_stale_hides_counts_a_hide_whose_key_is_gone(tmp_path):
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)],
+                 hidden=["Cinder Vale"])
+    try:
+        assert keys.report(conn, now=NOW)["stale_hides"] == 0
+        conn.execute("DELETE FROM external_keys")
+        conn.commit()
+        assert keys.report(conn, now=NOW)["stale_hides"] == 1
+    finally:
+        conn.close()
+
+
+def test_a_hide_on_a_matched_key_is_not_stale(tmp_path):
+    # The reason stale_hides is its own query rather than "hides minus
+    # hidden rows shown": a matched key is not in `rows` either, so the
+    # cheap derivation would call this stale and be wrong.
+    conn = _conn(tmp_path, [("Widget Quest", "steam", None)],
+                 hidden=["Widget Quest"])
+    try:
+        built = keys.report(conn, now=NOW)
+        assert built["counts"]["matched"] == 1
+        assert built["rows"] == []
+        assert built["stale_hides"] == 0
+    finally:
+        conn.close()
