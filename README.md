@@ -127,124 +127,148 @@ stores normally.
 
 ## Usage
 
+Everything below is a subcommand of `python -m humble_catalog`. The
+sections run in the order you would use them: build the catalog, enrich
+it, then read it.
+
+### Building the catalog
+
 - `python -m humble_catalog extract` - fetch your library.
   First run opens a normal browser window: log in to HumbleBundle
   (Google + TFA), then close the window when your library is visible.
   Later runs are unattended and only fetch new bundles.
   (`... -m humble_catalog login` re-opens the login window on its own.)
-- `python -m humble_catalog reset` - wipe the derived catalog
-  for a clean rebuild without re-downloading. The download caches
-  (`raw_orders`, the harvested `source_cache`), your cover files, and your
-  ratings/tags/comments are kept; hand edits, type overrides, and merges
-  are not. It asks you to type `RESET` first and refuses to run
-  non-interactively. Afterwards rebuild with `reparse`, then `harvest`
-  (a no-op if already cached), then `enrich` - all offline against the
-  caches.
 - `python -m humble_catalog reparse` - rebuild the catalog
   from the local bundle cache without contacting HumbleBundle: re-applies
   parsing/classification and re-links any covers already on disk. It runs
   automatically at the start of every `extract`; run it on its own to
   rebuild after a `reset` or a parser change.
-- Enrichment runs in three phases so the slow network work happens once and
-  matching stays cheap:
-  - `python -m humble_catalog harvest` - fetch every relevant
-    metadata source for every book/comic into the local cache, all sources
-    in parallel (one thread each, each keeping its own courteous throttle).
-    This is the long one - hours, dominated by Comic Vine's 200-requests/hour
-    limit - but it is **resumable**: interrupt it and rerun `harvest` to pick
-    up where it stopped (already-fetched titles are served from cache, for
-    free). Run it once, fine to leave overnight.
-    Each source shows its own counter and a state mark: `▸` still working,
-    `✓` finished, `✗` gave up, `⏸` out of quota (falling back to
-    `~ + x =` on consoles that cannot draw them). The counter is how many
-    titles that source _has data for_, so a source that gave up shows how
-    far it got rather than rounding itself up.
-    A source that exhausts its daily quota is marked `⏸`, keeps serving
-    its cached titles to the end of the run, and the run remembers when
-    the limit lifts. The next `harvest` therefore serves that source from
-    cache without spending a request to rediscover the same wall, and says
-    when to come back instead of reporting a fresh failure. Google Books
-    has the smallest daily allowance and typically needs several days of
-    runs. Use `harvest --ignore-quota` to retry a recorded source anyway —
-    after adding a key with a bigger allowance, say; any successful
-    request clears the record by itself.
+- `python -m humble_catalog reset` - wipe the derived catalog
+  for a clean rebuild without re-downloading. The download caches
+  (`raw_orders`, the harvested `source_cache`, and the harvest's failure
+  and run history), your cover files, and your ratings/tags/comments are
+  kept; hand edits, type overrides, and merges are not. It asks you to
+  type `RESET` first and refuses to run non-interactively. Afterwards
+  rebuild with `reparse`, then `harvest` (a no-op if already cached),
+  then `enrich` - all offline against the caches.
 
-    Two read-only reports explain a slow harvest. Both read the database
-    and exit: no requests, no quota spent, safe to run at any time.
+### Enriching
 
-    A title a source could not fetch caches nothing, so the next run asks
-    it again — at its own place in the alphabetical worklist, which is
-    ahead of every title the budget has not reached yet. Each run ends by
-    naming the five worst titles that have now failed in two or more runs
-    (and counting the rest); `harvest --failures` lists every one of
-    them, at any time:
+Enrichment runs in three phases so the slow network work happens once and
+matching stays cheap:
 
-    ```
-    runs  last failed  source        title
-       5  2026-07-31   google_books  Learn C#
-       4  2026-07-31   google_books  The Endless Wars: Inferno!
-       2  2026-07-31   google_books  Moonfall Vol. 1-3
-       1  2026-07-28   comicvine     Shadow Hound Vol. 1-6
+- `python -m humble_catalog harvest` - fetch every relevant
+  metadata source for every book/comic into the local cache, all sources
+  in parallel (one thread each, each keeping its own courteous throttle).
+  This is the long one - hours, dominated by Comic Vine's 200-requests/hour
+  limit - but it is **resumable**: interrupt it and rerun `harvest` to pick
+  up where it stopped (already-fetched titles are served from cache, for
+  free). Run it once, fine to leave overnight.
+  Each source shows its own counter and a state mark: `▸` still working,
+  `✓` finished, `✗` gave up, `⏸` out of quota (falling back to
+  `~ + x =` on consoles that cannot draw them). The counter is how many
+  titles that source _has data for_, so a source that gave up shows how
+  far it got rather than rounding itself up.
+  A source that exhausts its daily quota is marked `⏸`, keeps serving
+  its cached titles to the end of the run, and the run remembers when
+  the limit lifts. The next `harvest` therefore serves that source from
+  cache without spending a request to rediscover the same wall, and says
+  when to come back instead of reporting a fresh failure. Google Books
+  has the smallest daily allowance and typically needs several days of
+  runs. Use `harvest --ignore-quota` to retry a recorded source anyway —
+  after adding a key with a bigger allowance, say; any successful
+  request clears the record by itself.
+  When a harvest looks slower than it should, see [Diagnosing
+  enrichment](#diagnosing-enrichment) below.
 
-    Errors seen:
-      3x  503 Server Error: Service Unavailable
-      1x  ConnectionError: connection aborted
-    ```
+- `python -m humble_catalog enrich` - match items against the
+  harvested cache and fill genre/series/ratings/narrator. Purely local,
+  runs in seconds, safe to re-run as often as you like (e.g. after tuning
+  the matcher). `--retry` also re-scores items that previously found no
+  match.
+  Hand-edited rows are left alone; queue one for re-enrichment with the
+  row's `↻` button in the viewer, or all of them at once with
+  `enrich --override-edited` (which asks you to type OVERRIDE first).
+  Either way only a confident match is applied, and the values it
+  replaces become the row's new Revert target.
+- `python -m humble_catalog enrich --credits` - fill
+  writer/illustrator for matched comics from Comic Vine (a second per-comic
+  request, so slower). Resumable.
 
-    `runs` is how many separate harvests that title has failed in, and it
-    is the number that matters. A title sitting at 1 was unlucky; one
-    that climbs by one after every run is failing reproducibly, which
-    points at the query rather than at the network. The error tally
-    groups by kind, so a single cause behind many titles shows up as one
-    large count rather than as noise.
+### Diagnosing enrichment
 
-    `harvest --runs` shows what each run cost:
+Three read-only reports, for when enrichment is emptier or slower than
+expected. All of them read the database (or make one tiny request) and
+exit, so none costs you a harvest.
 
-    ```
-    harvest runs, newest first
+- `python -m humble_catalog check` - one live search against
+  every metadata source to verify each API (and key) works. Start here
+  when a source is filling nothing at all: a missing key shows as SKIP
+  and a rejected one as FAIL, and both look identical from the catalog.
 
-    started           source        titles   live  failed   rate  quota
-    2026-07-31 21:25  google_books    1718    573     427    43%  spent
-    2026-07-31 21:25  hardcover       1320      7       0     0%
-    2026-07-31 21:25  oreilly         1214      0       0      -
-    ```
+The other two explain a harvest that runs but is slow. A title a source
+could not fetch caches nothing, so the next run asks it again — at its
+own place in the alphabetical worklist, which is ahead of every title
+the budget has not reached yet. Each run ends by naming the five worst
+titles that have now failed in two or more runs (and counting the rest);
+`harvest --failures` lists every one of them, at any time:
 
-    `titles` is how many that source resolved in the run, cache hits
-    included; `live` is how many it actually fetched; `rate` is the share
-    of live attempts that failed. `quota` marks a source whose daily
-    budget ran out during that run — and only then is its `rate` measured
-    against a full day's allowance, which is what makes google_books'
-    43% above a fair figure and not a sample of seven. A source that
-    attempted nothing live is served entirely from cache and shows `-`
-    rather than `0%`, which would claim it never fails; `oreilly` above
-    is finished, `hardcover` genuinely fetched seven titles without a
-    failure. `harvest --forget-runs` clears the history, which is capped
-    at the newest 500 runs regardless.
+```
+runs  last failed  source        title
+   5  2026-07-31   google_books  Learn C#
+   4  2026-07-31   google_books  The Endless Wars: Inferno!
+   2  2026-07-31   google_books  Moonfall Vol. 1-3
+   1  2026-07-28   comicvine     Shadow Hound Vol. 1-6
 
-    In practice: read `--runs` after a harvest to see whether the failure
-    rate is steady or climbing, and `--failures` once two or more runs
-    have happened to see whether the same titles keep coming back. A
-    steady rate with titles that rarely repeat is a source that is merely
-    slow, and it will finish. Titles whose `runs` count keeps rising are
-    a source that will never finish those particular titles, however many
-    days you give it.
+Errors seen:
+  3x  503 Server Error: Service Unavailable
+  1x  ConnectionError: connection aborted
+```
 
-    **`harvest --failures` prints titles you own; `harvest --runs` does
-    not.** If you are pasting output into an issue or a message, the run
-    table is counts, source names and timestamps only.
-  - `python -m humble_catalog enrich` - match items against the
-    harvested cache and fill genre/series/ratings/narrator. Purely local,
-    runs in seconds, safe to re-run as often as you like (e.g. after tuning
-    the matcher). `--retry` also re-scores items that previously found no
-    match.
-    Hand-edited rows are left alone; queue one for re-enrichment with the
-    row's `↻` button in the viewer, or all of them at once with
-    `enrich --override-edited` (which asks you to type OVERRIDE first).
-    Either way only a confident match is applied, and the values it
-    replaces become the row's new Revert target.
-  - `python -m humble_catalog enrich --credits` - fill
-    writer/illustrator for matched comics from Comic Vine (a second per-comic
-    request, so slower). Resumable.
+`runs` is how many separate harvests that title has failed in, and it is
+the number that matters. A title sitting at 1 was unlucky; one that
+climbs by one after every run is failing reproducibly, which points at
+the query rather than at the network. The error tally groups by kind, so
+a single cause behind many titles shows up as one large count rather
+than as noise.
+
+`harvest --runs` shows what each run cost:
+
+```
+harvest runs, newest first
+
+started           source        titles   live  failed   rate  quota
+2026-07-31 21:25  google_books    1718    573     427    43%  spent
+2026-07-31 21:25  hardcover       1320      7       0     0%
+2026-07-31 21:25  oreilly         1214      0       0      -
+```
+
+`titles` is how many that source resolved in the run, cache hits
+included; `live` is how many it actually fetched; `rate` is the share of
+live attempts that failed. `quota` marks a source whose daily budget ran
+out during that run — and only then is its `rate` measured against a
+full day's allowance, which is what makes google_books' 43% above a fair
+figure and not a sample of seven. A source that attempted nothing live
+is served entirely from cache and shows `-` rather than `0%`, which
+would claim it never fails; `oreilly` above is finished, `hardcover`
+genuinely fetched seven titles without a failure. `harvest
+--forget-runs` clears the history, which is capped at the newest 500
+runs regardless.
+
+In practice: read `--runs` after a harvest to see whether the failure
+rate is steady or climbing, and `--failures` once two or more runs have
+happened to see whether the same titles keep coming back. A steady rate
+with titles that rarely repeat is a source that is merely slow, and it
+will finish. Titles whose `runs` count keeps rising are a source that
+will never finish those particular titles, however many days you give
+it.
+
+**`harvest --failures` prints titles you own; `harvest --runs` does
+not.** If you are pasting output into an issue or a message, the run
+table is counts, source names and timestamps only.
+
+### Browsing
+
 - `python -m humble_catalog serve` - open the catalog.
   Progress of a running extract/enrich shows in a banner; closing the
   browser never interrupts them.
@@ -264,6 +288,9 @@ stores normally.
   you can review or clear the whole set before running enrich. Once a run
   replaces one, it reads "re-enriched" and `↩` gives your typed values
   back.
+
+### Getting data in and out
+
 - `python -m humble_catalog import-sheets [file.xlsx ...]` - import
   ratings and metadata you already keep in a spreadsheet. Ratings go to
   "Mine", and genre/series/author/narrator fill empty fields (never
@@ -287,6 +314,18 @@ stores normally.
   `--columns title,authors,my_rating` for a subset; the columns always
   come out in their usual order whatever order you ask in, and an
   unrecognized name is an error rather than a quietly missing column.
+- In the viewer, the Download button exports the rows currently on
+  screen, in the order shown - filter or search first and the button says
+  how many rows will leave. The dropdown beside it picks CSV or XLSX, and
+  the "Columns" panel picks which columns go in; that selection is
+  remembered between visits, and the summary always shows how many of the
+  20 are ticked. Narrowing either rows or columns names the file
+  `catalog-filtered.*`, so a partial export never overwrites the full
+  one. Untouched, it is the whole catalog (`catalog.csv`), the same file
+  the CLI writes.
+
+### Backups
+
 - `python -m humble_catalog backup [dir]` - write a
   timestamped snapshot of `catalog.db` to `backups/` (or a directory you
   name - an external drive works). The copy goes through SQLite's online
@@ -301,6 +340,12 @@ stores normally.
   mistaken restore is itself undoable. Stop `serve` before restoring -
   with the viewer running the swap refuses rather than risking the file.
   `--covers` also restores the cover archive paired with that snapshot.
+
+### Before you buy
+
+These three work together: `import-games` is what gives `bundle` and
+`keys` a library to check a game against.
+
 - `python -m humble_catalog bundle <url>` - point it at a
   live HumbleBundle page and see, for each tier, how many items it holds,
   how many you already own, how many would be new, and which titles that
@@ -352,18 +397,6 @@ stores normally.
   about whether the game ever reached a store account - which is why the
   report matches libraries instead of trusting that flag. Read-only:
   nothing is written to the catalog.
-- In the viewer, the Download button exports the rows currently on
-  screen, in the order shown - filter or search first and the button says
-  how many rows will leave. The dropdown beside it picks CSV or XLSX, and
-  the "Columns" panel picks which columns go in; that selection is
-  remembered between visits, and the summary always shows how many of the
-  20 are ticked. Narrowing either rows or columns names the file
-  `catalog-filtered.*`, so a partial export never overwrites the full
-  one. Untouched, it is the whole catalog (`catalog.csv`), the same file
-  the CLI writes.
-- `python -m humble_catalog check` - one live search against
-  every metadata source to verify each API (and key) works.
-
 All data lives in `catalog.db` + `covers/` (both git-ignored).
 
 ## Development
