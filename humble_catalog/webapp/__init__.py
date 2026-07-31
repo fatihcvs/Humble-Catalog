@@ -5,8 +5,8 @@ import webbrowser
 from pathlib import Path
 import requests
 from flask import Flask, Response, g, jsonify, request, send_from_directory
-from humble_catalog import (bundle_preview, db, dedupe, export, keys, stats,
-                            url_import)
+from humble_catalog import (bundle_preview, db, dedupe, editions, export,
+                            keys, stats, url_import)
 from humble_catalog.enrich import EDITABLE_FIELDS, apply_candidate
 from humble_catalog.sources.base import candidate
 
@@ -85,7 +85,21 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.get("/api/items")
     def items():
-        return jsonify({"items": db.fetch_items(conn())})
+        rows = db.fetch_items(conn())
+        # Attached HERE and not in fetch_items, which is shared with CSV
+        # and XLSX export: an edition link is a derived view, while the
+        # export stays a serialization of what the catalog stores. One
+        # O(n) pass over the payload, no per-item query.
+        #
+        # The key is absent rather than [] for the rows with no sibling,
+        # which is nearly all of them on a real catalog.
+        by_id = {i["id"]: i for i in rows}
+        for group in editions.find_groups(conn()):
+            for iid in group:
+                by_id[iid]["editions"] = [
+                    {"id": o, "type": by_id[o]["type"], "name": by_id[o]["name"]}
+                    for o in group if o != iid]
+        return jsonify({"items": rows})
 
     @app.get("/api/stats")
     def catalog_stats():
