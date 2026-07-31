@@ -162,7 +162,11 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
                    for name in worklist}
     totals = {name: len(worklist[name]) for name in worklist}
     prog = HarvestProgress(conn, totals)
-    incomplete, lock = set(), threading.Lock()
+    # prog.lock, not a second Lock of our own: it guards `conn`, and prog
+    # writes run_status to that same connection from these same threads.
+    # Two locks would each exclude only their own callers, which is not
+    # mutual exclusion -- see HarvestProgress's docstring.
+    incomplete, lock = set(), prog.lock
     threads, ran = [], []
     for name, titles in worklist.items():
         src = sources.get(name)
