@@ -1,3 +1,4 @@
+import datetime as dt
 import io
 import json
 import webbrowser
@@ -109,6 +110,57 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         # always the whole key set, so there is nothing to pass, and
         # nothing about the library reaches a query string.
         return jsonify(keys.report(conn()))
+
+    def _key_ref():
+        """(gamekey, machine_name) from the request body, or (None, None).
+
+        Both travel in a POST body, never a query string: machine_name is
+        derived from the product title, so it names something owned, and
+        query strings reach access logs and browser history. Same reason
+        filter-aware export posts its id list rather than passing it.
+        """
+        data = request.get_json(silent=True) or {}
+        gamekey, machine_name = data.get("gamekey"), data.get("machine_name")
+        if not isinstance(gamekey, str) or not gamekey \
+                or not isinstance(machine_name, str) or not machine_name:
+            return None, None
+        return gamekey, machine_name
+
+    @app.post("/api/keys/hide")
+    def hide_key():
+        gamekey, machine_name = _key_ref()
+        if gamekey is None:
+            return jsonify({"error": "gamekey and machine_name required"}), 400
+        exists = conn().execute(
+            "SELECT 1 FROM external_keys WHERE gamekey=? AND machine_name=?",
+            (gamekey, machine_name)).fetchone()
+        if not exists:
+            return jsonify({"error": "no such key"}), 400
+        # OR IGNORE, so hiding twice keeps the first timestamp rather than
+        # refreshing it: the date answers "when did I decide this", and a
+        # second click is not a second decision.
+        conn().execute(
+            "INSERT OR IGNORE INTO hidden_keys "
+            "(gamekey, machine_name, hidden_at) VALUES (?,?,?)",
+            (gamekey, machine_name,
+             dt.datetime.now(dt.timezone.utc).isoformat()))
+        conn().commit()
+        return jsonify({"ok": True})
+
+    @app.post("/api/keys/unhide")
+    def unhide_key():
+        gamekey, machine_name = _key_ref()
+        if gamekey is None:
+            return jsonify({"error": "gamekey and machine_name required"}), 400
+        # No existence check against external_keys, unlike hide, and not an
+        # oversight: a hide outlives the key it names -- every hide is
+        # stale straight after a reset -- and those are exactly the rows
+        # most in need of removing. Do not "tidy" this into symmetry.
+        conn().execute(
+            "DELETE FROM hidden_keys WHERE gamekey=? AND machine_name=?",
+            (gamekey, machine_name))
+        conn().commit()
+        return jsonify({"ok": True})
 
     @app.post("/api/items/<int:item_id>/rating")
     def set_rating(item_id):
