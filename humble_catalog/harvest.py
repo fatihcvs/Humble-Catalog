@@ -1,9 +1,11 @@
+import sys
 import threading
+from collections import Counter
 from datetime import datetime, timezone
-from humble_catalog import db, quota
+from humble_catalog import db, failures, quota, stats
 from humble_catalog.enrich import SOURCE_ORDER, SOURCE_CLASSES
 from humble_catalog.progress import HarvestProgress, duration
-from humble_catalog.sources.base import CacheMiss
+from humble_catalog.sources.base import CacheMiss, redact
 from humble_catalog.titles import clean_title
 
 SKIP_TYPES = ("music", "android")
@@ -70,10 +72,18 @@ def _run_pool(name, src, titles, prog, incomplete, lock, conn):
             continue  # nothing cached and nothing left to fetch it with
         except Exception as exc:  # noqa: BLE001
             failed = True
+            # Scrubbed once and used for both the log line and the stored
+            # row: a requests HTTPError embeds the request URL, and for a
+            # keyed source that URL carries the key.
+            detail = redact(str(exc))
             with lock:
                 incomplete.add(name)
             if not _is_429(exc):
-                prog.log(f"  {name} failed for '{title}': {exc}")
+                prog.log(f"  {name} failed for '{title}': {detail}")
+                # A 429 is deliberately not recorded here: it says nothing
+                # about the title, and source_quota already holds it.
+                with lock:
+                    failures.record(conn, name, title, detail)
                 continue  # skip this title, keep draining the queue
             if quota_dead:
                 break  # offline was ignored: stop before we hammer the API
@@ -92,6 +102,27 @@ def _when(resets_at):
     """A reset time as an absolute instant plus how long that is away."""
     ahead = (resets_at - datetime.now(timezone.utc)).total_seconds()
     return f"{resets_at.isoformat(timespec='minutes')} (in {duration(ahead)})"
+
+SUMMARY_ROWS = 5
+
+def _repeat_lines(conn):
+    """The repeat-failure block's lines, or [] when there is nothing to say.
+
+    Formatted here rather than in HarvestProgress so that progress stays a
+    display: it writes what it is handed and owns no query. `paused`
+    already established that split.
+    """
+    rows = failures.top(conn, min_failures=2)
+    if not rows:
+        return []
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    lines = [f"  {r['failures']}x  {r['source']}  "
+             f"{stats.console_safe(r['title'], encoding)}"
+             for r in rows[:SUMMARY_ROWS]]
+    if len(rows) > SUMMARY_ROWS:
+        lines.append(f"  ...and {len(rows) - SUMMARY_ROWS} more - "
+                     f"see 'harvest --failures'")
+    return lines
 
 def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     """Fetch every relevant source for every eligible item into source_cache.
@@ -140,7 +171,41 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     # 429 during the run. They are the same condition.
     paused = {name: _when(resets_at) for name in worklist
               if (resets_at := quota.blocked(conn, name))}
-    prog.finish(incomplete, paused=paused)
+    prog.finish(incomplete, paused=paused, repeats=_repeat_lines(conn))
     if _conn is None:
         conn.close()
     return incomplete
+
+def report_failures(db_path="catalog.db", _conn=None):
+    """Print every recorded failure, most persistent first. Reads only.
+
+    No source is constructed and no request is made - this exists so the
+    table can be read between runs, when the interesting question is
+    whether the same titles keep coming back.
+
+    The error tally groups on `error_kind` rather than the stored text,
+    because the stored text ends in the request URL and the URL contains
+    the title: one row per title tallies one of everything. The count is
+    a count of titles, not of failure events - "how widespread is this
+    error", which is the question the hypothesis needs answered.
+    """
+    conn = _conn or db.connect(db_path)
+    try:
+        rows = failures.top(conn)
+        if not rows:
+            print("No source failures recorded.")
+            return
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        width = max(len(r["source"]) for r in rows)
+        print(f"{'runs':>4}  {'last failed':<11}  {'source':<{width}}  title")
+        for r in rows:
+            print(f"{r['failures']:>4}  {r['last_failed_at'][:10]:<11}  "
+                  f"{r['source']:<{width}}  "
+                  f"{stats.console_safe(r['title'], encoding)}")
+        print("\nErrors seen:")
+        for kind, n in Counter(
+                failures.error_kind(r["last_error"]) for r in rows).most_common():
+            print(f"  {n}x  {stats.console_safe(kind, encoding)}")
+    finally:
+        if _conn is None:
+            conn.close()

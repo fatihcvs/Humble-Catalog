@@ -85,6 +85,10 @@ def main():
                            help="Retry sources recorded as out of quota "
                                 "instead of serving them from cache (use "
                                 "after adding a key with a bigger allowance)")
+    p_harvest.add_argument("--failures", action="store_true",
+                           help="List titles that failed in past runs, most "
+                                "persistent first, and exit without "
+                                "harvesting")
     sub.add_parser("reset", help="Wipe the derived catalog for a clean "
                                  "rebuild (keeps downloads, covers, and your "
                                  "ratings/tags/comments)")
@@ -164,7 +168,10 @@ def main():
         extract.reparse()
     elif args.command == "harvest":
         from humble_catalog import harvest
-        harvest.run(ignore_quota=args.ignore_quota)
+        if args.failures:
+            harvest.report_failures()
+        else:
+            harvest.run(ignore_quota=args.ignore_quota)
     elif args.command == "reset":
         from humble_catalog import reset
         reset.run()

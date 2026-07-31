@@ -116,3 +116,19 @@ def test_default_quota_reset_is_about_an_hour(tmp_path):
     now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
     src = base.Source(db.connect(tmp_path / "t.db"))
     assert src.quota_resets_at(now=now) == now + timedelta(hours=1)
+
+def test_redact_hides_key_params():
+    url = "https://api.example/v1?q=x&key=SECRETKEY&maxResults=5"
+    out = base.redact(f"503 Server Error for url: {url}")
+    assert "SECRETKEY" not in out
+    assert "key=REDACTED" in out
+    assert "q=x" in out            # ordinary params survive
+    assert "maxResults=5" in out
+
+def test_redact_covers_the_other_spellings_and_any_case():
+    assert "S" not in base.redact("?api_key=S")
+    assert "S" not in base.redact("?apikey=S")
+    assert "S" not in base.redact("?API_KEY=S")
+
+def test_redact_leaves_a_string_without_a_key_alone():
+    assert base.redact("Connection aborted") == "Connection aborted"

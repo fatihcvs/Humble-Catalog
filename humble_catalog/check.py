@@ -9,9 +9,9 @@ requests run, then erased and replaced by the per-source detail lines -
 so waiting is no longer a blank screen, but the final output is exactly
 what it has always been.
 """
-import re
 from humble_catalog import db
 from humble_catalog.progress import LiveDisplay, grid
+from humble_catalog.sources.base import redact
 
 KEY_ENV = {"hardcover": "HARDCOVER_API_KEY",
            "google_books": "GOOGLE_BOOKS_API_KEY",
@@ -54,9 +54,7 @@ def run(sources=None, _http=None, stream=None):
                 results[name] = ("OK", f"{len(cands)} results for '{QUERY}'")
             except Exception as exc:
                 # error strings can embed the request URL, key included
-                detail = re.sub(r"((?:api_?)?key)=[^&\s]+", r"\1=REDACTED",
-                                str(exc), flags=re.IGNORECASE)
-                results[name] = ("FAIL", detail)
+                results[name] = ("FAIL", redact(str(exc)))
         display.render(_board(sources, {n: s for n, (s, _) in results.items()}))
     display.erase()  # the board was the waiting room; the detail lines are the report
     width = max(len(n) for n in results)

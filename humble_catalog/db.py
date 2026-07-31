@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS game_imports (
   count INTEGER NOT NULL, source TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS source_quota (
   source TEXT PRIMARY KEY, hit_at TEXT NOT NULL, resets_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS source_failure (
+  source TEXT NOT NULL, title TEXT NOT NULL,
+  failures INTEGER NOT NULL,
+  first_failed_at TEXT NOT NULL, last_failed_at TEXT NOT NULL,
+  last_error TEXT NOT NULL,
+  PRIMARY KEY (source, title));
 """
 
 # The four multi-value enrichment fields. Stored as JSON arrays in TEXT
@@ -423,6 +429,15 @@ def _migrate(conn):
         # older database simply starts with no records, which is exactly
         # the state "nothing is known to be rate-limited".
         conn.execute("PRAGMA user_version = 9")
+        conn.commit()
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 10:
+        # Adds source_failure, which remembers which titles a source could
+        # not fetch and in how many runs. As with migrations 7 and 9, the
+        # executescript(SCHEMA) above has already created the table on this
+        # connection; this only carries the version forward. Nothing is
+        # read or rewritten - an older database starts with no rows, which
+        # is exactly the state "no failure has been observed yet".
+        conn.execute("PRAGMA user_version = 10")
         conn.commit()
 
 def _legacy_tags(value):
