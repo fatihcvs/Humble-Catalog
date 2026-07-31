@@ -2,7 +2,7 @@ import sys
 import threading
 from collections import Counter
 from datetime import datetime, timezone
-from humble_catalog import db, failures, quota, stats
+from humble_catalog import db, failures, quota, runs, stats
 from humble_catalog.enrich import SOURCE_ORDER, SOURCE_CLASSES
 from humble_catalog.progress import HarvestProgress, duration
 from humble_catalog.sources.base import CacheMiss, redact
@@ -124,6 +124,24 @@ def _repeat_lines(conn):
                      f"see 'harvest --failures'")
     return lines
 
+def _tally(conn, prog, started, names):
+    """Each source's cost for the run that began at `started`.
+
+    Every number but `answered` is counted out of a table that already
+    holds it: a live fetch is a cache write, and a failure is a
+    source_failure row stamped with this run's time. That is why nothing
+    in the pool had to learn to count.
+    """
+    since = started.isoformat()
+    tallies = {}
+    for name in names:
+        hit = quota.hit_at(conn, name)
+        tallies[name] = (prog.done[name],
+                         db.cached_since(conn, name, since),
+                         failures.count_since(conn, name, since),
+                         hit is not None and hit >= started)
+    return tallies
+
 def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     """Fetch every relevant source for every eligible item into source_cache.
 
@@ -136,6 +154,7 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     one run, for when the stored guess is wrong - a paid key rotated in,
     or a limit that turned out to be per-minute.
     """
+    started = datetime.now(timezone.utc)
     conn = _conn or db.connect(db_path)
     worklist = build_worklist(conn)
     if sources is None:
@@ -144,7 +163,7 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     totals = {name: len(worklist[name]) for name in worklist}
     prog = HarvestProgress(conn, totals)
     incomplete, lock = set(), threading.Lock()
-    threads = []
+    threads, ran = [], []
     for name, titles in worklist.items():
         src = sources.get(name)
         if src is None:
@@ -164,6 +183,10 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
                              name=f"harvest-{name}")
         t.start()
         threads.append(t)
+        # A source in the worklist with no entry in `sources` continued
+        # above, so it gets no row: it did not run, and a zero row would
+        # read as if it had.
+        ran.append(name)
     for t in threads:
         t.join()
     # Read back rather than tracking in memory: this catches both a source
@@ -171,6 +194,9 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     # 429 during the run. They are the same condition.
     paused = {name: _when(resets_at) for name in worklist
               if (resets_at := quota.blocked(conn, name))}
+    runs.record(conn, started.isoformat(),
+                datetime.now(timezone.utc).isoformat(),
+                _tally(conn, prog, started, ran))
     prog.finish(incomplete, paused=paused, repeats=_repeat_lines(conn))
     if _conn is None:
         conn.close()
@@ -206,6 +232,46 @@ def report_failures(db_path="catalog.db", _conn=None):
         for kind, n in Counter(
                 failures.error_kind(r["last_error"]) for r in rows).most_common():
             print(f"  {n}x  {stats.console_safe(kind, encoding)}")
+    finally:
+        if _conn is None:
+            conn.close()
+
+def report_runs(db_path="catalog.db", _conn=None):
+    """Print what each recorded run cost, newest first. Reads only.
+
+    Unlike `report_failures`, nothing here is private: the table holds
+    source names, counts and timestamps, never a title. This output is
+    safe to paste into an issue.
+    """
+    conn = _conn or db.connect(db_path)
+    try:
+        rows = runs.history(conn)
+        if not rows:
+            print("No harvest runs recorded.")
+            return
+        width = max(len(r["source"]) for r in rows)
+        print("harvest runs, newest first\n")
+        print(f"{'started':<16}  {'source':<{width}}  {'titles':>6}  "
+              f"{'live':>5}  {'failed':>6}  {'rate':>5}  quota")
+        for r in rows:
+            live, failed = r["succeeded"], r["failed"]
+            # A cache-only source has no rate at all; printing 0% would
+            # claim it never fails.
+            rate = f"{failed / (live + failed):.0%}" if live + failed else "-"
+            print(f"{r['started_at'][:16].replace('T', ' '):<16}  "
+                  f"{r['source']:<{width}}  {r['answered']:>6}  "
+                  f"{live:>5}  {failed:>6}  {rate:>5}  "
+                  f"{'spent' if r['quota_died'] else ''}".rstrip())
+    finally:
+        if _conn is None:
+            conn.close()
+
+def forget_runs(db_path="catalog.db", _conn=None):
+    """Delete the recorded run history. Prints how many runs went."""
+    conn = _conn or db.connect(db_path)
+    try:
+        n = runs.forget(conn)
+        print(f"Forgot {n} recorded run{'' if n == 1 else 's'}.")
     finally:
         if _conn is None:
             conn.close()

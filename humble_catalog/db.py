@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS source_failure (
   first_failed_at TEXT NOT NULL, last_failed_at TEXT NOT NULL,
   last_error TEXT NOT NULL,
   PRIMARY KEY (source, title));
+CREATE TABLE IF NOT EXISTS harvest_run (
+  started_at TEXT NOT NULL, source TEXT NOT NULL, ended_at TEXT NOT NULL,
+  answered INTEGER NOT NULL, succeeded INTEGER NOT NULL,
+  failed INTEGER NOT NULL, quota_died INTEGER NOT NULL,
+  PRIMARY KEY (started_at, source));
 """
 
 # The four multi-value enrichment fields. Stored as JSON arrays in TEXT
@@ -333,6 +338,18 @@ def merge_items(conn, keep_id, drop_id):
     conn.commit()
     return True
 
+def cached_since(conn, source, since):
+    """How many rows `source` cached at or after `since` (an ISO string).
+
+    A live fetch is a cache write, so for a run that began at `since`
+    this is that source's successful request count. Lives here because
+    this module owns source_cache's schema, and one home for the query
+    means one place to change if the cache ever changes shape.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) FROM source_cache WHERE source=? AND fetched_at >= ?",
+        (source, since)).fetchone()[0]
+
 def connect(path="catalog.db"):
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -438,6 +455,15 @@ def _migrate(conn):
         # read or rewritten - an older database starts with no rows, which
         # is exactly the state "no failure has been observed yet".
         conn.execute("PRAGMA user_version = 10")
+        conn.commit()
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 11:
+        # Adds harvest_run, one row per source per run: what it answered,
+        # what it fetched live, what failed, and whether the budget died
+        # in that run. As with migrations 7, 9 and 10, the
+        # executescript(SCHEMA) above has already created the table on
+        # this connection; this only carries the version forward. An
+        # older database simply starts with no run history.
+        conn.execute("PRAGMA user_version = 11")
         conn.commit()
 
 def _legacy_tags(value):

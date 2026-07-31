@@ -59,3 +59,17 @@ def error_kind(error):
     worth counting.
     """
     return error.split(" for url:")[0].strip()
+
+def count_since(conn, source, since):
+    """How many of `source`'s titles failed at or after `since`.
+
+    Exact for the run that just ended: a title fails at most once per run
+    and that run stamps last_failed_at on every title that failed in it.
+    Not exact for an older window, because last_failed_at moves - which
+    is precisely why a run's count is written down rather than
+    recomputed later.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) FROM source_failure "
+        "WHERE source=? AND last_failed_at >= ?",
+        (source, since)).fetchone()[0]

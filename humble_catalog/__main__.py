@@ -89,6 +89,11 @@ def main():
                            help="List titles that failed in past runs, most "
                                 "persistent first, and exit without "
                                 "harvesting")
+    p_harvest.add_argument("--runs", action="store_true",
+                           help="Show what each past run cost - titles, live "
+                                "requests, failure rate - and exit")
+    p_harvest.add_argument("--forget-runs", action="store_true",
+                           help="Delete the recorded run history and exit")
     sub.add_parser("reset", help="Wipe the derived catalog for a clean "
                                  "rebuild (keeps downloads, covers, and your "
                                  "ratings/tags/comments)")
@@ -168,7 +173,11 @@ def main():
         extract.reparse()
     elif args.command == "harvest":
         from humble_catalog import harvest
-        if args.failures:
+        if args.forget_runs:
+            harvest.forget_runs()
+        elif args.runs:
+            harvest.report_runs()
+        elif args.failures:
             harvest.report_failures()
         else:
             harvest.run(ignore_quota=args.ignore_quota)
