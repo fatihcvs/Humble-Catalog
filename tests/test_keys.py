@@ -252,13 +252,20 @@ def test_expiring_counts_only_rows_that_can_still_be_lost(tmp_path):
         conn.close()
 
 
-def _text(tmp_path, rows, show_all=False, **kw):
-    conn = _conn(tmp_path, rows, **kw)
+def _text(tmp_path, rows, show_all=False, hidden=False, marked=(), **kw):
+    """format_report's output for a catalog built from `rows`.
+
+    **kw goes to _conn (library, imported). `marked` names the products
+    the owner has hidden, and is kept separate from format_report's own
+    `hidden` flag, which selects the hidden listing rather than the
+    report -- one call cannot pass the same keyword to both.
+    """
+    conn = _conn(tmp_path, rows, hidden=marked, **kw)
     try:
         report = keys.report(conn, now=NOW)
     finally:
         conn.close()
-    return keys.format_report(report, show_all=show_all)
+    return keys.format_report(report, show_all=show_all, hidden=hidden)
 
 
 def test_the_summary_line_accounts_for_every_key(tmp_path):
@@ -484,3 +491,66 @@ def test_missing_keys_tolerates_an_order_with_no_keys(tmp_path):
         assert keys.report(conn, now=NOW)["missing_keys"] == []
     finally:
         conn.close()
+
+
+def test_the_default_report_omits_hidden_rows_and_says_how_many(tmp_path):
+    rows = [("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"}),
+            ("Cinder Vale", "steam", {"expiry_date": "2026-08-12T00:00:00"})]
+    text = _text(tmp_path, rows, marked=["Cinder Vale"])
+    assert "Amber Hollow" in text
+    assert "Cinder Vale" not in text
+    assert "1 hidden" in text
+
+
+def test_hidden_lists_the_hidden_rows_with_their_date(tmp_path):
+    rows = [("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"}),
+            ("Cinder Vale", "steam", None)]
+    text = _text(tmp_path, rows, marked=["Cinder Vale"], hidden=True)
+    assert "Cinder Vale" in text
+    assert "2026-07-31" in text
+    assert "Amber Hollow" not in text
+
+
+def test_hidden_says_so_when_nothing_is_hidden(tmp_path):
+    text = _text(tmp_path, [("Cinder Vale", "steam", None)], hidden=True)
+    assert "No keys are hidden." in text
+
+
+def test_hidden_reports_the_hides_whose_key_is_gone(tmp_path):
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)],
+                 hidden=["Cinder Vale"])
+    try:
+        conn.execute("DELETE FROM external_keys")
+        conn.commit()
+        text = keys.format_report(keys.report(conn, now=NOW), hidden=True)
+        assert "1 hide" in text
+        assert "reparse" in text
+    finally:
+        conn.close()
+
+
+def test_the_report_names_the_products_whose_keys_are_missing(tmp_path):
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        order = {"gamekey": "kv789", "tpkd_dict": {"all_tpks": [
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_ex"},
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_gog"},
+        ]}}
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('kv789', '2026-07-31T00:00:00', ?)",
+                     (json.dumps(order),))
+        conn.commit()
+        text = keys.format_report(keys.report(conn, now=NOW))
+        assert "Twin Lantern (1)" in text
+        assert "reparse" in text
+    finally:
+        conn.close()
+
+
+def test_a_single_uncheckable_key_reads_as_one_key(tmp_path):
+    # "1 keys are" -- the same slip as the bundle preview's "1 items",
+    # which no test caught and a browser did. Caught here by reading the
+    # real output while building the hidden listing.
+    text = _text(tmp_path, [("Verdant Reach", "uplay", None)])
+    assert "1 key is for stores with no importer" in text
+    assert "1 keys are" not in text

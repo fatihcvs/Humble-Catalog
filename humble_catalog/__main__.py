@@ -201,6 +201,10 @@ def main():
         "--all", action="store_true",
         help="Also list the keys with no expiry date and the ones that "
              "have already expired")
+    p_keys.add_argument(
+        "--hidden", action="store_true",
+        help="List the keys you have hidden in the viewer, instead of the "
+             "report")
     args = parser.parse_args()
     # After parsing, so --help still works on a broken environment: it is
     # stdlib-only, and it is how you find the command names to begin with.
@@ -302,7 +306,7 @@ def main():
         import_games.run()
     elif args.command == "keys":
         from humble_catalog import keys
-        keys.run(show_all=args.all)
+        keys.run(show_all=args.all, hidden=args.hidden)
     elif args.command == "bundle":
         from humble_catalog import bundle_preview
         try:
