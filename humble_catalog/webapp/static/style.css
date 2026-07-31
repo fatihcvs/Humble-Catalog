@@ -196,6 +196,12 @@ mark { background: var(--mark-bg); color: var(--mark-fg);
 .badge.edited { background: var(--badge-info); }
 /* muted: the queued badge sits beside "edited" and reads as secondary to it */
 .badge.queued { background: var(--muted); }
+/* .badge defaults to --danger, which is wrong for a neutral fact about
+   the library. It is also a <button>, so it must be told to look like
+   the badges beside it rather than keeping the browser's grey default --
+   the same trap the statistics panel's jump counts fell into. */
+.badge.edition { background: var(--badge-info); border: 0; cursor: pointer;
+                 font: inherit; font-size: .7rem; padding: 0 .3rem; }
 .edit-field { width: 95%; box-sizing: border-box; }
 .edit-num { width: 3.5em; margin-top: .2rem; }
 .url-import { margin-top: .4rem; display: flex; gap: .4rem; align-items: center;
