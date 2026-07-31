@@ -131,3 +131,23 @@ def test_reset_refuses_without_a_tty(tmp_path, monkeypatch):
     monkeypatch.setattr("sys.stdin", _NoTTY())
     reset.run(_conn=conn)   # no _input -> hits the isatty guard
     assert conn.execute("SELECT COUNT(*) c FROM items").fetchone()["c"] == 1
+
+def test_reset_keeps_the_observation_tables(tmp_path):
+    # source_cache, source_failure and harvest_run record what the
+    # outside world said, not what the catalog derived. A rebuild must
+    # not spend the quota again to rediscover them.
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("INSERT INTO source_cache (source, query, fetched_at, json) "
+                 "VALUES ('google_books','q','2026-07-30T00:00:00+00:00','{}')")
+    conn.execute("INSERT INTO source_failure (source, title, failures, "
+                 "first_failed_at, last_failed_at, last_error) "
+                 "VALUES ('google_books','Gray Waters',1,'a','a','e')")
+    conn.execute("INSERT INTO harvest_run (started_at, source, ended_at, "
+                 "answered, succeeded, failed, quota_died) "
+                 "VALUES ('2026-07-30T21:00:00+00:00','google_books',"
+                 "'2026-07-30T22:00:00+00:00',1,1,0,0)")
+    conn.commit()
+    reset.run(_conn=conn, _input=lambda _: "RESET")
+    for table in ("source_cache", "source_failure", "harvest_run"):
+        assert conn.execute(
+            f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1, table

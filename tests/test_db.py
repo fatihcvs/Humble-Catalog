@@ -104,13 +104,13 @@ def test_migration_converts_tag_strings_to_arrays(tmp_path):
     snap = json.loads(row["pre_edit"])
     assert json.loads(snap["genre"]) == ["Old", "Genre"]
     assert snap["series"] == "Keep, Me"  # single-value fields never split
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
 
 def test_migration_leaves_arrays_and_new_dbs_alone(tmp_path):
     import json
     path = tmp_path / "t.db"
     conn = db.connect(path)  # fresh DB: user_version already stamped current
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
     conn.execute("INSERT INTO items (machine_name, name) VALUES ('m','N')")
     conn.execute("INSERT INTO enrichment (item_id, genre) VALUES (1, '[\"SF, Cozy\"]')")
     conn.commit()
@@ -178,7 +178,7 @@ def test_migration_collapses_genre_case_variants(tmp_path):
     snap = json.loads(conn.execute(
         "SELECT pre_edit FROM enrichment WHERE item_id=1").fetchone()["pre_edit"])
     assert db.tags_from_json(snap["genre"]) == ["Fiction"]
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
 
 def test_migration_genre_case_tie_prefers_titleized(tmp_path):
     path = tmp_path / "t.db"
@@ -628,7 +628,7 @@ def test_migration_renames_cover_files_to_machine_name_scheme(tmp_path,
     assert not (covers_dir / "1.jpg").exists()
     assert conn.execute("SELECT cover_path FROM items").fetchone()["cover_path"] \
         == f"covers/{new_name}"
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
 
 
 def test_migration_cover_rename_is_idempotent(tmp_path, monkeypatch):
@@ -636,7 +636,7 @@ def test_migration_cover_rename_is_idempotent(tmp_path, monkeypatch):
     path = tmp_path / "t.db"
     db.connect(path).close()   # fresh DB is stamped current version immediately
     conn = db.connect(path)    # second connect must not choke
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
 
 
 def test_migrates_v4_db_by_adding_read_status_default_unread(tmp_path):
@@ -658,7 +658,7 @@ def test_migrates_v4_db_by_adding_read_status_default_unread(tmp_path):
     raw.close()
 
     conn = db.connect(path)            # the 4->5 step ADDs both columns
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
     row = conn.execute("SELECT read_status FROM items WHERE machine_name='mn'").fetchone()
     assert row["read_status"] == "unread"
     icols = {r["name"] for r in conn.execute("PRAGMA table_info(user_item_data)")}
@@ -668,7 +668,7 @@ def test_migrates_v4_db_by_adding_read_status_default_unread(tmp_path):
 
 def test_fresh_db_is_stamped_at_the_current_version(tmp_path):
     conn = db.connect(str(tmp_path / "catalog.db"))
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
     icols = {r["name"] for r in conn.execute("PRAGMA table_info(items)")}
     assert "read_status" in icols
     conn.close()
@@ -829,7 +829,7 @@ def test_migration_9_adds_source_quota_to_an_older_db(tmp_path):
     old.commit()
     old.close()
     conn = db.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
     assert conn.execute("SELECT COUNT(*) FROM source_quota").fetchone()[0] == 0
 
 def test_migration_10_adds_source_failure(tmp_path):
@@ -841,7 +841,21 @@ def test_migration_10_adds_source_failure(tmp_path):
     conn.close()
 
     conn = db.connect(path)                   # reconnect triggers the migration
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(source_failure)")}
     assert cols == {"source", "title", "failures",
                     "first_failed_at", "last_failed_at", "last_error"}
+
+def test_migration_11_adds_harvest_run(tmp_path):
+    path = tmp_path / "t.db"
+    conn = db.connect(path)
+    conn.execute("PRAGMA user_version = 10")  # pretend this is a pre-11 file
+    conn.execute("DROP TABLE harvest_run")
+    conn.commit()
+    conn.close()
+
+    conn = db.connect(path)                   # reconnect triggers the migration
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(harvest_run)")}
+    assert cols == {"started_at", "source", "ended_at", "answered",
+                    "succeeded", "failed", "quota_died"}
