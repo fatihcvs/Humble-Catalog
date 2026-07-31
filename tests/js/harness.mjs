@@ -122,6 +122,7 @@ const publish = `
   setPending: (v) => { pending = {...pending, ...v}; },
   getPending: () => pending,
   loadKeys, renderKeys, shownKeys, KEY_STATES, setKeyStates,
+  displayState, keyChipCounts, toggleKeyHidden,
   keysExpiring: () => keysExpiring(),
   setKeyRows: (v) => { keyRows = v; },
   previewBundle, renderBundlePreview, money,
