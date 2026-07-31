@@ -195,6 +195,50 @@ worklist order; these are what is left.
 
 ## Done (formerly on this list)
 
+- **Two locks over one connection in the harvest** — fixed 2026-07-31 (no
+  spec; a bug the test suite coughed up once, in passing). Never on this
+  list: it surfaced as a single `PytestUnhandledThreadExceptionWarning`
+  during an unrelated `verify` run, on a suite that still passed 869/869.
+  `_run_pool` writes `source_failure` and `source_quota` to the caller's
+  connection under `lock`, and `HarvestProgress` writes `run_status` to
+  **that same connection**, from those same worker threads, under a
+  private `_lock` of its own. Two locks, each excluding only its own
+  callers, is not mutual exclusion — and the invariant was already
+  written down in `_run_pool`'s docstring ("the caller's connection, used
+  under `lock`"). The implementation simply left one participant out.
+  `check_same_thread=False` removes Python's guard against cross-thread
+  use; it does not make a connection thread-safe. The reported symptom
+  was the mild one. Reproduced 5/5 with four threads on one connection:
+  `cannot commit - no transaction is active`, `bad parameter or other API
+  misuse`, and a bare `SystemError: error return without exception set` —
+  sqlite3's own module state being corrupted, not merely a transaction
+  boundary being crossed.
+  The first hypothesis was wrong and measurement caught it. A plain
+  second `commit()` is a silent no-op, so "one thread's commit closed the
+  other's transaction" cannot by itself raise anything — verified before
+  any fix was written. The real mechanism is a check-then-act inside
+  `Connection.commit()`: it tests `sqlite3_get_autocommit` and then
+  issues `COMMIT`, releasing the GIL in between, so the other thread
+  commits in the gap and the `COMMIT` finds nothing to commit.
+  The fix is one lock, not a second mechanism: `HarvestProgress.lock` is
+  public and the harvest takes it instead of making its own, because the
+  lock guards the *connection* rather than the object that happens to
+  hold it. It is an `RLock` deliberately — `prog.log()` takes it and is
+  the obvious thing to call while already holding it, so a plain `Lock`
+  would deadlock the first caller who nests rather than work. Nothing
+  nests today.
+  `LiveDisplay` keeps its own separate `_lock`, which is correct: that
+  one guards the output stream, a different resource. `Progress`, the
+  sequential class, is untouched — it commits on one thread. And
+  everything after the joins (`quota.blocked`, `runs.record`,
+  `prog.finish`) is main-thread only, so `finish` was never exposed.
+  Pinned by `test_harvest_progress_writes_under_the_caller_s_lock`, which
+  drives the real `tick` and `failures.record` rather than raw SQL — the
+  bug was in which lock they took, not in what they wrote. It was checked
+  against a *wrong* fix as well as the absent one: exposing a public lock
+  that `tick` does not itself use still fails it, so the test pins the
+  sharing and not the attribute.
+
 - **`/api/keys` took ~2.5 s** —
   `docs/superpowers/specs/2026-07-31-key-report-matching-cost-design.md`.
   Now ~0.33 s. The entry proposed caching the store pools or memoizing

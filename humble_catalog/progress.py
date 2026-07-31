@@ -253,6 +253,20 @@ class HarvestProgress:
     lock; only one connection (the caller's) is ever written, off the
     worker threads' own connections.
 
+    That lock is `self.lock`, and it is PUBLIC because the harvest holds
+    it too. It guards the connection, not this object: _run_pool writes
+    source_failure and source_quota to the same connection from the same
+    threads, so both must hold the same lock or neither is protected.
+    This class used to keep a private one, which meant two locks each
+    excluding only their own callers -- no mutual exclusion between the
+    two groups at all, and check_same_thread=False removes Python's guard
+    against that rather than making the connection safe. The result was
+    concurrent execute/commit corrupting sqlite3's own state: "cannot
+    commit - no transaction is active" (commit() checks
+    sqlite3_get_autocommit, then issues COMMIT, and the other thread
+    commits in the gap), "bad parameter or other API misuse", or a bare
+    SystemError. Pinned by test_harvest_progress_writes_under_the_caller_s_lock.
+
     On a terminal the per-source counters are repainted in place as a
     2-3 column grid; anywhere else (a pipe, a test, a log file) each
     change is appended as its own line, as it always was.
@@ -266,7 +280,16 @@ class HarvestProgress:
         self.done = {name: 0 for name in totals}
         self.state = {name: "working" for name in totals}
         self.total = sum(totals.values())
-        self._lock = threading.Lock()
+        # PUBLIC, and the harvest takes it too: it guards the caller's
+        # connection, not just this object's counters. Everything writing
+        # that one connection from a worker thread has to hold THIS lock --
+        # see the class docstring for what happens when two locks split the
+        # job between them.
+        #
+        # Reentrant because prog.log() takes it and is the obvious thing to
+        # call while already holding it. Nothing nests today; a plain Lock
+        # would make the first caller who tries deadlock instead of work.
+        self.lock = threading.RLock()
         self._display = LiveDisplay(stream)
         self._glyph = dict(zip(("working", "done", "failed", "paused"),
                                _glyphs(self._display.stream)))
@@ -297,11 +320,11 @@ class HarvestProgress:
 
     def log(self, message):
         """Print a message without the grid overwriting it (or vice versa)."""
-        with self._lock:
+        with self.lock:
             self._display.log(message)
 
     def tick(self, source):
-        with self._lock:
+        with self.lock:
             self.done[source] += 1
             total_done = sum(self.done.values())
             if self._display.live:
@@ -324,7 +347,7 @@ class HarvestProgress:
         got to, so a failed source shows how far it got rather than
         rounding itself up to a total it never reached.
         """
-        with self._lock:
+        with self.lock:
             self.state[source] = "failed" if failed else "done"
             if self._display.live:
                 self._paint()
@@ -341,7 +364,7 @@ class HarvestProgress:
         that will hit the same 429 immediately.
         """
         paused = paused or {}
-        with self._lock:
+        with self.lock:
             for name, state in self.state.items():
                 if state == "working":  # no pool ran for it, or none reported
                     self.state[name] = "failed" if name in incomplete else "done"
