@@ -79,12 +79,17 @@ def _owned(conn):
     return {row[0] for row in rows}
 
 
-def _overlaps(conn, items, owned):
+def _overlaps(conn, candidates):
     """Offered titles that look like partial matches for owned rows.
 
-    Runs only over items that did NOT match by machine_name, so the work
-    is proportional to the unowned remainder and an exactly-owned item can
-    never appear here as well.
+    `candidates` is {machine_name: offered_title} for the items a tier
+    actually sells that matched no owned machine_name and took the book
+    path. preview's tier walk builds it, having already decided both of
+    those questions -- so an owned item, a game, and an item described in
+    tier_item_data but sold by no tier are all unrepresentable here
+    rather than filtered out. The exclusions used to be two sets passed
+    in and re-applied; both were keyed to the sold set, so neither could
+    name an entry the sold set never mentioned.
 
     Titles are compared through clean_title, the same normalization enrich
     matches on, so ": A Novel" and edition suffixes do not depress a score
@@ -95,10 +100,7 @@ def _overlaps(conn, items, owned):
         return []
     names = [clean_title(row["name"])[0] for row in rows]
     found = []
-    for machine_name, item in items.items():
-        if machine_name in owned:
-            continue
-        offered = item.get("human_name") or machine_name
+    for offered in candidates.values():
         hit = process.extractOne(
             clean_title(offered)[0], names, scorer=fuzz.token_set_ratio,
             processor=str.lower, score_cutoff=OVERLAP)
@@ -235,6 +237,13 @@ def preview(conn, bundle, url=None):
     basic = bundle.get("basic_data") or {}
     pricing = bundle.get("tier_pricing_data") or {}
     items = bundle.get("tier_item_data") or {}
+    # Sold, unowned, book-path items, keyed by machine_name so the same
+    # name in two cumulative tiers is one candidate. A dict rather than a
+    # set: _overlaps sorts by score and Python's sort is stable, so tie
+    # order is input order -- and set iteration order of strings varies
+    # between processes under hash randomization. Same trap the harvest
+    # worklist sort documents.
+    candidates = {}
     game_names = set()   # machine_names routed to title matching
     # Storefronts this bundle delivers on that still have an item nothing
     # accounted for. Deliberately not every store it delivers on: the
@@ -254,6 +263,15 @@ def preview(conn, bundle, url=None):
                 continue
             if not delivery_stores(item):
                 new_names.append(name)
+                # Guarded on membership, not on `item`: a sold name that
+                # tier_item_data does not describe is skipped, which is
+                # what happens today -- it is not a key of items, so the
+                # old iteration never reached it. The tier counts above
+                # fall back to the bare machine_name and are right to;
+                # counting must be exhaustive. Hinting must not be, and a
+                # machine_name is not a title.
+                if name in items:
+                    candidates[name] = item.get("human_name") or name
                 continue
             game_names.add(name)
             offered = item.get("human_name") or name
@@ -315,10 +333,15 @@ def preview(conn, bundle, url=None):
         # about a store whose every item is already owned is noise, and the
         # kind that teaches an owner to skip the warning that matters.
         "unimported_stores": sorted(unmatched_stores - set(libraries)),
-        # Game items are excluded from the book overlap pass. Without this
-        # a game title fuzzy-matches the book catalog and invents an
-        # overlap across media -- observed on a live bundle.
-        "overlaps": _overlaps(conn, items, owned | game_names),
+        # Collected by the tier walk above, which is the only thing that
+        # knows what this bundle actually sells. Games are absent because
+        # they took the other branch, owned items because they never
+        # reached it, and an item no tier sells because it was never
+        # walked -- all three by construction rather than by filtering.
+        # A game fuzzy-matched against the book catalog invents an
+        # overlap across media; that was observed on a live bundle, and
+        # the filter that fixed it could not cover an unsold entry.
+        "overlaps": _overlaps(conn, candidates),
     }
 
 
