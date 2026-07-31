@@ -168,6 +168,13 @@ stores normally.
     runs. Use `harvest --ignore-quota` to retry a recorded source anyway —
     after adding a key with a bigger allowance, say; any successful
     request clears the record by itself.
+
+    A title the source could not fetch caches nothing, so the next run
+    asks again. The run ends by naming any title that has now failed
+    twice or more, and `harvest --failures` lists them all, most
+    persistent first, with a tally of the errors behind them. It reads
+    the database and exits — no requests, no quota spent. A high run
+    count means a title is failing reproducibly rather than unluckily.
   - `python -m humble_catalog enrich` - match items against the
     harvested cache and fill genre/series/ratings/narrator. Purely local,
     runs in seconds, safe to re-run as often as you like (e.g. after tuning

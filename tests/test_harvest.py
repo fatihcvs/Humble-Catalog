@@ -3,7 +3,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 import requests
-from humble_catalog import db, harvest
+from humble_catalog import db, failures, harvest
 from humble_catalog.sources.base import CacheMiss, candidate
 
 _mn = 0
@@ -357,3 +357,27 @@ def test_a_clean_run_says_nothing_about_failures(tmp_path, capsys):
     harvest.run(db_path=tmp_path / "t.db",
                 sources={"hardcover": _fake()}, _conn=conn)
     assert "Repeat failures" not in capsys.readouterr().out
+
+def test_report_failures_prints_the_rows_without_harvesting(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")     # an item that would be harvested
+    failures.record(conn, "google_books", "Shadow Hound Vol. 1-6",
+                    "503 Server Error for url: https://x/?q=a")
+    failures.record(conn, "google_books", "Shadow Hound Vol. 1-6",
+                    "503 Server Error for url: https://x/?q=a")
+    failures.record(conn, "comicvine", "Moonfall Vol. 1-3",
+                    "503 Server Error for url: https://x/?q=b")
+    harvest.report_failures(_conn=conn)
+    out = capsys.readouterr().out
+    assert "Shadow Hound Vol. 1-6" in out
+    assert "Moonfall Vol. 1-3" in out
+    assert "2  " in out                       # the run count
+    # Two rows, two different URLs, one kind. The tally counts *titles*
+    # hit by an error, not failure events - which is the number that says
+    # how widespread a given error is.
+    assert "2x  503 Server Error" in out
+
+def test_report_failures_on_an_empty_table_says_so(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    harvest.report_failures(_conn=conn)
+    assert "No source failures recorded" in capsys.readouterr().out

@@ -1,5 +1,6 @@
 import sys
 import threading
+from collections import Counter
 from datetime import datetime, timezone
 from humble_catalog import db, failures, quota, stats
 from humble_catalog.enrich import SOURCE_ORDER, SOURCE_CLASSES
@@ -174,3 +175,37 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     if _conn is None:
         conn.close()
     return incomplete
+
+def report_failures(db_path="catalog.db", _conn=None):
+    """Print every recorded failure, most persistent first. Reads only.
+
+    No source is constructed and no request is made - this exists so the
+    table can be read between runs, when the interesting question is
+    whether the same titles keep coming back.
+
+    The error tally groups on `error_kind` rather than the stored text,
+    because the stored text ends in the request URL and the URL contains
+    the title: one row per title tallies one of everything. The count is
+    a count of titles, not of failure events - "how widespread is this
+    error", which is the question the hypothesis needs answered.
+    """
+    conn = _conn or db.connect(db_path)
+    try:
+        rows = failures.top(conn)
+        if not rows:
+            print("No source failures recorded.")
+            return
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        width = max(len(r["source"]) for r in rows)
+        print(f"{'runs':>4}  {'last failed':<11}  {'source':<{width}}  title")
+        for r in rows:
+            print(f"{r['failures']:>4}  {r['last_failed_at'][:10]:<11}  "
+                  f"{r['source']:<{width}}  "
+                  f"{stats.console_safe(r['title'], encoding)}")
+        print("\nErrors seen:")
+        for kind, n in Counter(
+                failures.error_kind(r["last_error"]) for r in rows).most_common():
+            print(f"  {n}x  {stats.console_safe(kind, encoding)}")
+    finally:
+        if _conn is None:
+            conn.close()
