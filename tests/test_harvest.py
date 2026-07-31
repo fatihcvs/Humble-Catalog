@@ -3,7 +3,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 import requests
-from humble_catalog import db, failures, harvest
+from humble_catalog import db, failures, harvest, runs
 from humble_catalog.sources.base import CacheMiss, candidate
 
 _mn = 0
@@ -441,3 +441,38 @@ def test_a_source_already_out_of_quota_is_not_marked_as_dying_here(tmp_path):
     harvest.run(db_path=tmp_path / "t.db",
                 sources={"hardcover": miss}, _conn=conn)
     assert _run_rows(conn)[0]["quota_died"] == 0
+
+def test_report_runs_shows_the_failure_rate(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    runs.record(conn, "2026-07-30T21:25:00+00:00", "2026-07-30T22:04:00+00:00",
+                {"google_books": (1718, 573, 427, True)})
+    harvest.report_runs(_conn=conn)
+    out = capsys.readouterr().out
+    assert "google_books" in out
+    assert "2026-07-30 21:25" in out
+    assert "43%" in out            # 427 / (573 + 427)
+    assert "spent" in out
+
+def test_the_rate_column_is_blank_without_live_attempts(tmp_path, capsys):
+    # A source served entirely from cache has no rate; 0% would read as
+    # "never fails".
+    conn = db.connect(tmp_path / "t.db")
+    runs.record(conn, "2026-07-30T21:25:00+00:00", "2026-07-30T21:26:00+00:00",
+                {"oreilly": (1214, 0, 0, False)})
+    harvest.report_runs(_conn=conn)
+    out = capsys.readouterr().out
+    assert "0%" not in out
+    assert "-" in out
+
+def test_report_runs_on_an_empty_table_says_so(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    harvest.report_runs(_conn=conn)
+    assert "No harvest runs recorded" in capsys.readouterr().out
+
+def test_forget_runs_empties_the_history(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    runs.record(conn, "2026-07-30T21:25:00+00:00", "2026-07-30T22:04:00+00:00",
+                {"google_books": (1, 1, 0, False)})
+    harvest.forget_runs(_conn=conn)
+    assert "Forgot 1 recorded run." in capsys.readouterr().out
+    assert runs.history(conn) == []

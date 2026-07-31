@@ -175,6 +175,13 @@ stores normally.
     persistent first, with a tally of the errors behind them. It reads
     the database and exits — no requests, no quota spent. A high run
     count means a title is failing reproducibly rather than unluckily.
+
+    `harvest --runs` shows what each past run cost — titles resolved,
+    live requests, failures, and the failure rate among live attempts —
+    newest first, so a rate that is climbing is visible without
+    arithmetic. It holds no titles, only counts, so unlike `--failures`
+    its output is safe to share. `harvest --forget-runs` clears that
+    history; it is capped at the newest 500 runs regardless.
   - `python -m humble_catalog enrich` - match items against the
     harvested cache and fill genre/series/ratings/narrator. Purely local,
     runs in seconds, safe to re-run as often as you like (e.g. after tuning

@@ -235,3 +235,43 @@ def report_failures(db_path="catalog.db", _conn=None):
     finally:
         if _conn is None:
             conn.close()
+
+def report_runs(db_path="catalog.db", _conn=None):
+    """Print what each recorded run cost, newest first. Reads only.
+
+    Unlike `report_failures`, nothing here is private: the table holds
+    source names, counts and timestamps, never a title. This output is
+    safe to paste into an issue.
+    """
+    conn = _conn or db.connect(db_path)
+    try:
+        rows = runs.history(conn)
+        if not rows:
+            print("No harvest runs recorded.")
+            return
+        width = max(len(r["source"]) for r in rows)
+        print("harvest runs, newest first\n")
+        print(f"{'started':<16}  {'source':<{width}}  {'titles':>6}  "
+              f"{'live':>5}  {'failed':>6}  {'rate':>5}  quota")
+        for r in rows:
+            live, failed = r["succeeded"], r["failed"]
+            # A cache-only source has no rate at all; printing 0% would
+            # claim it never fails.
+            rate = f"{failed / (live + failed):.0%}" if live + failed else "-"
+            print(f"{r['started_at'][:16].replace('T', ' '):<16}  "
+                  f"{r['source']:<{width}}  {r['answered']:>6}  "
+                  f"{live:>5}  {failed:>6}  {rate:>5}  "
+                  f"{'spent' if r['quota_died'] else ''}".rstrip())
+    finally:
+        if _conn is None:
+            conn.close()
+
+def forget_runs(db_path="catalog.db", _conn=None):
+    """Delete the recorded run history. Prints how many runs went."""
+    conn = _conn or db.connect(db_path)
+    try:
+        n = runs.forget(conn)
+        print(f"Forgot {n} recorded run{'' if n == 1 else 's'}.")
+    finally:
+        if _conn is None:
+            conn.close()
