@@ -338,6 +338,18 @@ def merge_items(conn, keep_id, drop_id):
     conn.commit()
     return True
 
+def cached_since(conn, source, since):
+    """How many rows `source` cached at or after `since` (an ISO string).
+
+    A live fetch is a cache write, so for a run that began at `since`
+    this is that source's successful request count. Lives here because
+    this module owns source_cache's schema, and one home for the query
+    means one place to change if the cache ever changes shape.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) FROM source_cache WHERE source=? AND fetched_at >= ?",
+        (source, since)).fetchone()[0]
+
 def connect(path="catalog.db"):
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row

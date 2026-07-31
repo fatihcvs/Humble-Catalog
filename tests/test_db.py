@@ -859,3 +859,16 @@ def test_migration_11_adds_harvest_run(tmp_path):
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(harvest_run)")}
     assert cols == {"started_at", "source", "ended_at", "answered",
                     "succeeded", "failed", "quota_died"}
+
+def test_cached_since_counts_only_rows_at_or_after_the_mark(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    for when in ("2026-07-01T00:00:00+00:00", "2026-07-05T00:00:00+00:00"):
+        conn.execute("INSERT INTO source_cache (source, query, fetched_at, json) "
+                     "VALUES (?,?,?,?)", ("google_books", when, when, "{}"))
+    conn.execute("INSERT INTO source_cache (source, query, fetched_at, json) "
+                 "VALUES (?,?,?,?)",
+                 ("hardcover", "x", "2026-07-05T00:00:00+00:00", "{}"))
+    conn.commit()
+    assert db.cached_since(conn, "google_books", "2026-07-03T00:00:00+00:00") == 1
+    assert db.cached_since(conn, "google_books", "2026-07-01T00:00:00+00:00") == 2
+    assert db.cached_since(conn, "google_books", "2026-08-01T00:00:00+00:00") == 0

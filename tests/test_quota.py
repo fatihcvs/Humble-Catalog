@@ -77,3 +77,11 @@ def test_reset_preserves_the_quota_records(tmp_path):
     quota.record(conn, "google_books", NOW + timedelta(hours=6))
     reset.run(_conn=conn, _input=lambda _: "RESET")
     assert quota.blocked(conn, "google_books", now=NOW) is not None
+
+def test_hit_at_reports_when_the_limit_was_recorded(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    assert quota.hit_at(conn, "google_books") is None
+    before = datetime.now(UTC)
+    quota.record(conn, "google_books", datetime.now(UTC) + timedelta(hours=1))
+    hit = quota.hit_at(conn, "google_books")
+    assert hit is not None and hit >= before

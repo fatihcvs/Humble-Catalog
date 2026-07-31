@@ -70,3 +70,15 @@ def blocked(conn, source, now=None):
         return None
     resets_at = datetime.fromisoformat(row["resets_at"])
     return resets_at if resets_at > (now or _utcnow()) else None
+
+def hit_at(conn, source):
+    """When `source`'s limit was last recorded as spent, or None.
+
+    `blocked` answers "is it spent now"; this answers "when did that
+    happen". The difference separates a run that exhausted the budget
+    from one that started with it already gone - the same condition as
+    far as advice goes, opposite meanings for a measured rate.
+    """
+    row = conn.execute("SELECT hit_at FROM source_quota WHERE source=?",
+                       (source,)).fetchone()
+    return datetime.fromisoformat(row["hit_at"]) if row else None

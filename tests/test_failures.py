@@ -54,3 +54,13 @@ def test_error_kind_drops_the_url_so_titles_group_together():
 
 def test_error_kind_passes_through_an_error_with_no_url():
     assert failures.error_kind("Connection aborted") == "Connection aborted"
+
+def test_count_since_counts_titles_that_failed_in_the_window(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    failures.record(conn, "google_books", "Gray Waters", "a")
+    mark = conn.execute(
+        "SELECT last_failed_at FROM source_failure").fetchone()[0]
+    failures.record(conn, "google_books", "Learn C#", "b")
+    assert failures.count_since(conn, "google_books", mark) == 2
+    assert failures.count_since(conn, "google_books", "2099-01-01T00:00:00+00:00") == 0
+    assert failures.count_since(conn, "comicvine", mark) == 0
