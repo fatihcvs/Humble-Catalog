@@ -1657,3 +1657,50 @@ def test_a_hidden_key_reaches_the_api_annotated(tmp_path):
     client = create_app(db_path=str(dbp)).test_client()
     rows = client.get("/api/keys").get_json()["rows"]
     assert [r["hidden_at"] for r in rows] == ["2026-07-31T00:00:00+00:00"]
+
+
+def _seed_editions(dbp):
+    """An ebook, its audiobook, and an unrelated row."""
+    conn = db.connect(dbp)
+    for mn, name, typ in [("e1", "Salt and Sextant", "ebook"),
+                          ("a1", "Salt and Sextant Audiobook", "audiobook"),
+                          ("u1", "Unrelated Book", "ebook")]:
+        cur = conn.execute(
+            "INSERT INTO items (machine_name, name, type) VALUES (?,?,?)",
+            (mn, name, typ))
+        conn.execute("INSERT INTO enrichment (item_id) VALUES (?)",
+                     (cur.lastrowid,))
+    conn.commit()
+    conn.close()
+
+
+def test_api_items_attaches_edition_siblings(tmp_path):
+    dbp = tmp_path / "t.db"
+    _seed_editions(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+
+    by_name = {i["name"]: i for i in
+               client.get("/api/items").get_json()["items"]}
+
+    ebook = by_name["Salt and Sextant"]
+    assert [s["type"] for s in ebook["editions"]] == ["audiobook"]
+    assert ebook["editions"][0]["name"] == "Salt and Sextant Audiobook"
+
+    audio = by_name["Salt and Sextant Audiobook"]
+    assert [s["type"] for s in audio["editions"]] == ["ebook"]
+    assert audio["editions"][0]["id"] == ebook["id"]
+
+    # Absent, not empty, for a row with no sibling -- on a real catalog
+    # that is nearly every row of a ~1.3 MiB payload.
+    assert "editions" not in by_name["Unrelated Book"]
+
+
+def test_export_rows_carry_no_edition_field(tmp_path):
+    # fetch_items is shared with CSV/XLSX export "so the two
+    # serializations cannot drift". An edition link is a derived view,
+    # not a stored fact, so it is attached in the route and must not
+    # reach the export's row source.
+    dbp = tmp_path / "t.db"
+    _seed_editions(dbp)
+    conn = db.connect(dbp)
+    assert all("editions" not in row for row in db.fetch_items(conn))

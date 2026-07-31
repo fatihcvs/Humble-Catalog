@@ -546,7 +546,13 @@ function render() {
         ? ` <span class="badge">re-enriched</span>
             <button class="revert" data-id="${i.id}"
                     title="Revert to your edited values">&#x21A9;</button>` : ""}${
-      i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}</td>
+      i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}${
+      // The key is absent on nearly every row, so the || [] is
+      // load-bearing rather than defensive.
+      (i.editions || []).map(o => ` <button class="badge edition edition-jump"
+              data-name="${esc(o.name)}"
+              title="The same work is in your library as ${esc(o.type)} -- click to go to it"
+              >also as ${esc(o.type)}</button>`).join("")}</td>
     <td>${i.type}</td>
     <td>${statusSelect(i)}</td>
     <td>${tagBadges(i.genre)}</td>
@@ -766,6 +772,14 @@ document.addEventListener("click", async (ev) => {
     $("#search").value = el.textContent.trim();
     relevanceSort = true;
     location.hash = "#/library";
+    render();
+  } else if (el.classList.contains("edition-jump")) {
+    // The sibling is by definition a DIFFERENT type, so an active type
+    // filter would hide exactly the row being jumped to. Clearing it is
+    // the whole reason this is more than filling the search box.
+    $("#f-type").value = "";
+    $("#search").value = el.dataset.name;
+    relevanceSort = true;
     render();
   } else if (el.classList.contains("stat-show-all")) {
     genresShowAll = true;

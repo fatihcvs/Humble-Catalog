@@ -65,19 +65,6 @@ Two things that stay true regardless:
   new; removal has no equivalent. Removal is gated behind an active
   filter in the meantime.
 
-### Catalog features (identified 2026-07-24 code review)
-
-Ideas surfaced by reading the code rather than deferred from a design
-doc — several sit at boundaries the code itself calls out. Each stands on
-its own; none is committed to.
-
-- **ebook ↔ audiobook edition linking** — a soft "same work" relationship
-  between an item owned in two formats, without merging them. `/api/merge`
-  deliberately refuses cross-type merges ("an ebook and its audiobook stay
-  separate"), which is correct, but leaves the two formats with no
-  relationship at all; a link would let a row show "also owned as
-  audiobook". This is the gap the merge route's own comment points at.
-
 ### Bundle preview (deferred from `specs/2026-07-25-bundle-preview-design.md`)
 
 - **Volume-range resolution** — parse an offered `Vol. 1-6` into a set
@@ -189,6 +176,65 @@ worklist order; these are what is left.
   purchases can outrun a day's budget.
 
 ## Done (formerly on this list)
+
+- **The same work owned in two formats** —
+  `docs/superpowers/specs/2026-07-31-edition-linking-design.md`.
+  A row now says "also as audiobook" and jumps to it. `/api/merge` still
+  refuses a cross-type merge, correctly; this is the relationship that
+  refusal used to leave impossible.
+  Measurement made the feature smaller, not larger. The entry reads like
+  a matching problem and is not one: exact keys plus a trailing-marker
+  strip find every genuine pair with nothing spurious, while
+  `token_set_ratio` at the preview's own 0.90 cutoff found 9 pairs of
+  which **8 were the subset artifact** — it returns 100 whenever one
+  side's token set is a subset of the other's, so a one-word title
+  scores perfectly against any longer title containing that word. Fuzzy
+  matching is rejected here as *less accurate*, not as too slow, and no
+  threshold appears anywhere in the feature. Same trap as the
+  unsold-overlaps entry, reached from the opposite direction.
+  The truth came from eyeballing the misses rather than the hits. The
+  author gate — the strongest independent signal, populated on 101 of
+  108 audiobooks — gave 70 same-author cross-type pairs, of which one
+  had a matching title; reading the top three by hand showed all three
+  genuine, scoring 100, 67 and 61. The scores were held down by suffixes
+  `dedupe_key` does not strip. So the naive match was finding one pair
+  in three, and the signal was never fuzziness — it was a suffix.
+  **The type filter is the precision, not any score.** Admitting `music`
+  costs six false positives to win two, because all five android/music
+  groups are a game plus its own soundtrack — shipped together, not the
+  same work twice. Widening to include `comic` was measured separately
+  at 0 further groups across 988 comics and 0 false positives, so the
+  type is admitted for a case the catalog does not yet hold, with a test
+  rather than data behind it.
+  The `classify.py` fix is load-bearing rather than co-located. Two
+  items are genuine audio editions filed as `music` because the rule
+  accepted only the literal word "audiobook"; a trailing `(audio)` now
+  joins it, inside the existing platforms guard so no soundtrack can
+  reach the branch. Without that fix, catching those two would mean
+  admitting `music` and its six false positives — so fixing
+  classification at the source is what buys the tight type filter. It
+  took the population 4 → 6 of 2,729 items.
+  Detection is live with no stored state, mirroring `dedupe.find_groups`
+  — nothing to migrate, nothing for `reset` to preserve, and a rebuilt
+  catalog has its links back for free. A stored link table was designed
+  and declined: at six pairs it would mostly be a place for staleness to
+  live. It reopens if a genuine pair appears that the exact key cannot
+  see, which is the concrete trigger.
+  Dismissal reuses `dismissed_pairs` on a disjointness argument —
+  dedupe's pairs are always same-type and edition pairs always
+  cross-type, so the key spaces cannot collide — and a test asserts that
+  rather than assuming it. Nothing needs dismissing today.
+  The siblings are attached in the `/api/items` route and not in
+  `fetch_items`, which is shared with CSV and XLSX export: a link is a
+  derived view, the export stays a serialization of stored facts, and a
+  test asserts that boundary from the export side so tidying the
+  computation inward fails rather than silently widening the export.
+  The jump clears the type filter, which is the whole reason it is more
+  than filling the search box — the sibling is by definition the type
+  the filter is currently excluding, so leaving it set lands the jump on
+  an empty table. Verified in a browser against a seeded catalog of
+  invented titles, the JS harness having neither computed styles nor a
+  filter to interact with.
 
 - **`_overlaps` hinted about items no tier sells** —
   `docs/superpowers/specs/2026-07-31-bundle-preview-unsold-overlaps-design.md`.
