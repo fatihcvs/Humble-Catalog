@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -7,6 +8,17 @@ from humble_catalog import quota
 
 class CacheMiss(Exception):
     """Raised by an offline Source when a query is not in source_cache."""
+
+_SECRET_PARAM = re.compile(r"((?:api_?)?key)=[^&\s]+", re.IGNORECASE)
+
+def redact(text):
+    """Hide credential query params in a source's error string.
+
+    A `requests` HTTPError message embeds the whole request URL, and for
+    a keyed source that URL carries the key. Anything derived from an
+    exception - printed, logged, or stored - goes through here first.
+    """
+    return _SECRET_PARAM.sub(r"\1=REDACTED", text)
 
 _DEFAULTS = {"authors": None, "genre": None, "series": None, "series_number": None,
              "rating": None, "narrator": None, "illustrator": None, "url": None}
