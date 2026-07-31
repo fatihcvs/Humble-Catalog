@@ -40,6 +40,11 @@ or fixtures that name books, bundles, or people.
 | Gray Waters / gray waters | — | — | case-only pair for the worklist-order tie test; `Gray Waters` alone is the plain ebook row in `test_harvest.py` |
 | A Quiet Life in Harbors | — | — | relevance-ordering foil for *The Quiet Harbor* |
 | The World of Examplia | — | — | acronym-tier fuzzy search ("woe"); also a bundle name |
+| Salt and Sextant | — | — | ebook half of the marker-suffix edition pair (`editions.edition_key`) |
+| The Copper Almanac | — | — | ebook half of the `(audio)`-classification edition pair |
+| Compass | — | — | one-word subset-trap foil: `token_set_ratio` scores it 100 against *The Compass of Broken Years Audiobook*, and it must **not** group |
+| Nightjar Post | — | — | comic↔ebook edition pair; the case the catalog does not yet hold |
+| Audio Engineering Handbook | — | — | a leading "audio" that is part of the title, pinning the trailing-only marker strip |
 
 ## Audiobooks
 
@@ -51,6 +56,10 @@ or fixtures that name books, bundles, or people.
 | How Sound Behaves | — | — | — | non-fiction row with N/A cells |
 | Circle of Storms | — | — | (is a series) | hand-edit series example |
 | Dune (Audiobook) | — | — | — | "(Audiobook)" suffix cleanup |
+| Salt and Sextant Audiobook | — | — | — | trailing bare-marker edition pair, against the ebook *Salt and Sextant* |
+| The Copper Almanac (audio) | — | — | — | trailing "(audio)" label; classified `music` before the classify fix, which is why the pair was invisible |
+| The Compass of Broken Years Audiobook | — | — | — | subset-trap foil against the ebook *Compass* |
+| Audio Ambience for Deep Space | — | — | — | leading "audio" in a game bundle; the regression guard that keeps the `(audio)` rule trailing-only |
 
 ## Comics / manga
 
@@ -63,13 +72,14 @@ or fixtures that name books, bundles, or people.
 | Innkeeper’s Ledger / Innkeeper's Ledger | — | — | curly-vs-straight apostrophe pair |
 | Shadow Hound Vol. 1-6 | — | Example Comics | omnibus offered by a bundle against the owned *Shadow Hound Vol 1*; bundle-preview overlap example |
 | Moonfall Vol. 1-3 | — | — | second omnibus/volume overlap pair, against *MOONFALL, Vol. 1* |
+| Nightjar Post | — | — | comic half of the comic↔ebook edition pair |
 | Shadow Hound Vol 1 Bonus Art Pack | — | Example Comics | described in a bundle's `tier_item_data` but sold by no tier; bundle-preview phantom-item tests. Contains *Shadow Hound Vol 1*'s tokens, so `token_set_ratio` scores it 100 and it heads the overlap list if the exclusion regresses |
 
 ## Android / games / music
 
 | Name | Publisher | Notes |
 |---|---|---|
-| Cool Tower Defense (+ " + OST" variant) | Indie Dev Co | android item, machine name `cooltower_android` |
+| Cool Tower Defense (+ " + OST" variant) | Indie Dev Co | android item, machine name `cooltower_android`. Also seeded as a `music` row of the bare name for the edition false-positive test — the committed `+ OST` variant classifies as android, so it cannot serve. This is the measured shape of every android/music collision: a game plus its own soundtrack |
 | Sample Game OST | — | soundtrack in a game bundle |
 | Sample Ambience Pack | — | audio pack in a TTRPG bundle |
 | Some Album | — | generic music item |

@@ -291,6 +291,10 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
             "SELECT id, type FROM items WHERE id IN (?,?)", (keep_id, drop_id))}
         if len(rows) != 2:
             return jsonify({"error": "no such item"}), 400
+        # An ebook and its audiobook are different files from different
+        # bundles, so they stay separate rows. `editions.py` supplies the
+        # relationship instead -- this refusal is half an answer without
+        # it.
         if rows[keep_id] != rows[drop_id]:
             return jsonify({"error": "items have different types; an ebook "
                             "and its audiobook stay separate"}), 400
