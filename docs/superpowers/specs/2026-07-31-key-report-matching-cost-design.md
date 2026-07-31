@@ -101,7 +101,7 @@ A `TypeError` at the call site is the better failure.
 Three call sites, all preparing once outside their loop:
 
 - `keys.report` -- one `Pool` per store, three in practice.
-- `bundle_preview.summarize` -- two, for `games` and for `keyed_pool`.
+- `bundle_preview.preview` -- two, for `games` and for `keyed_pool`.
 
 `bundle_preview` scores only tens of items and is not slow today; it is
 converted because leaving a second way into `classify_game` would mean
