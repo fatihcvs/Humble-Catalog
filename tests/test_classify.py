@@ -8,6 +8,16 @@ from humble_catalog.classify import classify
      {"audio"}, {"mp3"}, "All Systems Red", "audiobook"),
     ("Humble Weekly Bundle: Fiction", {"audio"}, {"mp3"},
      "Dune (Audiobook)", "audiobook"),
+    # A trailing "(audio)" is a format label, not a subject: two items
+    # in the catalog are genuine audio editions of books filed as music
+    # because this rule only accepted the literal word "audiobook".
+    ("Humble Book Bundle: Test by Example Press", {"audio"}, {"mp3"},
+     "The Copper Almanac (audio)", "audiobook"),
+    # ...but only when it TRAILS. A bare "audio" anywhere would sweep in
+    # every soundtrack and ambience pack, which is what the docstring's
+    # caution is about.
+    ("Humble Game Bundle: Samples", {"audio"}, {"mp3"},
+     "Audio Ambience for Deep Space", "music"),
     ("Shield Squad", {"audio"}, {"mp3", "flac"},
      "Shield Squad Original Soundtrack", "music"),
     ("Humble Music Bundle", {"audio"}, {"mp3"}, "Some Album", "music"),
