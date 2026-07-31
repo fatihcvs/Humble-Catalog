@@ -136,7 +136,15 @@ copies it — they exist only in `raw_orders`. The migration therefore
 counts them, in plain SQL (`json_each` over
 `$.tpkd_dict.all_tpks`, minus the pairs now in the migrated table), so
 the number is derived rather than hardcoded, and names the affected
-products so the owner can see which store went missing:
+products so the owner can see which store went missing.
+
+That is **one** query — a row-value `NOT IN` against the migrated table,
+grouped by `human_name` — measured at 33 ms on this catalog, returning
+the right two products and three keys. Worth stating because it was
+nearly cut from this design as over-engineering, on a guess that a set
+difference inside a migration would be costly. It is not, and naming the
+products is what makes the message actionable rather than a number the
+owner cannot check.
 
 ```
 external_keys: 2,275 rows carried over, machine_name extracted
@@ -197,18 +205,31 @@ payload takes `machine_name` from the column instead of
 stops being read out of a blob. The docstring's "one parse yields four
 fields" argument shrinks to three and is updated to say so.
 
-`report()` returns two new numbers and one new per-row field:
+`report()` returns one new number and one new per-row field:
 
 - **`hidden_at`** on every reported row — an ISO string, or `None`.
   Rows are **not** filtered here.
-- **`hidden`** — how many reported rows carry a `hidden_at`.
 - **`stale_hides`** — the count above.
 
-**Hidden is a second axis, not a fourth state.** A hidden row still *is*
-`unredeemed`, `uncertain` or `uncheckable`. `counts` is unchanged and
-still partitions all 2,275 keys, hidden included; `reported` still means
-"how many keys are not matched". Both keep exactly today's meaning,
-which is what lets `hidden` read as a subset rather than a bucket.
+There is deliberately no `hidden` count in the payload. `format_report`
+counts `rows` itself and the viewer computes its own chip counts, so a
+stored total would be a second version of a number already derivable
+from the rows beside it — free to let drift, and worth nothing.
+
+`stale_hides` is the opposite case and that is why it is here: it cannot
+be derived from `rows` at all. A hide on a key that has since become
+`matched` is not stale, but `matched` rows are not in `rows` either, so
+"hides minus hidden rows shown" would count it as stale and be wrong.
+Only a query against `external_keys` answers it.
+
+**On the server, hidden is an annotation, not a state.** A hidden row
+still *is* `unredeemed`, `uncertain` or `uncheckable`. `counts` is
+unchanged and still partitions all 2,275 keys, hidden included;
+`reported` still means "how many keys are not matched". Both keep
+exactly today's meaning, which is what lets hiding be a subset of the
+report rather than a bucket carved out of it. The viewer presents it as
+a fourth chip, which is a display choice made in `keys.js` and does not
+travel back across the route.
 
 `report()` annotating rather than filtering is the central structural
 choice. The alternatives were a `report(hidden=...)` parameter threaded
@@ -220,11 +241,18 @@ apart, which is the failure this module's split exists to prevent. With
 annotation there is one query and one definition of hidden, and the CLI
 and the panel filter on the same field.
 
-**`expiring` changes meaning**, and it is the one deliberate break. It
-becomes the count of live-expiry rows that are *not* hidden. It is the
-"needs attention this week" number and the sibling of the tab badge; a
-hide that silences the row but leaves the badge lit has not stopped the
-row reappearing, which is the entry's whole purpose.
+**`expiring` also excludes hidden rows**, but the behaviour that matters
+is not here. Measured 2026-07-31: `expiring` and `reported` are read by
+**nothing** — not `format_report`, not `keys.js`, only tests. The number
+the owner actually sees is the tab badge, and that comes from
+`keysExpiring()` in `keys.js`, computed in the browser from `rows`.
+
+So the real change is the one-line filter in `keysExpiring()`, and
+`expiring` is updated only so a future reader of the payload is not
+handed a server-side number that disagrees with the browser's
+identically-named one. It is worth recording that both fields are
+currently dead weight; removing them is a tidy for another day, not part
+of this feature.
 
 ### CLI
 
@@ -283,34 +311,41 @@ access logs and browser history.
 
 ### Viewer
 
-`keys.js` gains a `keyHidden` boolean beside the existing `keyStates`
-set — the second axis, kept structurally separate so the two are never
-confused for one filter:
+Hidden is a **fourth chip**, off by default, and `KEY_STATES` gains a
+matching entry. Making it a chip rather than a separate sub-panel is
+what makes the backlog's "same columns in both views" structural rather
+than a promise: it is literally one table.
+
+It is a fourth chip in the browser only. On the server, hidden stays an
+annotation and `counts` keeps partitioning all 2,275 keys by
+`unredeemed`/`uncertain`/`uncheckable`/`matched`. The two views of the
+same fact are reconciled by one function:
 
 ```js
-const keyPool = () => keyRows.filter((r) => keyHidden || !r.hidden_at);
-const shownKeys = () => keyPool().filter((r) => keyStates.has(r.state));
+const displayState = (r) => (r.hidden_at ? "hidden" : r.state);
+const shownKeys = () => keyRows.filter((r) => keyStates.has(displayState(r)));
 ```
 
-Hidden is a fourth chip beside the three state chips, off by default.
-Making it a chip rather than a separate sub-panel is what makes the
-backlog's "same columns in both views" structural rather than a promise:
-it is literally one table.
+One set and one filter, which is the point. An earlier draft made hidden
+a second *filter axis* — a `keyHidden` boolean beside `keyStates`, with
+a `keyPool()` indirection between them. It bought the ability to ask for
+"hidden near-matches only", which nothing needs across a handful of
+rows, and it cost a corner where the Hidden chip's count did not equal
+what clicking it delivered. `displayState` is strictly less machinery.
 
-**The state chip counts are computed from `keyPool()`, not read from
-`keyCounts`.** `keyCounts` partitions all 2,275 keys, so with hidden
-rows filtered out a chip reading "Not in a library 624" would deliver
-fewer than 624 rows. That is the statistics panel's "a row reading
-Unmatched 4 jumped and returned 8" bug, and a count must equal what you
-see after the click.
+**The chip counts are computed in the browser, from `displayState`, not
+read from `keyCounts`.** `keyCounts` partitions all 2,275 keys, so a
+chip reading "Not in a library 624" would deliver fewer than 624 once
+hidden rows are pulled out of that bucket. That is the statistics
+panel's "a row reading Unmatched 4 jumped and returned 8" bug, and a
+count must equal what you see after the click. Counting by
+`displayState` makes the four chips partition the reported rows by
+construction, so the rule holds structurally rather than by anyone
+remembering it.
 
-The same rule binds the Hidden chip, and it is easy to get wrong here:
-its count is **not** the server's `hidden`. Only two state chips are on
-by default, so `hidden` — every hidden row, whatever its state — would
-promise more rows than clicking it delivers. The chip counts hidden rows
-whose state is in `keyStates`, which is exactly what the click adds. The
-server's `hidden` is still used, for the CLI's summary line, where there
-is no state filter to disagree with.
+A hidden row still shows its true `unredeemed`/`uncertain`/`uncheckable`
+in the **State** column; only its chip membership changes. Nothing about
+why the row was reported is lost from the display.
 
 `keyCounts.matched` still feeds the panel's summary line, which is a
 whole-catalog statement and correctly ignores hiding.
@@ -328,9 +363,14 @@ After a successful POST the handler updates that row's `hidden_at` in
 `keyRows` locally, re-renders, and refreshes the badge with
 `pending.keys = keysExpiring(); renderBadges();`. **No refetch of
 `/api/keys`** — the report classifies every one of 2,275 titles against
-the store pools on each call, far too much work for a button click.
-Same trade the statistics panel made: touch the two mutation call sites
-rather than reload everything.
+the store pools on each call, measured 2026-07-31 at **~2.5 s**. That is
+not a button click. Same trade the statistics panel made: touch the two
+mutation call sites rather than reload everything.
+
+The 2.5 s is pre-existing and out of scope here, but it is the reason
+this design cannot take the simpler refetch-and-redraw route, so it is
+recorded rather than left as an assertion. It belongs on the backlog in
+its own right.
 
 The hide/unhide control is styled from the start, via `var(--accent)`.
 The statistics panel shipped its jump counts as bare `<button>`s, which
@@ -352,10 +392,11 @@ intent. Fixture: *Twin Lantern* keyed on steam and gog in one order.
 `machine_name`s and the new primary key. A row whose `raw` will not
 parse is dropped and counted rather than aborting the migration.
 
-**The second axis.** A hidden row keeps its state and still appears in
-`counts`, so the existing "the four states partition every key" test
-passes unchanged with hides present. This is the assertion that stops
-"hidden" quietly becoming a fourth state.
+**Hidden is an annotation on the server.** A hidden row keeps its state
+and still appears in `counts`, so the existing "the four states
+partition every key" test passes unchanged with hides present. This is
+the assertion that stops the viewer's fourth chip leaking backwards into
+the report as a fourth state.
 
 **The deliberate exclusions.** `expiring` drops a hidden row;
 `stale_hides` counts a hide whose key is gone; the default
@@ -367,11 +408,10 @@ unknown pair. Two tests, because it is a rule that invites tidying.
 
 **Idempotence.** Hiding twice leaves the original `hidden_at`.
 
-**JS harness.** *The state chip count equals the number of rows the
-table actually renders*, with hides present and the Hidden chip both on
-and off. This is the statistics panel's bug pinned in advance, and it is
-the single test most worth having. Plus `keysExpiring()` excluding
-hidden.
+**JS harness.** *Every chip's count equals the number of rows the table
+actually renders when that chip is the only one on*, with hides present.
+This is the statistics panel's bug pinned in advance, and it is the
+single test most worth having. Plus `keysExpiring()` excluding hidden.
 
 Styling and the real-browser check stay manual — the harness's stubbed
 DOM has no computed styles, which is how the grey-button bug shipped
