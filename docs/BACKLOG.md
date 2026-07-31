@@ -164,6 +164,21 @@ worklist order; these are what is left.
   matching-quality decision and wants its own measurement. Split out of
   the quota-budget entry (now shipped) precisely so the two effects stay
   measurable apart.
+- **Failure recording shipped as measurement only (2026-07-31)** —
+  `source_failure` counts the runs in which each title failed. It exists
+  to answer one question before any policy is written: are google_books'
+  503s transient, or do the same titles fail every run? A title Google
+  does not have returns 200 with `totalItems: 0` and is cached forever,
+  so "missing from the index" is not the failure mode — only a
+  non-response leaves nothing behind. A run on 2026-07-31 failed mostly
+  on TTRPG supplements, comics and programming books, which share a
+  query shape rather than a subject: long titles with internal colons,
+  `#`, `+` and volume ranges, none of which `clean_title` strips. If a
+  few runs show the same titles at a rising count, the fix is query
+  normalization for this one source, not retry scheduling. If the counts
+  stay at 1 and the titles keep changing, the 503s are load and nothing
+  needs doing. See
+  `specs/2026-07-31-harvest-failure-recording-design.md`.
 - **A rate-limited source still walks its whole list** — after the
   quota dies the pool keeps going so cached titles still count, which
   is the point, but it does so with one cache lookup per remaining
