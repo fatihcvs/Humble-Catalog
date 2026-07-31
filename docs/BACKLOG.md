@@ -179,6 +179,17 @@ worklist order; these are what is left.
   stay at 1 and the titles keep changing, the 503s are load and nothing
   needs doing. See
   `specs/2026-07-31-harvest-failure-recording-design.md`.
+- **Run tally shipped alongside it (2026-07-31)** — `harvest_run` records
+  what each run cost per source: titles answered, live fetches, failures,
+  and whether the budget died in that run. It measures the *rate* and
+  whether the rate is moving; it does not decide the
+  transient-versus-deterministic question, which `source_failure`
+  answers. Built because two facts decay: `last_failed_at` is
+  overwritten, so failures-per-run can be counted once and never again,
+  and `quota.blocked` cannot separate a run that exhausted the budget
+  from one that began with it already spent. Capped at the newest 500
+  runs by `runs.record`; `harvest --forget-runs` clears it. See
+  `specs/2026-07-31-harvest-run-tally-design.md`.
 - **A rate-limited source still walks its whole list** — after the
   quota dies the pool keeps going so cached titles still count, which
   is the point, but it does so with one cache lookup per remaining

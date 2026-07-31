@@ -30,6 +30,8 @@ what they actually own may be committed to this repo:
   tracks or scans them and no automated check would notice if a paste
   reached a commit message, a doc, an issue or a screenshot. Same blind
   spot as images: judge it by eye before pasting it anywhere.
+  `harvest --runs` is the opposite case and safe to share: it holds
+  source names, counts and timestamps, never a title.
 - Run `.venv/Scripts/python scripts/leak_check.py` after adding tests,
   fixtures, or docs that name books, bundles, or people — it fails if
   anything from the real library appears in the repo.
