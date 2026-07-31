@@ -269,25 +269,33 @@ table is counts, source names and timestamps only.
 
 ### Browsing
 
-- `python -m humble_catalog serve` - open the catalog.
-  Progress of a running extract/enrich shows in a banner; closing the
-  browser never interrupts them.
-  The search box matches names loosely: word order may differ, words may
-  be skipped, and small typos, accents and apostrophes are tolerated.
-  Initials work too - "woe" finds "The World of Examplia". While the box
-  has text, rows are ordered by how well they match (the count line says
-  "by relevance"); clicking a column header returns to sorting by that
-  column.
-  Each row has a Status dropdown (Want to read / Unread / Reading / Read /
-  DNF); the status chips above the table filter to any set of statuses, and
-  the Status column sorts by reading order rather than alphabetically.
-  Status is independent of your rating and is kept when you `reset`.
-  A row you edit by hand carries an "edited" badge, `↩` to revert it and
-  `↻` to queue it for the next enrich run. Queued rows show "re-enrich
-  queued" and are listed by the "Queued for re-enrich" flag filter, so
-  you can review or clear the whole set before running enrich. Once a run
-  replaces one, it reads "re-enriched" and `↩` gives your typed values
-  back.
+- `python -m humble_catalog serve` - open the catalog. Progress of a
+  running extract/enrich shows in a banner; closing the browser never
+  interrupts them.
+
+The viewer's four tabs are described [at the top of this
+page](#humble-catalog); what follows is what the Library table itself
+can do.
+
+**Search.** The box matches names loosely: word order may differ, words
+may be skipped, and small typos, accents and apostrophes are tolerated.
+Initials work too — "woe" finds "The World of Examplia". While the box
+has text, rows are ordered by how well they match (the count line says
+"by relevance"); clicking a column header returns to sorting by that
+column.
+
+**Reading status.** Each row has a Status dropdown (Want to read /
+Unread / Reading / Read / DNF). The status chips above the table filter
+to any set of statuses, and the Status column sorts by reading order
+rather than alphabetically. Status is independent of your rating, and
+both are kept when you `reset`.
+
+**Hand edits and re-enrichment.** A row you edit by hand carries an
+"edited" badge, `↩` to revert it and `↻` to queue it for the next enrich
+run. Queued rows show "re-enrich queued" and are listed by the "Queued
+for re-enrich" flag filter, so you can review or clear the whole set
+before running `enrich`. Once a run replaces one, it reads "re-enriched"
+and `↩` gives your typed values back.
 
 ### Getting data in and out
 
