@@ -63,3 +63,39 @@ def edition_key(name):
         if not stripped or stripped == key:
             return key
         key = stripped
+
+def find_groups(conn):
+    """-> groups (lists of 2+ item ids, ascending) that share an
+    `edition_key` and SPAN more than one type, with dismissed pairs
+    removed; groups sorted by lowest member name.
+
+    Computed live on every call -- no stored link state, so a rebuilt
+    catalog has its links back for free.
+
+    Spanning types is what separates this from `dedupe.find_groups`:
+    two audiobooks of the same name are duplicates, which is dedupe's
+    question, not this one."""
+    by_key = {}
+    for r in conn.execute("SELECT id, machine_name, name, type FROM items"):
+        if r["type"] not in WORK_TYPES:
+            continue
+        by_key.setdefault(edition_key(r["name"]), []).append(r)
+    dismissed = {(r["a"], r["b"]) for r in
+                 conn.execute("SELECT a, b FROM dismissed_pairs")}
+    groups = []
+    for members in by_key.values():
+        if len(members) < 2:
+            continue
+        # Same rule as dedupe: drop a member only if it is dismissed
+        # against EVERY other member.
+        kept = [m for m in members if not all(
+            tuple(sorted((m["machine_name"], o["machine_name"]))) in dismissed
+            for o in members if o is not m)]
+        # A single surviving type is not an edition group. This also
+        # subsumes dedupe's `len(kept) > 1` check: one member spans one
+        # type.
+        if len({m["type"] for m in kept}) < 2:
+            continue
+        groups.append((min(m["name"].lower() for m in kept),
+                       sorted(m["id"] for m in kept)))
+    return [ids for _, ids in sorted(groups)]
