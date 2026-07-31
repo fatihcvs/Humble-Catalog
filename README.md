@@ -169,19 +169,69 @@ stores normally.
     after adding a key with a bigger allowance, say; any successful
     request clears the record by itself.
 
-    A title the source could not fetch caches nothing, so the next run
-    asks again. The run ends by naming any title that has now failed
-    twice or more, and `harvest --failures` lists them all, most
-    persistent first, with a tally of the errors behind them. It reads
-    the database and exits — no requests, no quota spent. A high run
-    count means a title is failing reproducibly rather than unluckily.
+    Two read-only reports explain a slow harvest. Both read the database
+    and exit: no requests, no quota spent, safe to run at any time.
 
-    `harvest --runs` shows what each past run cost — titles resolved,
-    live requests, failures, and the failure rate among live attempts —
-    newest first, so a rate that is climbing is visible without
-    arithmetic. It holds no titles, only counts, so unlike `--failures`
-    its output is safe to share. `harvest --forget-runs` clears that
-    history; it is capped at the newest 500 runs regardless.
+    A title a source could not fetch caches nothing, so the next run asks
+    it again — at its own place in the alphabetical worklist, which is
+    ahead of every title the budget has not reached yet. Each run ends by
+    naming the five worst titles that have now failed in two or more runs
+    (and counting the rest); `harvest --failures` lists every one of
+    them, at any time:
+
+    ```
+    runs  last failed  source        title
+       5  2026-07-31   google_books  Learn C#
+       4  2026-07-31   google_books  The Endless Wars: Inferno!
+       2  2026-07-31   google_books  Moonfall Vol. 1-3
+       1  2026-07-28   comicvine     Shadow Hound Vol. 1-6
+
+    Errors seen:
+      3x  503 Server Error: Service Unavailable
+      1x  ConnectionError: connection aborted
+    ```
+
+    `runs` is how many separate harvests that title has failed in, and it
+    is the number that matters. A title sitting at 1 was unlucky; one
+    that climbs by one after every run is failing reproducibly, which
+    points at the query rather than at the network. The error tally
+    groups by kind, so a single cause behind many titles shows up as one
+    large count rather than as noise.
+
+    `harvest --runs` shows what each run cost:
+
+    ```
+    harvest runs, newest first
+
+    started           source        titles   live  failed   rate  quota
+    2026-07-31 21:25  google_books    1718    573     427    43%  spent
+    2026-07-31 21:25  hardcover       1320      7       0     0%
+    2026-07-31 21:25  oreilly         1214      0       0      -
+    ```
+
+    `titles` is how many that source resolved in the run, cache hits
+    included; `live` is how many it actually fetched; `rate` is the share
+    of live attempts that failed. `quota` marks a source whose daily
+    budget ran out during that run — and only then is its `rate` measured
+    against a full day's allowance, which is what makes google_books'
+    43% above a fair figure and not a sample of seven. A source that
+    attempted nothing live is served entirely from cache and shows `-`
+    rather than `0%`, which would claim it never fails; `oreilly` above
+    is finished, `hardcover` genuinely fetched seven titles without a
+    failure. `harvest --forget-runs` clears the history, which is capped
+    at the newest 500 runs regardless.
+
+    In practice: read `--runs` after a harvest to see whether the failure
+    rate is steady or climbing, and `--failures` once two or more runs
+    have happened to see whether the same titles keep coming back. A
+    steady rate with titles that rarely repeat is a source that is merely
+    slow, and it will finish. Titles whose `runs` count keeps rising are
+    a source that will never finish those particular titles, however many
+    days you give it.
+
+    **`harvest --failures` prints titles you own; `harvest --runs` does
+    not.** If you are pasting output into an issue or a message, the run
+    table is counts, source names and timestamps only.
   - `python -m humble_catalog enrich` - match items against the
     harvested cache and fill genre/series/ratings/narrator. Purely local,
     runs in seconds, safe to re-run as often as you like (e.g. after tuning
