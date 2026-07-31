@@ -637,10 +637,11 @@ def _keyed_conn(tmp_path):
     for name, key_type in (("Cinder Vale", "steam"),
                            ("Verdant Reach", "uplay")):
         conn.execute(
-            "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
-            "VALUES ('kv789', ?, ?, ?)",
-            (name, key_type, json.dumps({"human_name": name,
-                                         "key_type": key_type})))
+            "INSERT INTO external_keys "
+            "(gamekey, machine_name, human_name, key_type, raw) "
+            "VALUES ('kv789', ?, ?, ?, ?)",
+            (name.lower().replace(" ", "") + "_" + key_type, name, key_type,
+             json.dumps({"human_name": name, "key_type": key_type})))
     conn.commit()
     import_games.store_games(conn, "steam", [
         {"store_id": "440", "title": "Widget Quest",
@@ -714,9 +715,9 @@ def test_the_same_game_keyed_in_two_bundles_counts_once(tmp_path):
     try:
         conn.execute("INSERT INTO bundles (gamekey, name, url) VALUES "
                      "('kv790', 'Bundle One', 'https://example.invalid/kv790')")
-        conn.execute("INSERT INTO external_keys (gamekey, human_name, "
-                     "key_type, raw) VALUES ('kv790', 'Cinder Vale', "
-                     "'steam', NULL)")
+        conn.execute("INSERT INTO external_keys (gamekey, machine_name, "
+                     "human_name, key_type, raw) VALUES ('kv790', "
+                     "'cindervale_steam', 'Cinder Vale', 'steam', NULL)")
         conn.commit()
         tier = bundle_preview.preview(conn, _keyed_bundle())["tiers"][0]
     finally:

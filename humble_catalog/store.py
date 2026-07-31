@@ -59,7 +59,9 @@ def store_order(conn, raw):
                      (item_id, "humble", bundle["url"], ",".join(it["formats"])))
     for ext in externals:
         conn.execute(
-            "INSERT OR REPLACE INTO external_keys (gamekey, human_name, key_type, raw) "
-            "VALUES (?,?,?,?)",
-            (bundle["gamekey"], ext["human_name"], ext["key_type"], ext["raw"]))
+            "INSERT OR REPLACE INTO external_keys "
+            "(gamekey, machine_name, human_name, key_type, raw) "
+            "VALUES (?,?,?,?,?)",
+            (bundle["gamekey"], ext["machine_name"], ext["human_name"],
+             ext["key_type"], ext["raw"]))
     conn.commit()

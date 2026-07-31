@@ -22,8 +22,9 @@ CREATE TABLE IF NOT EXISTS downloads (
 CREATE INDEX IF NOT EXISTS ix_downloads_item_id ON downloads(item_id);
 CREATE TABLE IF NOT EXISTS external_keys (
   gamekey TEXT NOT NULL REFERENCES bundles(gamekey),
+  machine_name TEXT NOT NULL,
   human_name TEXT, key_type TEXT, raw TEXT,
-  PRIMARY KEY (gamekey, human_name));
+  PRIMARY KEY (gamekey, machine_name));
 CREATE TABLE IF NOT EXISTS enrichment (
   item_id INTEGER PRIMARY KEY REFERENCES items(id),
   genre TEXT, series TEXT, series_number REAL, authors TEXT, narrator TEXT,
@@ -465,6 +466,14 @@ def _migrate(conn):
         # older database simply starts with no run history.
         conn.execute("PRAGMA user_version = 11")
         conn.commit()
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 12:
+        # Re-keys external_keys on (gamekey, machine_name) and adds
+        # hidden_keys. As with migrations 7 and 9-11, executescript(SCHEMA)
+        # above has already created hidden_keys on this connection, so only
+        # external_keys needs rebuilding here.
+        _migrate_external_keys_to_machine_name(conn)
+        conn.execute("PRAGMA user_version = 12")
+        conn.commit()
 
 def _legacy_tags(value):
     """v1.4-era comma-joined string -> JSON-array string; None passes
@@ -561,6 +570,60 @@ def _migrate_cover_filenames(conn):
         conn.execute("UPDATE items SET cover_path=? WHERE id=?",
                      (new_cover_path, r["id"]))
     conn.commit()
+
+def _migrate_external_keys_to_machine_name(conn):
+    """Re-key external_keys from (gamekey, human_name) to (gamekey, machine_name).
+
+    The old key is not unique. Humble ships each storefront of a
+    multi-store product as its own tpk and every one carries the same
+    human_name, so store_order's INSERT OR REPLACE turned the violated
+    constraint into a silent last-write-wins. Measured on a 2,275-row
+    catalog: raw_orders holds 2,278 tpks, and in both collisions the
+    survivor was the less useful key -- one kept a gog key over the steam
+    one, the other an expired gift key over the steam one -- so the report
+    was checking two games against the wrong store's library.
+
+    A fresh database already has the new shape from SCHEMA, so the column
+    check makes this a no-op there; only a database written by an older
+    build is rebuilt. SQLite cannot alter a primary key, hence the copy.
+
+    Rows whose `raw` will not parse are skipped rather than aborting on
+    the NOT NULL column. No such row exists in the author's catalog --
+    all 2,278 tpks across 13 key types carry a machine_name -- but a
+    migration that leaves the database unopenable is the worst failure
+    available here, so the guard is cheap insurance against future data.
+
+    That guard has to be json_valid inside a CASE, not `json_extract(...)
+    IS NOT NULL`: json_extract RAISES on malformed JSON rather than
+    returning NULL, so the null test never gets the chance to filter and
+    one bad row takes down the whole migration. CASE is documented to
+    evaluate lazily, which a WHERE-clause AND is not, and the subquery
+    keeps the projection from re-evaluating it unguarded.
+
+    The three keys the old key already dropped are NOT recovered here:
+    they are not in the table being copied, only in raw_orders. keys.py
+    names them and points at `reparse`, which is the command that can.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(external_keys)")}
+    if "machine_name" in cols:
+        return
+    conn.executescript("""
+        CREATE TABLE external_keys_new (
+          gamekey TEXT NOT NULL REFERENCES bundles(gamekey),
+          machine_name TEXT NOT NULL,
+          human_name TEXT, key_type TEXT, raw TEXT,
+          PRIMARY KEY (gamekey, machine_name));
+        INSERT OR IGNORE INTO external_keys_new
+          (gamekey, machine_name, human_name, key_type, raw)
+          SELECT gamekey, mn, human_name, key_type, raw FROM (
+            SELECT gamekey, human_name, key_type, raw,
+                   CASE WHEN json_valid(raw)
+                        THEN json_extract(raw, '$.machine_name') END AS mn
+              FROM external_keys)
+           WHERE mn IS NOT NULL;
+        DROP TABLE external_keys;
+        ALTER TABLE external_keys_new RENAME TO external_keys;
+    """)
 
 def _rekey_without_secrets(query, secrets):
     """A cache key with its credential params removed, or itself unchanged.

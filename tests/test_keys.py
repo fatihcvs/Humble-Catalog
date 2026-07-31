@@ -19,14 +19,16 @@ def _conn(tmp_path, rows, library=(("steam", "Widget Quest"),),
                  "VALUES ('kv789', 'Humble Game Bundle: Key Vault', "
                  "'https://example.invalid/kv789', '2024-01-02T00:00:00')")
     for product, key_type, extra in rows:
+        machine = product.lower().replace(" ", "") + "_ex"
         raw = {"human_name": product, "key_type": key_type,
-               "machine_name": product.lower().replace(" ", "") + "_ex",
+               "machine_name": machine,
                "key_type_human_name": key_type.title()}
         raw.update(extra or {})
         conn.execute(
-            "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
-            "VALUES ('kv789', ?, ?, ?)",
-            (product, key_type, json.dumps(raw)))
+            "INSERT INTO external_keys "
+            "(gamekey, machine_name, human_name, key_type, raw) "
+            "VALUES ('kv789', ?, ?, ?, ?)",
+            (machine, product, key_type, json.dumps(raw)))
     conn.commit()
     for store in imported:
         games = [{"store_id": f"{store}-{n}", "title": title,
