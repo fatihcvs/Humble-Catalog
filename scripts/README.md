@@ -11,8 +11,9 @@ has one name everywhere. Pick the folder for your platform:
 The `.py` files in this directory are tools, not wrappers: `leak_check.py`
 is the privacy gate, `leak_check_history.py` is its counterpart for git
 history, `check_no_data_tracked.py` refuses to let data files be
-committed at all, the `capture_*.py` scripts record API fixtures, and
-`make_favicon.py` regenerates the viewer's icon. Its output is committed,
+committed at all, the `capture_*.py` scripts record API fixtures,
+`demo_catalog.py` serves the viewer against a throwaway catalog of
+invented titles, and `make_favicon.py` regenerates the viewer's icon. Its output is committed,
 so run it only after editing the palette; `favicon_tuner.html` is a
 browser tool for choosing those values (open it directly, it fetches
 nothing).
@@ -67,6 +68,18 @@ hidden and nothing in the console to explain it.
 
 **Port** defaults to 8087. Override with the `HUMBLE_PORT` environment
 variable, which `serve` and `stop` both honour.
+
+**`demo_catalog.py` serves invented data on port 8099**, deliberately
+not 8087 — `serve` uses that port and `stop` targets it, so a demo
+server there would be something `stop` silently kills. Use it for
+anything that produces an image. A viewer screenshot shows titles,
+counts, bundle names, ratings, tags and notes, and no automated check
+reads pixels: `leak_check.py` sees a PNG's compressed bytes and
+`check_no_data_tracked.py` filters paths, so a screenshot of the real
+library passes `verify` without complaint. Its database is a single
+file in the system temp directory, rebuilt on every run and never
+beside `catalog.db`, where a stray `demo.db` would fall outside
+`.gitignore`'s `catalog.db*` rule.
 
 **`setup` expects Python 3.12** (`py -3.12` on Windows, `python3.12`
 elsewhere). Edit the script if your interpreter is named differently.
