@@ -63,6 +63,7 @@ or fixtures that name books, bundles, or people.
 | Innkeeper’s Ledger / Innkeeper's Ledger | — | — | curly-vs-straight apostrophe pair |
 | Shadow Hound Vol. 1-6 | — | Example Comics | omnibus offered by a bundle against the owned *Shadow Hound Vol 1*; bundle-preview overlap example |
 | Moonfall Vol. 1-3 | — | — | second omnibus/volume overlap pair, against *MOONFALL, Vol. 1* |
+| Shadow Hound Vol 1 Bonus Art Pack | — | Example Comics | described in a bundle's `tier_item_data` but sold by no tier; bundle-preview phantom-item tests. Contains *Shadow Hound Vol 1*'s tokens, so `token_set_ratio` scores it 100 and it heads the overlap list if the exclusion regresses |
 
 ## Android / games / music
 
