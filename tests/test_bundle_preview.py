@@ -253,6 +253,74 @@ def test_overlap_threshold_is_local_and_not_borrowed_from_matching():
     assert bundle_preview.OVERLAP / 100 != matching.AUTO
 
 
+def _bundle_with_unsold(entry, machine_name="shadowhound_bonus_examplecomics"):
+    """The book fixture plus one tier_item_data entry no tier sells.
+
+    Real bundles carry these -- a bonus wallpaper, an art pack, an item
+    pulled from a tier after the page data was assembled. The game
+    fixture has one already ('bonuswallpaper_examplegames').
+    """
+    bundle = _bundle()
+    assert machine_name not in bundle["tier_item_data"]
+    bundle["tier_item_data"][machine_name] = entry
+    sold = {name for display in bundle["tier_display_data"].values()
+            for name in display["tier_item_machine_names"]}
+    assert machine_name not in sold          # the premise of every test below
+    return bundle
+
+
+# Scores 100.0 against the owned 'Shadow Hound Vol 1': token_set_ratio
+# returns a perfect score when one side's tokens are wholly contained in
+# the other's. Deliberate -- it outscores both genuine overlaps, so a
+# regression appears at the HEAD of the list rather than buried in it.
+_BONUS_BOOK = {"human_name": "Shadow Hound Vol 1 Bonus Art Pack",
+               "platforms_and_oses": {}}
+
+
+def test_an_item_no_tier_sells_is_never_an_overlap(tmp_path):
+    # tier_item_data is a metadata dict, not the item list. An entry no
+    # tier sells cannot be bought by buying this bundle, so hinting that
+    # part of it may already be owned answers a question nobody asked.
+    conn = _conn(tmp_path)
+    try:
+        report = bundle_preview.preview(conn, _bundle_with_unsold(_BONUS_BOOK))
+    finally:
+        conn.close()
+    assert all("Bonus Art Pack" not in o["offered"] for o in report["overlaps"])
+    assert [o["offered"] for o in report["overlaps"]] == [
+        "Shadow Hound Vol. 1-6", "Moonfall Vol. 1-3"]
+
+
+def test_an_item_no_tier_sells_does_not_change_any_count(tmp_path):
+    # The counts were already right -- they derive from tier_display_data.
+    # Pins that the fix stayed on the overlap list, which is the way this
+    # change could do damage.
+    conn = _conn(tmp_path)
+    try:
+        report = bundle_preview.preview(conn, _bundle_with_unsold(_BONUS_BOOK))
+    finally:
+        conn.close()
+    counted = [(t["total"], t["owned"], t["new"]) for t in report["tiers"]]
+    assert counted == [(6, 2, 4), (3, 2, 1), (1, 1, 0)]
+    assert report["game_matching"] is False
+
+
+def test_an_unsold_game_entry_is_not_matched_against_books(tmp_path):
+    # The cross-media half, and it fails for a different reason than the
+    # first test: game_names is accumulated by the tier walk, so a
+    # phantom is never in it and the `owned | game_names` exclusion could
+    # not name it. A game scored against the book catalog is exactly what
+    # preview's call-site comment says was fixed.
+    entry = {"human_name": "Shadow Hound Vol 1 Bonus Art Pack",
+             "platforms_and_oses": {"game": {"steam": ["windows"]}}}
+    conn = _conn(tmp_path)
+    try:
+        report = bundle_preview.preview(conn, _bundle_with_unsold(entry))
+    finally:
+        conn.close()
+    assert all("Bonus Art Pack" not in o["offered"] for o in report["overlaps"])
+
+
 def _http(text, status=200, ctype="text/html; charset=utf-8"):
     """A stub session whose one response carries `text`."""
     http = Mock()

@@ -91,11 +91,6 @@ its own; none is committed to.
   bundles that have closed, to see what was missed. The shipped feature
   aims at live purchase decisions and reports a dead page as a plain
   404.
-- **`_overlaps` hints about items no tier sells** — it iterates every
-  entry in `tier_item_data`, and a live bundle was observed carrying 13
-  entries while its only tier listed 12. The extra entry can therefore
-  surface as a possible overlap for something the bundle does not
-  actually offer. Pre-existing; noticed while adding game matching.
 - **GOG/Epic OAuth instead of Heroic's caches** (deferred from
   `specs/2026-07-25-game-library-ownership-design.md`) — talk to
   `auth.gog.com` and `galaxy-library.gog.com` directly rather than
@@ -194,6 +189,73 @@ worklist order; these are what is left.
   purchases can outrun a day's budget.
 
 ## Done (formerly on this list)
+
+- **`_overlaps` hinted about items no tier sells** —
+  `docs/superpowers/specs/2026-07-31-bundle-preview-unsold-overlaps-design.md`.
+  `preview` carried two notions of "the bundle's items" and `_overlaps`
+  read the wrong one. Every count, the `adds` lists, `game_names` and
+  `unmatched_stores` derive from `tier_display_data` — what a tier
+  actually sells — while `_overlaps` iterated `tier_item_data`, the
+  metadata dict, which also describes subproducts no tier lists. It was
+  the only *iterating* reader of that dict; every other consumer reaches
+  it by lookup, which is why nothing else was wrong and why nothing
+  caught this. `tier_item_data` now has no iterating reader at all.
+  **No count was ever wrong**, and a test pins that — the fix had to stay
+  on the overlap list, which is the way it could have done damage.
+  The open entry described a spare row. It was worse in two ways
+  measurement found. `game_names` is accumulated *by the tier walk*, so
+  a phantom is never in it and the `owned | game_names` exclusion was
+  structurally incapable of naming one: a phantom carrying
+  `platforms_and_oses` was scored against the **book** catalog, which is
+  precisely the cross-media invention the call site's own comment says
+  was fixed after being seen on a live bundle. The fix was complete for
+  sold items and empty for unsold ones. `game_matching` is derived from
+  the same walk, so that hint also printed with none of the "APPROXIMATE
+  — verify anything you would buy on" warning that exists to qualify it:
+  the least trustworthy hint in the report arrived with the least
+  attached.
+  And it is not a low-scoring curiosity. A subproduct whose title
+  *contains* an owned one — "Shadow Hound Vol 1 Bonus Art Pack" — scores
+  a perfect **100** under `token_set_ratio`, which returns 100 whenever
+  one side's token set is a subset of the other's. Bonus packs, deluxe
+  editions and art packs are exactly that shape, so the phantom sorts
+  **above** both genuine overlaps. The 90.0 cutoff cannot help: the
+  problem is not a weak score, it is the wrong question. That title is
+  the fixture the three new tests use, chosen so a regression is the
+  first line of the block rather than a row buried in it.
+  The fix is to collect the candidates *in the tier walk*, which already
+  decides both questions the two sets encoded, and hand `_overlaps` only
+  that dict — it loses both filter parameters. A `sold` set filter was
+  designed and rejected: two lines, provably result-preserving, and it
+  would have left **three** exclusion rules assembled by the caller and
+  re-applied by the callee, when the caller already had the answer as a
+  by-product of work it had to do anyway. That arrangement is what
+  produced the bug — `owned | game_names` was correct when written and
+  became incomplete the moment a third exclusion was needed, because
+  nothing about its shape said which items it was entitled to see. A
+  fourth would have failed the same way. Same reasoning as the hidden-keys
+  entry's chips partitioning by construction.
+  A dict and not a set, deliberately: `_overlaps` sorts by score and
+  Python's sort is stable, so tie order is input order, and set iteration
+  order of strings varies between processes under hash randomization —
+  the sort would have hidden that everywhere except on exact ties. Same
+  trap the worklist-order entry documents. Tie order does change, from
+  `tier_item_data`'s JSON order to the tier-walk order; both are
+  deterministic and both come from the parsed page.
+  One case decided and left alone: a name a tier sells that
+  `tier_item_data` does not describe is skipped, preserving today's
+  behaviour, so the collection is guarded on `name in items` rather than
+  on the surrounding loop's `items.get(name) or {}`. The counts fall back
+  to the bare `machine_name` there and are right to — counting must be
+  exhaustive. Hinting must not be: `shadowhound_vol1_examplecomics`
+  scored against real titles is a coin toss presented to a human as a
+  suspicion, and the list's whole value is that its members are worth
+  reading. Not observed live, and in neither fixture.
+  `tests/fixtures/game_bundle_data.json` had carried a phantom all along
+  — `bonuswallpaper_examplegames`, captured from a live bundle — and
+  `test_game_titles_never_produce_book_overlap_hints` passed only because
+  it scores 32.3 against the fixture catalog. It now passes for a
+  structural reason instead.
 
 - **Two locks over one connection in the harvest** — fixed 2026-07-31 (no
   spec; a bug the test suite coughed up once, in passing). Never on this
