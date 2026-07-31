@@ -393,7 +393,9 @@ These three work together: `import-games` is what gives `bundle` and
   what you have paid for and, as far as this can tell, never claimed. It
   prints the counts and the keys with an expiry date still ahead of them,
   which are the ones you can still lose; `--all` adds the undated ones
-  and the ones already expired. A key is matched only against **its own
+  and the ones already expired. Rows you have hidden in the viewer are
+  left out, behind a count; `--hidden` lists those instead, with the date
+  you hid each one. A key is matched only against **its own
   store** - a Steam key whose game sits in your GOG library is still an
   unactivated Steam key - and the match is **by title and approximate**,
   the same warning `bundle` carries, so treat a row as somewhere to look
@@ -403,8 +405,14 @@ These three work together: `import-games` is what gives `bundle` and
   any library" cannot be true or false there. Note also that Humble marks
   a key redeemed the moment its value is *revealed*, which says nothing
   about whether the game ever reached a store account - which is why the
-  report matches libraries instead of trusting that flag. Read-only:
-  nothing is written to the catalog.
+  report matches libraries instead of trusting that flag. The `keys`
+  command itself is read-only; the one thing that writes is **hiding** a
+  row, which is done from the viewer's Keys section and records your
+  assertion that wherever that key ended up, you know it is resolved.
+  A hide is per key rather than per game, so the same game keyed in two
+  bundles stays two rows - one may have landed and the other not - and
+  it survives `reset`, since no rebuild can recover what you know about
+  what happened off this machine.
 All data lives in `catalog.db` + `covers/` (both git-ignored).
 
 ## Development
