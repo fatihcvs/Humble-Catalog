@@ -79,6 +79,17 @@ ALLOWED = {t.lower() for t in [
     # sense, in the spec and in the source that computes the time.
     "Pacific",
     #
+    # Added 2026-07-31 after the history scan run before the hidden-keys
+    # merge. All three matched inside commit messages, and every hit is a
+    # substring of ordinary prose or of an identifier -- none is a
+    # reference to the library:
+    #   "Blek"        inside visi-BLEK-eys, i.e. the helper visibleKeys()
+    #   "The Outside" inside "what THE OUTSIDE world said"
+    #   "ustwo"       inside "untr-USTWO-rthy"
+    # History cannot be edited, so these have to be allowed rather than
+    # reworded; each is common enough that it would collide again.
+    "Blek", "The Outside", "ustwo",
+    #
     # House examples. "The Murderbot Diaries" is the article-carrying
     # variant of an entry already here, which the catalog stores in full.
     # Dune is famous public fiction used exactly as All Systems Red is —
