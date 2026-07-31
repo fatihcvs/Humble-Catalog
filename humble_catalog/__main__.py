@@ -56,14 +56,59 @@ def check_dependencies():
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="humble_catalog")
+    # The subcommands print in declaration order, so they are declared in
+    # the order you would run them: enrich matches against what harvest
+    # cached, and listing it first told a first-time reader to run the two
+    # backwards. The epilog says the same thing in words for anyone who
+    # reads the list as an alphabet of equals.
+    parser = argparse.ArgumentParser(
+        prog="humble_catalog",
+        description="Local searchable catalog of your HumbleBundle "
+                    "e-books, audiobooks and comics.",
+        epilog="Usual order: 'extract' to fetch your library, 'harvest' to "
+               "fill the metadata cache (slow and resumable - Google Books' "
+               "daily quota means several days), 'enrich' to match that "
+               "cache to your items (seconds), then 'serve' to browse. If "
+               "a source fills nothing, 'check' says whether its key works; "
+               "if a harvest is slow, 'harvest --failures' and 'harvest "
+               "--runs' say why. README.md has the detail.")
     sub = parser.add_subparsers(dest="command", required=True)
     p_extract = sub.add_parser("extract", help="Fetch owned bundles from HumbleBundle")
     p_extract.add_argument("--refetch", action="store_true",
                            help="Re-fetch all bundles, refreshing the cache")
     sub.add_parser("login", help="Open a browser to (re)log in to HumbleBundle")
     sub.add_parser("reparse", help="Re-classify items from the local cache (no network)")
-    p_enrich = sub.add_parser("enrich", help="Fill in metadata from external APIs")
+    p_harvest = sub.add_parser(
+        "harvest",
+        help="Fetch all external sources in parallel into the cache "
+             "(run once; resumable)",
+        description="Fetches every relevant metadata source for every book "
+                    "and comic into the local cache. Hours, and Google "
+                    "Books' daily quota means several days - but it is "
+                    "resumable, so rerunning picks up where it stopped. "
+                    "--failures, --runs and --forget-runs do not harvest: "
+                    "they read the database and exit, spending no requests "
+                    "and no quota.")
+    p_harvest.add_argument("--ignore-quota", action="store_true",
+                           help="Retry sources recorded as out of quota "
+                                "instead of serving them from cache (use "
+                                "after adding a key with a bigger allowance)")
+    p_harvest.add_argument("--failures", action="store_true",
+                           help="List titles that failed in past runs, most "
+                                "persistent first, and exit without "
+                                "harvesting (prints titles you own)")
+    p_harvest.add_argument("--runs", action="store_true",
+                           help="Show what each past run cost - titles, live "
+                                "requests, failure rate - and exit")
+    p_harvest.add_argument("--forget-runs", action="store_true",
+                           help="Delete the recorded run history and exit")
+    p_enrich = sub.add_parser(
+        "enrich", help="Fill in metadata from external APIs",
+        description="Matches items against the harvested cache and fills "
+                    "genre, series, ratings and narrator. Purely local and "
+                    "quick, so it is safe to re-run whenever the matcher "
+                    "changes. Run 'harvest' first: with an empty cache "
+                    "there is nothing to match against.")
     p_enrich.add_argument("--retry", action="store_true",
                           help="Also reprocess items that previously found no match")
     p_enrich.add_argument("--reset", action="store_true",
@@ -78,25 +123,9 @@ def main():
     p_enrich.add_argument("--credits", action="store_true",
                           help="Fill writer/illustrator for matched comics "
                                "(Comic Vine top-up; resumable)")
-    p_harvest = sub.add_parser("harvest",
-                               help="Fetch all external sources in parallel "
-                                    "into the cache (run once; resumable)")
-    p_harvest.add_argument("--ignore-quota", action="store_true",
-                           help="Retry sources recorded as out of quota "
-                                "instead of serving them from cache (use "
-                                "after adding a key with a bigger allowance)")
-    p_harvest.add_argument("--failures", action="store_true",
-                           help="List titles that failed in past runs, most "
-                                "persistent first, and exit without "
-                                "harvesting")
-    p_harvest.add_argument("--runs", action="store_true",
-                           help="Show what each past run cost - titles, live "
-                                "requests, failure rate - and exit")
-    p_harvest.add_argument("--forget-runs", action="store_true",
-                           help="Delete the recorded run history and exit")
     sub.add_parser("reset", help="Wipe the derived catalog for a clean "
-                                 "rebuild (keeps downloads, covers, and your "
-                                 "ratings/tags/comments)")
+                                 "rebuild (keeps downloads, covers, harvest "
+                                 "history, and your ratings/tags/comments)")
     sub.add_parser("check", help="Test each metadata API (and its key) with "
                                  "one live search")
     sub.add_parser("stats", help="Report what is in the catalog: counts by "
@@ -143,7 +172,15 @@ def main():
         help="Also restore the cover archive paired with that snapshot")
     p_bundle = sub.add_parser(
         "bundle",
-        help="Show how much of a live bundle you already own, per tier")
+        help="Show how much of a live bundle you already own, per tier",
+        description="Shows, for each tier, how many items you already own "
+                    "and which titles that tier adds over the cheaper ones. "
+                    "Books are matched exactly, by the same internal id "
+                    "your catalog stores. Games are matched by title and "
+                    "only approximately, so treat the game counts as a "
+                    "strong hint and check anything you would base a "
+                    "purchase on. Run 'import-games' first or every game "
+                    "reads as new. Read-only, and needs no login.")
     p_bundle.add_argument(
         "url", help="A humblebundle.com bundle page URL")
     sub.add_parser(
@@ -153,7 +190,13 @@ def main():
     p_keys = sub.add_parser(
         "keys",
         help="Report Humble store keys whose game is in no imported "
-             "library -- probably never claimed")
+             "library -- probably never claimed",
+        description="Lists store keys from past bundles whose game appears "
+                    "in none of the libraries you have imported. Run "
+                    "'import-games' first, or every key looks unclaimed. A "
+                    "key is checked only against its own store, and by "
+                    "title and approximately, so treat a row as somewhere "
+                    "to look rather than a verdict. Read-only.")
     p_keys.add_argument(
         "--all", action="store_true",
         help="Also list the keys with no expiry date and the ones that "

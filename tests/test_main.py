@@ -320,3 +320,17 @@ def test_keys_all_lists_the_undated_rows(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(sys, "argv", ["humble_catalog", "keys", "--all"])
     main()
     assert "Cinder Vale" in capsys.readouterr().out
+
+def test_help_lists_the_pipeline_in_the_order_you_run_it(monkeypatch, capsys):
+    # argparse prints subcommands in declaration order, and enrich matches
+    # against what harvest cached - so listing enrich first told a
+    # first-time reader to run the two backwards. Pinned because the
+    # ordering is a property of where a parser happens to be declared,
+    # which the next subcommand added could silently disturb.
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "--help"])
+    with pytest.raises(SystemExit):
+        main()
+    out = capsys.readouterr().out
+    assert out.index("\n    extract") < out.index("\n    harvest")
+    assert out.index("\n    harvest") < out.index("\n    enrich")
+    assert out.index("\n    enrich") < out.index("\n    serve")
