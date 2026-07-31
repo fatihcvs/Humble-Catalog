@@ -151,3 +151,29 @@ def test_reset_keeps_the_observation_tables(tmp_path):
     for table in ("source_cache", "source_failure", "harvest_run"):
         assert conn.execute(
             f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1, table
+
+
+def test_reset_keeps_hidden_keys_but_wipes_external_ones(tmp_path):
+    # A hide is knowledge about what happened beyond this machine -- which
+    # account a key was redeemed on, who a gift went to -- and no rebuild
+    # can recover it. Dedupe dismissals can afford to be wiped because a
+    # rebuild re-derives the pairs from data still on disk; this cannot,
+    # so wiping it would refill the report with rows already resolved.
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("INSERT INTO bundles (gamekey, name, url) VALUES "
+                 "('kv789', 'Humble Game Bundle: Key Vault', "
+                 "'https://example.invalid/kv789')")
+    conn.execute("INSERT INTO external_keys "
+                 "(gamekey, machine_name, human_name, key_type, raw) "
+                 "VALUES ('kv789', 'twinlantern_steam', 'Twin Lantern', "
+                 "'steam', '{}')")
+    conn.execute("INSERT INTO hidden_keys (gamekey, machine_name, hidden_at) "
+                 "VALUES ('kv789', 'twinlantern_steam', "
+                 "'2026-07-31T00:00:00+00:00')")
+    conn.commit()
+    reset.run(_conn=conn, _input=lambda _prompt: "RESET")
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM external_keys").fetchone()["c"] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM hidden_keys").fetchone()["c"] == 1
+    conn.close()

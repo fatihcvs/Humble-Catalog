@@ -7,26 +7,34 @@ NOW = dt.datetime(2026, 7, 30, tzinfo=dt.timezone.utc)
 
 
 def _conn(tmp_path, rows, library=(("steam", "Widget Quest"),),
-          imported=("steam",)):
+          imported=("steam",), hidden=()):
     """A catalog holding `rows` as keys and `library` as imported games.
 
     `rows` is [(product, key_type, raw_extra)]; raw_extra is merged into
     the stored blob, so a test names only the fields it cares about.
-    Every key belongs to one invented bundle.
+    Every key belongs to one invented bundle. `hidden` names the products
+    the owner has marked resolved.
     """
     conn = db.connect(tmp_path / "catalog.db")
     conn.execute("INSERT INTO bundles (gamekey, name, url, purchased_at) "
                  "VALUES ('kv789', 'Humble Game Bundle: Key Vault', "
                  "'https://example.invalid/kv789', '2024-01-02T00:00:00')")
     for product, key_type, extra in rows:
+        machine = product.lower().replace(" ", "") + "_ex"
         raw = {"human_name": product, "key_type": key_type,
-               "machine_name": product.lower().replace(" ", "") + "_ex",
+               "machine_name": machine,
                "key_type_human_name": key_type.title()}
         raw.update(extra or {})
         conn.execute(
-            "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
-            "VALUES ('kv789', ?, ?, ?)",
-            (product, key_type, json.dumps(raw)))
+            "INSERT INTO external_keys "
+            "(gamekey, machine_name, human_name, key_type, raw) "
+            "VALUES ('kv789', ?, ?, ?, ?)",
+            (machine, product, key_type, json.dumps(raw)))
+    for product in hidden:
+        conn.execute(
+            "INSERT INTO hidden_keys (gamekey, machine_name, hidden_at) "
+            "VALUES ('kv789', ?, '2026-07-31T00:00:00+00:00')",
+            (product.lower().replace(" ", "") + "_ex",))
     conn.commit()
     for store in imported:
         games = [{"store_id": f"{store}-{n}", "title": title,
@@ -244,13 +252,20 @@ def test_expiring_counts_only_rows_that_can_still_be_lost(tmp_path):
         conn.close()
 
 
-def _text(tmp_path, rows, show_all=False, **kw):
-    conn = _conn(tmp_path, rows, **kw)
+def _text(tmp_path, rows, show_all=False, hidden=False, marked=(), **kw):
+    """format_report's output for a catalog built from `rows`.
+
+    **kw goes to _conn (library, imported). `marked` names the products
+    the owner has hidden, and is kept separate from format_report's own
+    `hidden` flag, which selects the hidden listing rather than the
+    report -- one call cannot pass the same keyword to both.
+    """
+    conn = _conn(tmp_path, rows, hidden=marked, **kw)
     try:
         report = keys.report(conn, now=NOW)
     finally:
         conn.close()
-    return keys.format_report(report, show_all=show_all)
+    return keys.format_report(report, show_all=show_all, hidden=hidden)
 
 
 def test_the_summary_line_accounts_for_every_key(tmp_path):
@@ -354,3 +369,188 @@ def test_a_row_carries_its_bundle_url(tmp_path):
     # format would be a thing to keep in step for no gain.
     rows = _rows(tmp_path, [("Cinder Vale", "steam", None)])
     assert rows[0]["bundle_url"] == "https://example.invalid/kv789"
+
+
+def test_a_hidden_row_is_annotated_not_removed(tmp_path):
+    # report() annotates and never filters: the CLI and the viewer then
+    # filter the same field, so they cannot disagree about what is hidden.
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)],
+                 hidden=["Cinder Vale"])
+    try:
+        rows = keys.report(conn, now=NOW)["rows"]
+        assert len(rows) == 1
+        assert rows[0]["hidden_at"] == "2026-07-31T00:00:00+00:00"
+    finally:
+        conn.close()
+
+
+def test_an_unhidden_row_has_no_hidden_at(tmp_path):
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)])
+    try:
+        assert keys.report(conn, now=NOW)["rows"][0]["hidden_at"] is None
+    finally:
+        conn.close()
+
+
+def test_hiding_does_not_change_the_state_counts(tmp_path):
+    # Hidden is an annotation on the server, not a fourth state: `counts`
+    # must keep partitioning every key. The viewer's fourth chip is a
+    # display choice that does not travel back across the route.
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    plain = _states(tmp_path / "a", [("Cinder Vale", "steam", None)])
+    hid = _states(tmp_path / "b", [("Cinder Vale", "steam", None)],
+                  hidden=["Cinder Vale"])
+    assert plain == hid
+    assert hid["unredeemed"] == 1
+
+
+def test_expiring_ignores_a_hidden_row(tmp_path):
+    # The sibling of the tab badge. A hide that silences the row but
+    # leaves the badge lit has not stopped the row reappearing.
+    rows = [("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"})]
+    conn = _conn(tmp_path, rows, hidden=["Amber Hollow"])
+    try:
+        assert keys.report(conn, now=NOW)["expiring"] == 0
+    finally:
+        conn.close()
+
+
+def test_stale_hides_counts_a_hide_whose_key_is_gone(tmp_path):
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)],
+                 hidden=["Cinder Vale"])
+    try:
+        assert keys.report(conn, now=NOW)["stale_hides"] == 0
+        conn.execute("DELETE FROM external_keys")
+        conn.commit()
+        assert keys.report(conn, now=NOW)["stale_hides"] == 1
+    finally:
+        conn.close()
+
+
+def test_a_hide_on_a_matched_key_is_not_stale(tmp_path):
+    # The reason stale_hides is its own query rather than "hides minus
+    # hidden rows shown": a matched key is not in `rows` either, so the
+    # cheap derivation would call this stale and be wrong.
+    conn = _conn(tmp_path, [("Widget Quest", "steam", None)],
+                 hidden=["Widget Quest"])
+    try:
+        built = keys.report(conn, now=NOW)
+        assert built["counts"]["matched"] == 1
+        assert built["rows"] == []
+        assert built["stale_hides"] == 0
+    finally:
+        conn.close()
+
+
+def test_missing_keys_names_what_the_old_primary_key_dropped(tmp_path):
+    # Non-zero only until the first reparse after the re-key. Reported
+    # here rather than from the migration because db.py never prints, and
+    # because a line in the report the owner already reads self-clears
+    # once they reparse, where a one-shot message can be missed forever.
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        order = {"gamekey": "kv789", "tpkd_dict": {"all_tpks": [
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_ex"},
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_gog"},
+            {"human_name": "Hollowmere", "machine_name": "hollowmere_gog"},
+        ]}}
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('kv789', '2026-07-31T00:00:00', ?)",
+                     (json.dumps(order),))
+        conn.commit()
+        assert keys.report(conn, now=NOW)["missing_keys"] == [
+            {"product": "Hollowmere", "lost": 1},
+            {"product": "Twin Lantern", "lost": 1}]
+    finally:
+        conn.close()
+
+
+def test_missing_keys_is_empty_when_every_tpk_is_stored(tmp_path):
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        order = {"gamekey": "kv789", "tpkd_dict": {"all_tpks": [
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_ex"}]}}
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('kv789', '2026-07-31T00:00:00', ?)",
+                     (json.dumps(order),))
+        conn.commit()
+        assert keys.report(conn, now=NOW)["missing_keys"] == []
+    finally:
+        conn.close()
+
+
+def test_missing_keys_tolerates_an_order_with_no_keys(tmp_path):
+    # json_each(NULL) yields no rows, so an order without tpkd_dict needs
+    # no guard -- verified against SQLite 3.49.
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('abc123', '2026-07-31T00:00:00', '{}')")
+        conn.commit()
+        assert keys.report(conn, now=NOW)["missing_keys"] == []
+    finally:
+        conn.close()
+
+
+def test_the_default_report_omits_hidden_rows_and_says_how_many(tmp_path):
+    rows = [("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"}),
+            ("Cinder Vale", "steam", {"expiry_date": "2026-08-12T00:00:00"})]
+    text = _text(tmp_path, rows, marked=["Cinder Vale"])
+    assert "Amber Hollow" in text
+    assert "Cinder Vale" not in text
+    assert "1 hidden" in text
+
+
+def test_hidden_lists_the_hidden_rows_with_their_date(tmp_path):
+    rows = [("Amber Hollow", "steam", {"expiry_date": "2026-08-11T00:00:00"}),
+            ("Cinder Vale", "steam", None)]
+    text = _text(tmp_path, rows, marked=["Cinder Vale"], hidden=True)
+    assert "Cinder Vale" in text
+    assert "2026-07-31" in text
+    assert "Amber Hollow" not in text
+
+
+def test_hidden_says_so_when_nothing_is_hidden(tmp_path):
+    text = _text(tmp_path, [("Cinder Vale", "steam", None)], hidden=True)
+    assert "No keys are hidden." in text
+
+
+def test_hidden_reports_the_hides_whose_key_is_gone(tmp_path):
+    conn = _conn(tmp_path, [("Cinder Vale", "steam", None)],
+                 hidden=["Cinder Vale"])
+    try:
+        conn.execute("DELETE FROM external_keys")
+        conn.commit()
+        text = keys.format_report(keys.report(conn, now=NOW), hidden=True)
+        assert "1 hide" in text
+        assert "reparse" in text
+    finally:
+        conn.close()
+
+
+def test_the_report_names_the_products_whose_keys_are_missing(tmp_path):
+    conn = _conn(tmp_path, [("Twin Lantern", "steam", None)])
+    try:
+        order = {"gamekey": "kv789", "tpkd_dict": {"all_tpks": [
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_ex"},
+            {"human_name": "Twin Lantern", "machine_name": "twinlantern_gog"},
+        ]}}
+        conn.execute("INSERT INTO raw_orders (gamekey, fetched_at, json) "
+                     "VALUES ('kv789', '2026-07-31T00:00:00', ?)",
+                     (json.dumps(order),))
+        conn.commit()
+        text = keys.format_report(keys.report(conn, now=NOW))
+        assert "Twin Lantern (1)" in text
+        assert "reparse" in text
+    finally:
+        conn.close()
+
+
+def test_a_single_uncheckable_key_reads_as_one_key(tmp_path):
+    # "1 keys are" -- the same slip as the bundle preview's "1 items",
+    # which no test caught and a browser did. Caught here by reading the
+    # real output while building the hidden listing.
+    text = _text(tmp_path, [("Verdant Reach", "uplay", None)])
+    assert "1 key is for stores with no importer" in text
+    assert "1 keys are" not in text

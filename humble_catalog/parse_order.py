@@ -29,6 +29,11 @@ def parse_order(raw):
         })
     externals = [
         {"human_name": tpk.get("human_name"),
+         # Subscripted, not .get()'d: every tpk in the catalog carries one
+         # (2,278 of 2,278, across 13 key types), and the column is NOT
+         # NULL. A malformed order should raise where it is parsed, not
+         # write a NULL that fails a constraint two layers later.
+         "machine_name": tpk["machine_name"],
          "key_type": tpk.get("key_type"),
          "raw": json.dumps(tpk)}
         for tpk in (raw.get("tpkd_dict") or {}).get("all_tpks", [])

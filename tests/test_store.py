@@ -115,3 +115,23 @@ def test_tombstoned_item_relinks_instead_of_resurrecting(tmp_path):
                          (kept_id,)).fetchone()["c"]
     assert links == 1
     assert conn.execute("SELECT COUNT(*) c FROM downloads").fetchone()["c"] == 0
+
+
+def test_two_keys_for_one_product_both_survive(tmp_path):
+    # Humble ships each storefront of a multi-store product as its own
+    # tpk, all sharing one human_name. The old (gamekey, human_name)
+    # primary key made INSERT OR REPLACE drop every one but the last, and
+    # the survivor was whichever came last in all_tpks -- so the report
+    # could end up checking a game against the wrong store's library.
+    conn = db.connect(tmp_path / "t.db")
+    raw = _raw()
+    raw["tpkd_dict"] = {"all_tpks": [
+        {"human_name": "Twin Lantern", "machine_name": "twinlantern_steam",
+         "key_type": "steam"},
+        {"human_name": "Twin Lantern", "machine_name": "twinlantern_gog",
+         "key_type": "gog"},
+    ]}
+    store_order(conn, raw)
+    got = {r["machine_name"] for r in
+           conn.execute("SELECT machine_name FROM external_keys")}
+    assert got == {"twinlantern_steam", "twinlantern_gog"}

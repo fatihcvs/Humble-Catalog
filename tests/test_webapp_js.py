@@ -1212,8 +1212,8 @@ def test_active_filter_remove_buttons_avoid_the_tag_x_class():
 
 
 _KEY_PAYLOAD = """{
-  total: 4, reported: 3, expiring: 1,
-  counts: {matched: 1, unredeemed: 1, uncertain: 1, uncheckable: 1},
+  total: 5, reported: 4, expiring: 1, stale_hides: 0, missing_keys: [],
+  counts: {matched: 1, unredeemed: 2, uncertain: 1, uncheckable: 1},
   libraries: {steam: {count: 2, imported_at: "2026-07-25T00:00:00"}},
   rows: [
     {product: "Amber Hollow", machine_name: "amberhollow_ex", gamekey: "kv789",
@@ -1222,19 +1222,27 @@ _KEY_PAYLOAD = """{
      bundle_url: "https://example.invalid/kv789",
      purchased_at: "2024-01-02T00:00:00", expires: "2099-08-11T00:00:00+00:00",
      expired: false, days_left: 12, revealed: true, state: "unredeemed",
-     near_match: null},
+     hidden_at: null, near_match: null},
     {product: "Starfall Rally Turbo", machine_name: "srt_ex", gamekey: "kv789",
      store: "steam", key_type_label: "Steam",
      bundle: "Humble Game Bundle: Key Vault",
      bundle_url: "https://example.invalid/kv789", purchased_at: null,
      expires: null, expired: false, days_left: null, revealed: false,
-     state: "uncertain", near_match: {owned_title: "Starfall Rally", score: 0.86}},
+     state: "uncertain", hidden_at: null,
+     near_match: {owned_title: "Starfall Rally", score: 0.86}},
     {product: "Verdant Reach", machine_name: "verdantreach_ex", gamekey: "kv789",
      store: "uplay", key_type_label: "Uplay",
      bundle: "Humble Game Bundle: Key Vault", bundle_url: null,
      purchased_at: null,
      expires: null, expired: false, days_left: null, revealed: false,
-     state: "uncheckable", near_match: null}
+     state: "uncheckable", hidden_at: null, near_match: null},
+    {product: "Cinder Vale", machine_name: "cindervale_ex", gamekey: "kv789",
+     store: "steam", key_type_label: "Steam",
+     bundle: "Humble Game Bundle: Key Vault",
+     bundle_url: "https://example.invalid/kv789", purchased_at: null,
+     expires: null, expired: false, days_left: null, revealed: true,
+     state: "unredeemed", hidden_at: "2026-07-31T00:00:00+00:00",
+     near_match: null}
   ]
 }"""
 
@@ -1323,3 +1331,82 @@ def test_the_key_table_gets_its_own_scrollport():
     # rows must scroll inside the section rather than growing the page.
     html = _with_keys('(app.renderKeys(), dom.writes["#keys-panel"])')
     assert '<div id="key-table-wrap">' in html
+
+
+def test_a_hidden_row_is_not_shown_by_default():
+    # Being off by default is the entire point of hiding.
+    shown = _with_keys('app.shownKeys().map((r) => r.product)')
+    assert shown == ["Amber Hollow", "Starfall Rally Turbo"]
+
+
+def test_the_hidden_chip_shows_the_hidden_rows():
+    shown = _with_keys("""(() => {
+      app.setKeyStates(["hidden"]);
+      return app.shownKeys().map((r) => r.product);
+    })()""")
+    assert shown == ["Cinder Vale"]
+
+
+def test_a_hidden_row_keeps_its_underlying_state_in_the_table():
+    # Only chip membership changes. Nothing about WHY the row was reported
+    # is lost from the display -- the State column still says it.
+    html = _with_keys("""(() => {
+      app.setKeyStates(["hidden"]);
+      app.renderKeys();
+      return dom.writes["#keys-panel"];
+    })()""")
+    assert "Cinder Vale" in html
+    assert "Not in a library" in html
+
+
+def test_every_chip_count_equals_the_rows_it_delivers():
+    # The statistics panel shipped a row reading "Unmatched 4" that jumped
+    # to 8 rows. Counting by displayState makes the four chips partition
+    # the reported rows, so this holds by construction rather than by
+    # anyone remembering the rule.
+    pairs = _with_keys("""(() => {
+      const counts = app.keyChipCounts();
+      const out = {};
+      for (const s of Object.keys(counts)) {
+        app.setKeyStates([s]);
+        out[s] = [counts[s], app.shownKeys().length];
+      }
+      return out;
+    })()""")
+    assert pairs, "no chips counted"
+    for state, (promised, delivered) in pairs.items():
+        assert promised == delivered, state
+
+
+def test_the_chip_counts_partition_every_reported_row():
+    total = _with_keys("""(() => {
+      const counts = app.keyChipCounts();
+      app.setKeyStates(app.KEY_STATES.map((s) => s.state));
+      return [Object.values(counts).reduce((a, b) => a + b, 0),
+              app.shownKeys().length];
+    })()""")
+    assert total[0] == total[1] == 4
+
+
+def test_the_keys_badge_ignores_hidden_rows():
+    # A hide that silences the row but leaves the badge lit has not
+    # stopped the row reappearing.
+    written = _with_keys("""(() => {
+      dom.reset();
+      app.setPending({keys: app.keysExpiring()});
+      app.renderBadges();
+      return dom.writes["#tab-keys .badge-count:text"];
+    })()""")
+    assert written == "1"
+
+
+def test_the_table_offers_hide_and_unhide():
+    html = _with_keys("""(() => {
+      app.setKeyStates(["unredeemed", "uncertain", "uncheckable", "hidden"]);
+      app.renderKeys();
+      return dom.writes["#keys-panel"];
+    })()""")
+    assert "key-hide" in html
+    assert ">hide</button>" in html
+    assert ">unhide</button>" in html
+    assert "2026-07-31" in html

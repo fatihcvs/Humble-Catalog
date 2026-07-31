@@ -130,28 +130,43 @@ Two guards on the copy.
 database unopenable, which is the worst failure available here. No such
 row exists in this catalog; the guard is against future data.
 
-**The migration reports what is still missing.** The three dropped keys
-are *not* in `external_keys` and cannot be recovered by a migration that
-copies it — they exist only in `raw_orders`. The migration therefore
-counts them, in plain SQL (`json_each` over
-`$.tpkd_dict.all_tpks`, minus the pairs now in the migrated table), so
-the number is derived rather than hardcoded, and names the affected
-products so the owner can see which store went missing.
+**The migration stays silent, and the report speaks instead.** The three
+dropped keys are *not* in `external_keys` and cannot be recovered by a
+migration that copies it — they exist only in `raw_orders`. So they must
+be reported rather than fixed.
 
-That is **one** query — a row-value `NOT IN` against the migrated table,
-grouped by `human_name` — measured at 33 ms on this catalog, returning
-the right two products and three keys. Worth stating because it was
-nearly cut from this design as over-engineering, on a guess that a set
-difference inside a migration would be costly. It is not, and naming the
-products is what makes the message actionable rather than a number the
-owner cannot check.
+The first draft of this spec had the migration print them. **That is not
+possible**, discovered while planning: `db.py` contains no `print` at
+all, and `connect()` runs in every command, in every test, and once per
+thread in the viewer. A message there would land in the middle of a
+harvest progress bar and in every test's captured stdout.
+
+It moves to `keys.report()`/`format_report()` — which is the better home
+regardless. A one-shot migration message can be missed forever; a line
+in the report the owner already reads self-clears the moment they
+`reparse`:
 
 ```
-external_keys: 2,275 rows carried over, machine_name extracted
-  3 keys were dropped by the old primary key and are still missing:
-    Twin Lantern (2), Hollowmere (1)
-  Run 'reparse' to recover them.
+  3 keys in your orders are missing from the catalog: Twin Lantern (2),
+  Hollowmere (1). Run 'reparse' to recover them.
 ```
+
+The query is **one** row-value `NOT IN` against `external_keys`, grouped
+by `human_name`, measured at 33 ms on this catalog and returning the
+right two products and three keys. Worth stating because it was nearly
+cut as over-engineering, on a guess that a set difference would be
+costly. It is not, and naming the products is what makes the line
+actionable rather than a number the owner cannot check.
+
+The migration's own guard needed a correction that only testing found.
+Skipping an unparseable blob cannot be written
+`WHERE json_extract(raw, '$.machine_name') IS NOT NULL`: `json_extract`
+**raises** on malformed JSON rather than returning NULL, so the null test
+never gets the chance to filter and one bad row takes down the whole
+migration — the exact failure the guard exists to prevent. It is
+`json_valid` inside a `CASE`, which is documented to evaluate lazily
+where a `WHERE`-clause `AND` is not, with the projection wrapped in a
+subquery so it cannot re-evaluate unguarded.
 
 The migration deliberately does **not** re-derive `external_keys` from
 `raw_orders` itself. Its job is to change the table's shape, not to
@@ -210,6 +225,9 @@ fields" argument shrinks to three and is updated to say so.
 - **`hidden_at`** on every reported row — an ISO string, or `None`.
   Rows are **not** filtered here.
 - **`stale_hides`** — the count above.
+- **`missing_keys`** — the products whose tpks are in `raw_orders` but
+  not in `external_keys`, most-lost first. See the migration section
+  above for why it lives here rather than in migration 12.
 
 There is deliberately no `hidden` count in the payload. `format_report`
 counts `rows` itself and the viewer computes its own chip counts, so a

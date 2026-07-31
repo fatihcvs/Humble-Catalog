@@ -1534,8 +1534,9 @@ def test_api_keys_matches_the_report_over_the_same_db(tmp_path):
                  "VALUES ('kv789', 'Humble Game Bundle: Key Vault', "
                  "'https://example.invalid/kv789', '2024-01-02T00:00:00')")
     conn.execute(
-        "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
-        "VALUES ('kv789', 'Cinder Vale', 'steam', ?)",
+        "INSERT INTO external_keys "
+        "(gamekey, machine_name, human_name, key_type, raw) "
+        "VALUES ('kv789', 'cindervale_ex', 'Cinder Vale', 'steam', ?)",
         (json.dumps({"human_name": "Cinder Vale", "key_type": "steam",
                      "machine_name": "cindervale_ex"}),))
     conn.commit()
@@ -1557,3 +1558,102 @@ def test_api_keys_of_an_empty_catalog_is_well_formed(tmp_path):
     assert body["rows"] == []
     assert set(body["counts"]) == {
         "matched", "unredeemed", "uncertain", "uncheckable"}
+
+
+def _keyed_db(tmp_path, hidden=()):
+    """A catalog with one bundle and one steam key, plus any hides."""
+    dbp = tmp_path / "t.db"
+    conn = db.connect(dbp)
+    conn.execute("INSERT INTO bundles (gamekey, name, url) VALUES "
+                 "('kv789', 'Humble Game Bundle: Key Vault', "
+                 "'https://example.invalid/kv789')")
+    conn.execute("INSERT INTO external_keys "
+                 "(gamekey, machine_name, human_name, key_type, raw) "
+                 "VALUES ('kv789', 'cindervale_steam', 'Cinder Vale', "
+                 "'steam', '{}')")
+    for machine in hidden:
+        conn.execute(
+            "INSERT INTO hidden_keys (gamekey, machine_name, hidden_at) "
+            "VALUES ('kv789', ?, '2026-07-31T00:00:00+00:00')", (machine,))
+    conn.commit()
+    conn.close()
+    return dbp
+
+
+def _hides(dbp):
+    conn = db.connect(dbp)
+    try:
+        return [(r["machine_name"], r["hidden_at"]) for r in
+                conn.execute("SELECT machine_name, hidden_at FROM hidden_keys")]
+    finally:
+        conn.close()
+
+
+def test_hiding_a_key_records_it(tmp_path):
+    dbp = _keyed_db(tmp_path)
+    client = create_app(db_path=str(dbp)).test_client()
+    resp = client.post("/api/keys/hide", json={
+        "gamekey": "kv789", "machine_name": "cindervale_steam"})
+    assert resp.status_code == 200
+    (machine, hidden_at), = _hides(dbp)
+    assert machine == "cindervale_steam"
+    # Stamped server-side, so a wrong client clock cannot write a wrong date.
+    assert hidden_at.startswith("20")
+
+
+def test_hiding_twice_keeps_the_first_timestamp(tmp_path):
+    # The date answers "when did I decide this"; a second click is not a
+    # second decision, so INSERT OR IGNORE rather than OR REPLACE.
+    dbp = _keyed_db(tmp_path)
+    client = create_app(db_path=str(dbp)).test_client()
+    body = {"gamekey": "kv789", "machine_name": "cindervale_steam"}
+    client.post("/api/keys/hide", json=body)
+    first = _hides(dbp)[0][1]
+    client.post("/api/keys/hide", json=body)
+    assert _hides(dbp)[0][1] == first
+
+
+def test_hiding_an_unknown_key_is_rejected(tmp_path):
+    dbp = _keyed_db(tmp_path)
+    client = create_app(db_path=str(dbp)).test_client()
+    resp = client.post("/api/keys/hide", json={
+        "gamekey": "kv789", "machine_name": "no_such_steam"})
+    assert resp.status_code == 400
+    assert _hides(dbp) == []
+
+
+def test_hiding_needs_both_identifiers(tmp_path):
+    dbp = _keyed_db(tmp_path)
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post("/api/keys/hide", json={}).status_code == 400
+    assert client.post("/api/keys/hide",
+                       json={"gamekey": "kv789"}).status_code == 400
+    assert client.post("/api/keys/hide", json={
+        "gamekey": "kv789", "machine_name": ""}).status_code == 400
+
+
+def test_unhiding_works_on_a_hide_whose_key_is_gone(tmp_path):
+    # Deliberately asymmetric with hide. Requiring the key to exist would
+    # make exactly the stale hides un-unhideable -- and every hide is
+    # stale straight after a reset, which is when they most need removing.
+    dbp = _keyed_db(tmp_path, hidden=["ghost_steam"])
+    client = create_app(db_path=str(dbp)).test_client()
+    resp = client.post("/api/keys/unhide", json={
+        "gamekey": "kv789", "machine_name": "ghost_steam"})
+    assert resp.status_code == 200
+    assert _hides(dbp) == []
+
+
+def test_unhiding_something_not_hidden_is_a_no_op(tmp_path):
+    dbp = _keyed_db(tmp_path)
+    client = create_app(db_path=str(dbp)).test_client()
+    resp = client.post("/api/keys/unhide", json={
+        "gamekey": "kv789", "machine_name": "never_hidden"})
+    assert resp.status_code == 200
+
+
+def test_a_hidden_key_reaches_the_api_annotated(tmp_path):
+    dbp = _keyed_db(tmp_path, hidden=["cindervale_steam"])
+    client = create_app(db_path=str(dbp)).test_client()
+    rows = client.get("/api/keys").get_json()["rows"]
+    assert [r["hidden_at"] for r in rows] == ["2026-07-31T00:00:00+00:00"]

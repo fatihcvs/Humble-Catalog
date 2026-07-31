@@ -19,5 +19,6 @@
   ],
   "tpkd_dict": {"all_tpks": [
     {"human_name": "DriveThruRPG Voucher", "key_type": "coupon",
+     "machine_name": "drivethrurpgvoucher_coupon",
      "redeemed_key_val": "https://www.drivethrurpg.com/x"}]}
 }

@@ -5,7 +5,7 @@ extensions" / "out of scope" sections. When an item ships, move it to the
 **Done** list at the bottom with its version. When a new design doc defers
 something, record it here so the deferral has a home.
 
-Last updated: 2026-07-30.
+Last updated: 2026-07-31.
 
 ## Privacy
 
@@ -106,48 +106,16 @@ its own; none is committed to.
   same `games` table. Revisit if cache staleness or a Heroic format
   change actually bites.
 
-### External keys (requested 2026-07-30)
+### Keys (identified 2026-07-31 while building hiding)
 
-- **Hiding a resolved row** — the owner asserting "wherever this one
-  ended up, I know it is redeemed", so it stops reappearing. Follows the
-  `dismissed_pairs` shape: `hidden_keys(machine_name TEXT PRIMARY KEY,
-  hidden_at TEXT NOT NULL)`, idempotent hide and unhide routes, the main
-  report excluding hidden rows behind a count, and a companion view
-  listing them with `hidden_at` and an unhide control. Same columns in
-  both views, so nothing is learned only by hiding it. Hiding stays
-  viewer-only; the CLI subcommand gets a flag to include or show only
-  hidden rows.
-
-  Two deliberate departures from the `dismissed_pairs` precedent:
-
-  - **Keyed on `(gamekey, machine_name)`**, not on `machine_name` alone.
-    Measured 2026-07-30 while building the report: 2,275 keys hold only
-    2,117 distinct `machine_name`s, because 128 games are keyed in more
-    than one bundle — so a `machine_name`-keyed table would hide both
-    rows and contradict this entry's own closing note that the hide is
-    per key, not per game. The pair is unique across all 2,275. Still the
-    rebuild-stable identifier convention `user_item_data` follows, and
-    still needs either `json_extract` at query time or a `machine_name`
-    column added to `external_keys`.
-  - **Fix `external_keys`'s primary key in the same migration.** It is
-    `(gamekey, human_name)`, and `raw_orders` holds 2,278 tpks against
-    the table's 2,275: three orders carry two keys under one display
-    name, and the third is silently dropped. `(gamekey, machine_name)` is
-    the key both problems want, so it should be migrated once rather than
-    twice.
-  - **Kept out of `DERIVED_TABLES`, so `reset` preserves it.** Dedupe
-    dismissals can afford to be wiped because a rebuild re-derives the
-    pairs and the owner re-judges them from data still on disk. A
-    redeemed-key assertion is knowledge about what happened beyond this
-    machine, which no rebuild can recover, so wiping it would refill
-    with rows already resolved. The cost is the opposite failure: a hide
-    can outlive the key it referred to, so the hidden view should mark
-    rows whose key no longer exists rather than dropping them silently.
-    `backup.py` copies the whole database file, so no backup work is
-    needed either way.
-
-  Note the hide is per key, not per game: the same game keyed in two
-  bundles stays two rows, because one may have landed and the other not.
+- **`/api/keys` takes ~2.5 s** — `keys.report` classifies all 2,275 keys
+  against the store pools on every call, which is why the Keys tab is
+  slow to populate, and why hiding patches its row in place rather than
+  refetching. Pre-existing and unrelated to hiding; measured only because
+  the hide handler had to choose between the two. The likely shapes are
+  caching the per-store pools or memoizing the classification, but it
+  wants measuring before it wants fixing — `_store_pools` and
+  `classify_game` are not obviously the same share of the 2.5 s.
 
 ### Harvest (identified 2026-07-26 while debugging resume)
 
@@ -237,6 +205,50 @@ worklist order; these are what is left.
   purchases can outrun a day's budget.
 
 ## Done (formerly on this list)
+
+- **Hiding a resolved key** —
+  `docs/superpowers/specs/2026-07-31-hidden-keys-design.md`.
+  `hidden_keys` records the owner asserting "wherever this one ended up,
+  I know it is resolved". Keyed `(gamekey, machine_name)` and kept out of
+  `DERIVED_TABLES`, so a reset preserves it. The viewer hides and unhides
+  per row behind a fourth chip; `keys --hidden` lists them; the CLI
+  report and the tab badge both go quiet.
+  Four measurements shaped it. `machine_name` is present on every one of
+  the 2,275 rows and all 2,278 tpks across 13 key types, so the column is
+  `NOT NULL` with no fallback branch and no test that could reach one.
+  The old `(gamekey, human_name)` key did not merely drop three rows — it
+  kept an **arbitrary** one, and in both colliding orders the survivor
+  was the less useful key (a gog key over the steam one; an expired gift
+  key typed `generic`, which reports as *uncheckable*, over the steam one
+  that could actually be checked), so the report was answering its own
+  central question against the wrong store's library for two games.
+  Those three keys are in no table the migration copies, so `keys` names
+  them and points at `reparse`. And `keys.report` measures ~2.5 s, which
+  is what rules out redrawing the panel by refetching after every hide;
+  that number became its own entry above.
+  Hidden is an annotation on the server and a fourth chip in the browser.
+  `counts` still partitions every key, and the chip counts moved to the
+  browser and are computed from a `displayState` helper, so the four
+  chips partition the reported rows *by construction* — the statistics
+  panel's "Unmatched 4 jumped and returned 8" bug made unreachable
+  rather than merely fixed. An earlier draft made hidden a second filter
+  axis with its own boolean and a pool indirection; it bought "hidden
+  near matches only", which nothing needs, and cost exactly that bug.
+  Two deliberate asymmetries, both pinned by tests because both invite
+  tidying. `hidden_keys` has no foreign key, because a hide must outlive
+  the key it names — every hide is stale straight after a reset, and
+  `stale_hides` reports them as a count rather than as rows with one
+  populated column. And hide checks the key exists while unhide does
+  not, since requiring it would make exactly those stale hides
+  un-unhideable.
+  Two things only showed up in the doing. The migration's skip-a-bad-blob
+  guard cannot be `json_extract(...) IS NOT NULL`, because `json_extract`
+  *raises* on malformed JSON rather than returning NULL — so one bad row
+  would take down the whole migration, which is the failure the guard
+  exists to prevent; it is `json_valid` inside a `CASE`. And the
+  migration cannot announce anything at all: `db.py` has no `print` and
+  `connect()` runs in every command, every test, and once per viewer
+  thread.
 
 - **Unredeemed key report** —
   `docs/superpowers/specs/2026-07-30-unredeemed-key-report-design.md`.

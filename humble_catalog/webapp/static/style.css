@@ -412,3 +412,15 @@ a { color: var(--accent); }
 #key-table tbody tr:nth-child(even) { background: var(--surface-alt); }
 .key-near { opacity: .7; font-size: .85em; }
 .key-uncheckable td { opacity: .75; }
+/* Same reason as .key-chip above: an unstyled <button> keeps the browser's
+   grey default, which glares in dark mode. The statistics panel shipped
+   exactly that bug, and the JS harness cannot catch it -- its stubbed DOM
+   has no computed styles, so this one is checked by eye in a browser. */
+.key-hide { cursor: pointer; font-size: .85em; background: none;
+            border: none; padding: 0; color: var(--accent);
+            text-decoration: underline; font-family: inherit; }
+.key-hide-cell { white-space: nowrap; }
+/* A hidden row is still readable, just visibly set aside -- it only
+   appears when its chip is on, so it never needs to compete for
+   attention with the rows that still need work. */
+tr.key-is-hidden td { opacity: .6; }

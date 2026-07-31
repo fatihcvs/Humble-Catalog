@@ -88,24 +88,81 @@ def _store_pools(conn):
 
 
 def _key_rows(conn):
-    """Every key joined to its bundle, with its raw blob already parsed.
+    """Every key joined to its bundle and any hide, blob already parsed.
 
     Parsed in Python rather than with SQL json_extract: one parse yields
-    machine_name, expiry_date, redeemed_key_val and key_type_human_name,
-    where SQL would need four calls, and a blob that is not JSON skips its
-    row instead of failing the whole query.
+    expiry_date, redeemed_key_val and key_type_human_name, where SQL would
+    need three calls, and a blob that is not JSON skips its row instead of
+    failing the whole query. machine_name used to come out of the blob too
+    and is now a column, so the field that decides a key's identity is no
+    longer read out of JSON.
     """
     for row in conn.execute(
             "SELECT k.human_name AS product, k.key_type AS key_type, "
-            "       k.gamekey AS gamekey, k.raw AS raw, "
+            "       k.gamekey AS gamekey, k.machine_name AS machine_name, "
+            "       k.raw AS raw, h.hidden_at AS hidden_at, "
             "       b.name AS bundle, b.url AS bundle_url, "
             "       b.purchased_at AS purchased_at "
-            "FROM external_keys k JOIN bundles b ON b.gamekey = k.gamekey"):
+            "FROM external_keys k JOIN bundles b ON b.gamekey = k.gamekey "
+            "LEFT JOIN hidden_keys h ON h.gamekey = k.gamekey "
+            "                       AND h.machine_name = k.machine_name"):
         try:
             raw = json.loads(row["raw"]) if row["raw"] else {}
         except ValueError:
             raw = {}
         yield row, raw
+
+
+def stale_hides(conn):
+    """How many hides name a key that is no longer in the catalog.
+
+    `hidden_keys` has no foreign key and survives `reset`, so a hide can
+    outlive the row it named -- and straight after a reset, before a
+    reparse, every hide is stale.
+
+    Its own query rather than "hides minus hidden rows shown", because
+    that derivation is wrong: a hide on a key that has since become
+    `matched` is not stale, but `matched` rows are not in `rows` either,
+    so the cheap version would count it.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) FROM hidden_keys h WHERE NOT EXISTS ("
+        "  SELECT 1 FROM external_keys k "
+        "   WHERE k.gamekey = h.gamekey "
+        "     AND k.machine_name = h.machine_name)").fetchone()[0]
+
+
+def missing_keys(conn):
+    """Products whose tpks are in raw_orders but not in external_keys.
+
+    Non-zero only until the first `reparse` after external_keys was
+    re-keyed on (gamekey, machine_name). The old (gamekey, human_name)
+    key silently dropped every storefront but the last of a multi-store
+    product, and a migration that copies the table cannot recover rows
+    that were never in it -- only a reparse from the cached orders can.
+
+    Reported here rather than from the migration because db.py never
+    prints: connect() runs in every command, in every test, and once per
+    thread in the viewer. A line in a report the owner already reads is
+    also the better home, since it self-clears after the reparse where a
+    one-shot migration message can be missed forever.
+
+    One row-value NOT IN against the migrated table, measured at 33 ms on
+    a 2,275-key catalog. json_each(NULL) yields no rows, so an order with
+    no tpkd_dict needs no guard.
+
+    A tpk carrying no machine_name would compare NULL and be skipped
+    rather than reported. None exists -- 2,278 of 2,278, across 13 key
+    types -- and parse_order subscripts the field for the same reason.
+    """
+    return [{"product": r["product"], "lost": r["lost"]} for r in conn.execute(
+        "SELECT json_extract(t.value, '$.human_name') AS product, "
+        "       COUNT(*) AS lost "
+        "  FROM raw_orders r, "
+        "       json_each(json_extract(r.json, '$.tpkd_dict.all_tpks')) t "
+        " WHERE (r.gamekey, json_extract(t.value, '$.machine_name')) NOT IN "
+        "       (SELECT gamekey, machine_name FROM external_keys) "
+        " GROUP BY product ORDER BY lost DESC, product")]
 
 
 def report(conn, now=None):
@@ -114,9 +171,19 @@ def report(conn, now=None):
     `now` is injectable so the expiry arithmetic is testable; it defaults
     to the current UTC time.
 
-    Returns {total, counts, reported, expiring, libraries, rows}. `rows`
-    holds only the reported states -- `matched` is the answer "nothing to
-    do here" and lives in `counts` alone.
+    Returns {total, counts, reported, expiring, stale_hides, missing_keys,
+    libraries, rows}. `rows` holds only the reported states -- `matched`
+    is the answer "nothing to do here" and lives in `counts` alone.
+
+    Each row carries `hidden_at`; rows are never filtered here. Both
+    surfaces filter that one field, so the CLI and the viewer cannot
+    disagree about what is hidden.
+
+    There is deliberately no `hidden` count: format_report counts `rows`
+    and the viewer computes its own chip counts, so a stored total would
+    be a second copy of a number derivable from the rows beside it.
+    `stale_hides` is the opposite case, and that is why it is here -- it
+    cannot be derived from `rows` at all.
     """
     now = now or dt.datetime.now(dt.timezone.utc)
     pools = _store_pools(conn)
@@ -160,7 +227,7 @@ def report(conn, now=None):
             rank = (0, expires.timestamp(), *tie)
         ranked.append((rank, {
             "product": row["product"],
-            "machine_name": raw.get("machine_name"),
+            "machine_name": row["machine_name"],
             "gamekey": row["gamekey"],
             "store": store,
             # The 52-value display string, used ONLY as a label. Every
@@ -185,6 +252,11 @@ def report(conn, now=None):
             # feature reads as redeemed and had never been activated.
             "revealed": bool(raw.get("redeemed_key_val")),
             "state": state,
+            # An annotation, not a fourth state: the row keeps whichever
+            # of the three it earned, and `counts` still holds it. The
+            # viewer presents hidden as a fourth chip, which is a display
+            # choice in keys.js and does not travel back across the route.
+            "hidden_at": row["hidden_at"],
             "near_match": near,
         }))
     ranked.sort(key=lambda pair: pair[0])
@@ -193,8 +265,15 @@ def report(conn, now=None):
         "total": total,
         "counts": counts,
         "reported": len(rows),
+        # Excludes hidden rows, unlike `counts` and `reported`. This is the
+        # sibling of the tab badge -- "what needs attention this week" --
+        # and a hide that leaves the badge lit has not stopped the row
+        # reappearing, which is the whole point of hiding.
         "expiring": sum(1 for r in rows
-                        if r["expires"] is not None and not r["expired"]),
+                        if r["expires"] is not None and not r["expired"]
+                        and not r["hidden_at"]),
+        "stale_hides": stale_hides(conn),
+        "missing_keys": missing_keys(conn),
         "libraries": libraries,
         "rows": rows,
     }
@@ -207,14 +286,23 @@ def report(conn, now=None):
 MAX_NAME = 60
 
 
-def _line(row, width):
-    """One reported row, as a printable line."""
-    days = row["days_left"]
-    # "today", not "in 0 days" -- and it matches what keys.js renders, so
-    # the same key does not read differently in the two surfaces.
-    when = ("" if days is None else ("today" if days == 0 else f"in {days} days"))
-    if days is None and row["expired"]:
-        when = "expired"
+def _line(row, width, hidden=False):
+    """One reported row, as a printable line.
+
+    `hidden` swaps the leading column from the expiry to the date the
+    owner hid the row -- same columns otherwise, so the two listings stay
+    comparable rather than being two different tables.
+    """
+    if hidden:
+        when = (row["hidden_at"] or "")[:10]
+    else:
+        days = row["days_left"]
+        # "today", not "in 0 days" -- and it matches what keys.js renders,
+        # so the same key does not read differently in the two surfaces.
+        when = ("" if days is None
+                else ("today" if days == 0 else f"in {days} days"))
+        if days is None and row["expired"]:
+            when = "expired"
     line = (f"    {when:>12}  {row['product'] or '':<{width}}  "
             f"{row['key_type_label']:<12}  {row['bundle']}")
     if row["near_match"]:
@@ -225,7 +313,7 @@ def _line(row, width):
     return line.rstrip()
 
 
-def _block(lines, heading, rows):
+def _block(lines, heading, rows, hidden=False):
     """One headed block, padded to its OWN widest name.
 
     Per block rather than per report: the undated rows are the great
@@ -237,18 +325,58 @@ def _block(lines, heading, rows):
         return
     width = min(max(len(r["product"] or "") for r in rows), MAX_NAME)
     lines.append(f"  {heading} ({len(rows)}):")
-    lines.extend(_line(row, width) for row in rows)
+    lines.extend(_line(row, width, hidden=hidden) for row in rows)
     lines.append("")
 
 
-def format_report(report, encoding="utf-8", show_all=False):
+def _hidden_report(report, encoding):
+    """The owner's hidden rows, newest hide first.
+
+    Every hidden row in one block -- `show_all` does not apply. The main
+    report splits into live/undated/expired because it is triage, and
+    `--all` exists to keep the default from leading with 700 lines. A list
+    of the owner's own dismissals is not triage: it is as long as they
+    made it, and "which of my dismissals expire soon" is not a question
+    hiding leaves open.
+    """
+    marked = sorted((r for r in report["rows"] if r["hidden_at"]),
+                    key=lambda r: (r["hidden_at"], r["product"] or ""),
+                    reverse=True)
+    lines = []
+    if marked:
+        _block(lines, "Hidden", marked, hidden=True)
+    else:
+        lines.append("  No keys are hidden.")
+        lines.append("")
+    stale = report["stale_hides"]
+    if stale:
+        # Named, never dropped: the hide is knowledge a rebuild cannot
+        # recover. A count rather than rows, because a stale hide holds
+        # only a machine name -- the product, store, bundle and expiry all
+        # lived in the table that was wiped.
+        noun = "hide" if stale == 1 else "hides"
+        lines.append(f"  {stale:,} {noun} refer to keys no longer in the "
+                     f"catalog")
+        lines.append("  (run 'reparse' if you have just reset).")
+    return stats.console_safe("\n".join(lines).rstrip(), encoding)
+
+
+def format_report(report, encoding="utf-8", show_all=False, hidden=False):
     """The report as printable text, safe for a console using `encoding`.
 
     The default prints the counts plus only the rows with a live expiry --
     what needs attention this week. `--all` adds the undated and the
     already-expired rows, which together are the great majority: a report
     that leads with 700 lines is one nobody reads to the end.
+
+    `hidden` lists the rows the owner has marked resolved *instead of*
+    the report. There is no mode that merges the two: the questions are
+    "what still needs doing" and "what have I dismissed", and a merged
+    list is a third nobody has asked for -- the viewer's chips give it to
+    anyone who wants it.
     """
+    if hidden:
+        return _hidden_report(report, encoding)
     counts = report["counts"]
     # "1 key", not "1 keys": a one-item tier read "1 items" in the bundle
     # preview, and no test caught it -- a browser did.
@@ -257,9 +385,10 @@ def format_report(report, encoding="utf-8", show_all=False):
              f"{counts['unredeemed'] + counts['uncertain']:,} not, "
              f"{counts['uncheckable']:,} uncheckable", ""]
     rows = report["rows"]
-    live = [r for r in rows if r["expires"] and not r["expired"]]
-    undated = [r for r in rows if not r["expires"]]
-    expired = [r for r in rows if r["expired"]]
+    shown = [r for r in rows if not r["hidden_at"]]
+    live = [r for r in shown if r["expires"] and not r["expired"]]
+    undated = [r for r in shown if not r["expires"]]
+    expired = [r for r in shown if r["expired"]]
     _block(lines, "Expiring", live)
     if show_all:
         _block(lines, "No expiry date", undated)
@@ -268,6 +397,12 @@ def format_report(report, encoding="utf-8", show_all=False):
         lines.append(f"  ('keys --all' for the other "
                      f"{len(undated) + len(expired):,}: {len(undated):,} "
                      f"undated, {len(expired):,} already expired)")
+        lines.append("")
+    # Counted here rather than carried in the payload: it is derivable
+    # from the rows beside it, and a stored copy is free to drift.
+    n_hidden = len(rows) - len(shown)
+    if n_hidden:
+        lines.append(f"  ({n_hidden:,} hidden; 'keys --hidden' lists them)")
         lines.append("")
     libraries = report["libraries"]
     if libraries:
@@ -278,9 +413,18 @@ def format_report(report, encoding="utf-8", show_all=False):
             for store, info in sorted(libraries.items()))
         lines.append(f"  Libraries: {listed}")
     if counts["uncheckable"]:
-        lines.append(f"  {counts['uncheckable']:,} keys are for stores with "
-                     f"no importer -- for those, 'in no library' cannot be "
-                     f"checked at all.")
+        # "1 key is", not "1 keys are" -- the same slip the summary line
+        # above already guards against, spotted by reading real output.
+        n = counts["uncheckable"]
+        lines.append(f"  {n:,} {'key is' if n == 1 else 'keys are'} for "
+                     f"stores with no importer -- for those, 'in no "
+                     f"library' cannot be checked at all.")
+    missing = report["missing_keys"]
+    if missing:
+        total_lost = sum(m["lost"] for m in missing)
+        named = ", ".join(f"{m['product']} ({m['lost']})" for m in missing[:5])
+        lines.append(f"  {total_lost:,} keys in your orders are missing from "
+                     f"the catalog: {named}. Run 'reparse' to recover them.")
     lines.append("  Matching is by title and APPROXIMATE. A revealed key was "
                  "only displayed, which is not the same as activated.")
     # Degraded at the CLI boundary only, exactly as bundle_preview does:
@@ -289,7 +433,7 @@ def format_report(report, encoding="utf-8", show_all=False):
     return stats.console_safe("\n".join(lines).rstrip(), encoding)
 
 
-def run(show_all=False):
+def run(show_all=False, hidden=False):
     """Count and print. The `keys` subcommand's entry point."""
     conn = db.connect()
     try:
@@ -297,4 +441,4 @@ def run(show_all=False):
     finally:
         conn.close()
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
-    print(format_report(built, encoding, show_all=show_all))
+    print(format_report(built, encoding, show_all=show_all, hidden=hidden))

@@ -295,8 +295,9 @@ def _seed_one_key(tmp_path, monkeypatch):
                  "VALUES ('kv789', 'Humble Game Bundle: Key Vault', "
                  "'https://example.invalid/kv789', '2024-01-02T00:00:00')")
     conn.execute(
-        "INSERT INTO external_keys (gamekey, human_name, key_type, raw) "
-        "VALUES ('kv789', 'Cinder Vale', 'steam', ?)",
+        "INSERT INTO external_keys "
+        "(gamekey, machine_name, human_name, key_type, raw) "
+        "VALUES ('kv789', 'cindervale_ex', 'Cinder Vale', 'steam', ?)",
         (json.dumps({"human_name": "Cinder Vale", "key_type": "steam",
                      "machine_name": "cindervale_ex"}),))
     conn.commit()
