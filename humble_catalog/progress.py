@@ -329,9 +329,12 @@ class HarvestProgress:
             if self._display.live:
                 self._paint()
 
-    def finish(self, incomplete, paused=None):
+    def finish(self, incomplete, paused=None, repeats=()):
         """Retire the run. `paused` maps a source name to when its rate
-        limit lifts, already formatted for display.
+        limit lifts, already formatted for display. `repeats` is a list of
+        already-formatted lines naming titles that have failed in more
+        than one run - the caller queries and formats them, this only
+        writes them.
 
         A paused source is reported apart from the merely incomplete ones,
         because "rerun 'harvest' to resume" is wrong advice for a source
@@ -364,6 +367,10 @@ class HarvestProgress:
                     f"rerun 'harvest' after that")
             if not stalled and not paused:
                 self._display.write("harvest complete")
+            if repeats:
+                self._display.write("\nRepeat failures (2+ runs):")
+                for line in repeats:
+                    self._display.write(line)
             self.conn.execute(
                 "UPDATE run_status SET phase='done', updated_at=? "
                 "WHERE command='harvest'", (_now(),))

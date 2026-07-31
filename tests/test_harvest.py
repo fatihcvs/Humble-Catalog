@@ -329,3 +329,31 @@ def test_a_recorded_error_never_contains_the_api_key(tmp_path, capsys):
                 sources={"hardcover": boom}, _conn=conn)
     assert "SECRETKEY" not in _rows(conn)[0]["last_error"]
     assert "SECRETKEY" not in capsys.readouterr().out
+
+def test_the_summary_lists_repeat_offenders(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    boom = Mock(); boom.lookup.side_effect = RuntimeError("503 backendFailed")
+    for _ in range(2):
+        harvest.run(db_path=tmp_path / "t.db",
+                    sources={"hardcover": boom}, _conn=conn)
+    out = capsys.readouterr().out
+    assert "Repeat failures" in out
+    assert "2x" in out
+    assert "Gray Waters" in out
+
+def test_a_single_failure_is_not_called_a_repeat(tmp_path, capsys):
+    # One failure is noise; the block would cry wolf on every flaky run.
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    boom = Mock(); boom.lookup.side_effect = RuntimeError("503 backendFailed")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": boom}, _conn=conn)
+    assert "Repeat failures" not in capsys.readouterr().out
+
+def test_a_clean_run_says_nothing_about_failures(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": _fake()}, _conn=conn)
+    assert "Repeat failures" not in capsys.readouterr().out

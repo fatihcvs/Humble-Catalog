@@ -1,6 +1,7 @@
+import sys
 import threading
 from datetime import datetime, timezone
-from humble_catalog import db, failures, quota
+from humble_catalog import db, failures, quota, stats
 from humble_catalog.enrich import SOURCE_ORDER, SOURCE_CLASSES
 from humble_catalog.progress import HarvestProgress, duration
 from humble_catalog.sources.base import CacheMiss, redact
@@ -101,6 +102,27 @@ def _when(resets_at):
     ahead = (resets_at - datetime.now(timezone.utc)).total_seconds()
     return f"{resets_at.isoformat(timespec='minutes')} (in {duration(ahead)})"
 
+SUMMARY_ROWS = 5
+
+def _repeat_lines(conn):
+    """The repeat-failure block's lines, or [] when there is nothing to say.
+
+    Formatted here rather than in HarvestProgress so that progress stays a
+    display: it writes what it is handed and owns no query. `paused`
+    already established that split.
+    """
+    rows = failures.top(conn, min_failures=2)
+    if not rows:
+        return []
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    lines = [f"  {r['failures']}x  {r['source']}  "
+             f"{stats.console_safe(r['title'], encoding)}"
+             for r in rows[:SUMMARY_ROWS]]
+    if len(rows) > SUMMARY_ROWS:
+        lines.append(f"  ...and {len(rows) - SUMMARY_ROWS} more - "
+                     f"see 'harvest --failures'")
+    return lines
+
 def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     """Fetch every relevant source for every eligible item into source_cache.
 
@@ -148,7 +170,7 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     # 429 during the run. They are the same condition.
     paused = {name: _when(resets_at) for name in worklist
               if (resets_at := quota.blocked(conn, name))}
-    prog.finish(incomplete, paused=paused)
+    prog.finish(incomplete, paused=paused, repeats=_repeat_lines(conn))
     if _conn is None:
         conn.close()
     return incomplete
