@@ -1,5 +1,6 @@
 import pytest
-from humble_catalog.titles import clean_game_title, clean_title, sequel_mismatch
+from humble_catalog.titles import (
+    clean_game_title, clean_title, sequel_mismatch, sort_tokens)
 
 @pytest.mark.parametrize("raw,clean,num", [
     ("Wings of Autumn Dusk (Book 1)", "Wings of Autumn Dusk", 1.0),
@@ -52,3 +53,18 @@ def test_sequel_mismatch_ignores_unrelated_and_identical_titles():
     # A trailing word that is not a numeral is a different game, but not a
     # *sequel* pair -- the fuzzy score is left to judge it.
     assert sequel_mismatch("starfall rally", "starfall rally turbo") is False
+
+
+def test_sort_tokens_orders_a_cleaned_title():
+    assert sort_tokens("widget quest") == "quest widget"
+    assert sort_tokens("quest widget") == "quest widget"
+
+
+def test_sort_tokens_moves_a_trailing_numeral_off_the_end():
+    # Exactly the hazard game_match.classify_game guards against: the
+    # numeral sequel_mismatch relies on finding last is no longer last.
+    assert sort_tokens("widget quest ii") == "ii quest widget"
+
+
+def test_sort_tokens_of_empty_is_empty():
+    assert sort_tokens("") == ""
