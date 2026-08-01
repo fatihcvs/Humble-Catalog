@@ -46,6 +46,14 @@ def host_of(url):
     return parts.netloc.lower().removeprefix("www.")
 
 
+# "example.com:8080/book" - a host and a port, not a scheme and a path.
+# urlparse reads everything before a colon as a scheme, so this has to be
+# recognised before the scheme check or a pasted host:port is refused
+# under its own hostname's name. The digits are what distinguish it:
+# "javascript:alert(1)" has the same shape and must NOT match.
+_HOST_AND_PORT = re.compile(r"^[^/?#:\s]+:\d+(?:[/?#]|$)")
+
+
 def normalize_url(url):
     """Return url with https:// prepended when it has no scheme.
 
@@ -53,12 +61,23 @@ def normalize_url(url):
     is parsed first on purpose: "javascript:alert(1)" contains no "://",
     so prepending before checking would yield
     "https://javascript:alert(1)", whose scheme reads as https and passes.
+
+    A schemeless "host:port" is recognised as such rather than read as a
+    scheme, so pasting "example.com:8080/book" works instead of being
+    rejected for an unsupported scheme called "example.com".
     """
+    stripped = url.strip()
+    if "://" not in stripped and _HOST_AND_PORT.match(stripped):
+        return "https://" + stripped
     raw_scheme = urlparse(url).scheme
     if raw_scheme and raw_scheme not in ALLOWED_SCHEMES:
+        # A dot in the "scheme" means a hostname was almost certainly meant;
+        # saying so is the difference between a usable error and a puzzle.
+        hint = (" (that looks like a hostname - a URL needs http:// or "
+                "https:// in front of it)" if "." in raw_scheme else "")
         raise ValueError(
             f"unsupported URL scheme '{raw_scheme}'; only http and https "
-            "are allowed")
+            f"are allowed{hint}")
     return url if "://" in url else "https://" + url
 
 

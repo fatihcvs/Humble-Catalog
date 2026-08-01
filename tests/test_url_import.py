@@ -318,3 +318,26 @@ def test_normalize_url_rejects_javascript():
 def test_normalize_url_rejects_data():
     with pytest.raises(ValueError, match="[Ss]cheme"):
         url_import.normalize_url("data:text/html,<b>x</b>")
+
+def test_normalize_url_reads_host_and_port_as_a_host(tmp_path):
+    # urlparse reads anything before a colon as a scheme, so a pasted
+    # "example.com:8080/book" used to be refused for an unsupported scheme
+    # named after the host. Digits after the colon are what tell the two
+    # shapes apart.
+    assert url_import.normalize_url("examplegames.com:8080/p/1") == \
+        "https://examplegames.com:8080/p/1"
+    assert url_import.normalize_url("examplegames.com:8080") == \
+        "https://examplegames.com:8080"
+
+def test_the_host_port_shape_is_not_a_way_past_the_scheme_gate():
+    # The rule keys on digits, so a real script URL still has no path in.
+    with pytest.raises(ValueError, match="[Ss]cheme"):
+        url_import.normalize_url("javascript:alert(1)")
+    # "javascript:8080" does match host:port, and that is harmless: it
+    # becomes an https URL whose HOST is "javascript".
+    assert url_import.normalize_url("javascript:8080") == \
+        "https://javascript:8080"
+
+def test_a_dotted_pseudo_scheme_says_what_is_wrong():
+    with pytest.raises(ValueError, match="looks like a hostname"):
+        url_import.normalize_url("examplegames.com:notaport")

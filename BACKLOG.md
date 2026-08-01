@@ -14,8 +14,6 @@ Rules:
 
 ## Later
 
-- [ ] B2 (Low, runtime, error handling): a schemeless `host:port` URL is misdiagnosed - `normalize_url("example.com:8080/book")` raises "unsupported URL scheme 'example.com'", naming the hostname as the scheme, because urlparse reads `example.com` as a scheme when a colon follows it. The owner pastes URLs by hand, so a wrong diagnosis costs a real minute. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/url-import/probe.py` exits 0 with the host:port case no longer reporting the hostname as a scheme.
-
 ## Proposed
 
 Items needing a user decision before any work, one plain line each, never a checkbox task: envelope changes, audit escalations, challenges to a settled class. Never worked without explicit user approval and never counted against convergence.

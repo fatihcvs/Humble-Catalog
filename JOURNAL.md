@@ -135,3 +135,19 @@ Verification: The battery's B1 cases all pass - the two-real-server redirect is 
 Learnings: `requests`' `is_redirect` must not be used in code the tests drive with Mock responses - every Mock attribute is truthy, so a 200 would read as a redirect. Compare `status_code` against an explicit set instead. A relative `Location` is legal and common, so a redirect target has to be urljoin-ed against the URL actually requested before it is judged; judging the raw header would let `/admin` read as an unparseable host and be refused for the wrong reason.
 
 Next: B2, the last open item, a Low: `normalize_url` reports a schemeless `host:port` as an unsupported scheme named after the hostname.
+
+## iter 6/10 | ceea220f-162935 | 2026-08-01 | B2 | done
+
+Task: B2 (Low, runtime, error handling) - a pasted `host:port` URL was refused for an unsupported scheme named after its own hostname.
+
+Changed: humble_catalog/url_import.py (`_HOST_AND_PORT` added, `normalize_url` recognises host:port before the scheme check and explains a dotted pseudo-scheme), tests/test_url_import.py (+3 regression tests), .jeffy/probes/url-import/probe.py (+7 cases), BACKLOG.md (B2 deleted).
+
+Checkpoint: pending
+
+Verification: `.jeffy/probes/url-import/probe.py` exits 0 at 46/46 - the first fully green run of this battery. `examplegames.com:8080/p/1` now normalises to `https://examplegames.com:8080/p/1`, with the no-path and query variants covered too. Verify command green: pytest 981 passed (978 before, +3 new), check_no_data_tracked exit 0, leak_check exit 0.
+  Contract preserved, and this is the part that needed care: the new rule keys on DIGITS after the colon, which is exactly what separates a port from a scheme. Every scheme the gate refused before is still refused - the probe re-runs all 9 of them plus the whitespace and control-character obfuscations, and the existing `test_normalize_url_rejects_javascript` and `test_normalize_url_rejects_data` are untouched and still pass. The one shape that changes meaning is `javascript:8080`, which now normalises to `https://javascript:8080`: an https URL whose HOST is the word javascript, not a script URL. That is harmless and is pinned by its own test so nobody later "tidies" it into a hole.
+  A dotted pseudo-scheme such as `examplegames.com:notaport` still fails, but now says the offender looks like a hostname and that a URL needs http:// or https:// in front of it, instead of only naming it as an unsupported scheme.
+
+Learnings: When a parser's failure message names the user's input as the wrong KIND of thing, the fix is usually to recognise the right shape earlier rather than to reword the message - the message was accurate about what urlparse did and useless about what the user did.
+
+Next: The ledger is empty and 4 iterations remain. Iteration 7 replenishes with a partial audit over the remaining adversarial rows - bundle-preview, sources-base, extract-humble - which are the rows most likely to hold another finding of B1's kind.

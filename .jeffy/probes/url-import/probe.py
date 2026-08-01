@@ -180,14 +180,32 @@ with tempfile.TemporaryDirectory() as td:
     check("redirect target: a non-http scheme is refused",
           target_verdict("file:///etc/passwd"), "refused")
 
-    # A schemeless host:port is misdiagnosed: the hostname is reported as
-    # the offending "scheme". Filed as B2.
-    try:
-        _got = url_import.normalize_url("example.com:8080/book")
-    except ValueError as exc:
-        _got = f"ValueError: {exc}"
-    check("schemeless host:port is accepted or refused for the right reason",
-          "unsupported URL scheme 'example.com'" not in str(_got), True)
+    # B2: a schemeless host:port is a host and a port, not a scheme.
+    def normalized(u):
+        try:
+            return url_import.normalize_url(u)
+        except ValueError as exc:
+            return f"ValueError: {exc}"
+
+    check("host:port with a path gains https://",
+          normalized("example.com:8080/book"), "https://example.com:8080/book")
+    check("host:port with no path gains https://",
+          normalized("example.com:8080"), "https://example.com:8080")
+    check("host:port with a query gains https://",
+          normalized("example.com:8080?q=1"), "https://example.com:8080?q=1")
+    # The port heuristic must not become a way past the scheme gate: the
+    # distinguishing feature is that the part after the colon is digits.
+    check("javascript: is still refused (no digits after the colon)",
+          normalized("javascript:alert(1)").startswith("ValueError"), True)
+    check("data: is still refused",
+          normalized("data:text/html,<b>x</b>").startswith("ValueError"), True)
+    # "javascript:8080" does match host:port, and that is harmless: it
+    # becomes an https URL whose host is "javascript", not a javascript URL.
+    check("javascript:8080 becomes an https URL, not a script URL",
+          normalized("javascript:8080"), "https://javascript:8080")
+    # A dotted pseudo-scheme now says what is actually wrong.
+    check("a dotted pseudo-scheme explains itself",
+          "looks like a hostname" in normalized("example.com:notaport"), True)
 
     internal.shutdown()
     external.shutdown()
