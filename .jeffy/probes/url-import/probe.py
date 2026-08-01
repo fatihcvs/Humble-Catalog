@@ -150,6 +150,36 @@ with tempfile.TemporaryDirectory() as td:
     check("redirect to a private address is refused",
           str(followed).startswith("ValueError"), True)
 
+    # The allow side, so the guard is not merely "refuse everything".
+    # IP literals, so getaddrinfo does no DNS and this stays offline-safe.
+    check("routable check: a public address is allowed",
+          url_import._publicly_routable("8.8.8.8"), True)
+    check("routable check: a public IPv6 address is allowed",
+          url_import._publicly_routable("2001:4860:4860::8888"), True)
+    for private in ["127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1",
+                    "169.254.169.254", "0.0.0.0", "::1", "fe80::1"]:
+        check(f"routable check: {private} is refused",
+              url_import._publicly_routable(private), False)
+    check("routable check: an unresolvable name fails CLOSED",
+          url_import._publicly_routable(
+              "no-such-host.invalid.example.test"), False)
+
+    def target_verdict(t):
+        try:
+            url_import._check_redirect_target(t)
+            return "allowed"
+        except ValueError:
+            return "refused"
+
+    check("redirect target: a public https URL is allowed",
+          target_verdict("https://8.8.8.8/page"), "allowed")
+    check("redirect target: a loopback URL is refused",
+          target_verdict("http://127.0.0.1:8087/admin"), "refused")
+    check("redirect target: cloud metadata is refused",
+          target_verdict("http://169.254.169.254/latest/meta-data/"), "refused")
+    check("redirect target: a non-http scheme is refused",
+          target_verdict("file:///etc/passwd"), "refused")
+
     # A schemeless host:port is misdiagnosed: the hostname is reported as
     # the offending "scheme". Filed as B2.
     try:

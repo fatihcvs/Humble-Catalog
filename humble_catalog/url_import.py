@@ -5,8 +5,10 @@ its URL, and we fetch that exact record instead of searching. Each handler
 reuses the matching Source class so throttling and source_cache apply.
 """
 import html
+import ipaddress
 import re
-from urllib.parse import parse_qs, urlparse
+import socket
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 
@@ -22,6 +24,11 @@ from humble_catalog.sources.oreilly import OReilly
 ALLOWED_SCHEMES = ("http", "https")
 MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 5
+
+# Statuses that carry a Location we would follow. Checked by number rather
+# than through requests' `is_redirect`, because the tests drive this code
+# with Mock responses, on which every attribute is truthy.
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 class MetadataUnavailable(Exception):
@@ -176,19 +183,88 @@ def _oreilly(conn, parts, url, http):
     raise ValueError(f"O'Reilly search found no book with ISBN {isbn}")
 
 
+def _publicly_routable(host):
+    """True when every address `host` resolves to is publicly routable.
+
+    Fails closed: a name that will not resolve is not allowed either, so a
+    resolution failure cannot read as permission.
+
+    This is a resolve-then-connect check, so a name that answers with a
+    public address here and a private one when requests connects would slip
+    through. Closing that needs the connection pinned to the address that
+    was checked, which means a custom adapter; the remaining exposure is a
+    hostile DNS server racing its own answers, which is a long way past the
+    threat this guard exists for -- a page redirecting us at the LAN.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError):
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        # is_global is False for loopback, private, link-local (which
+        # covers cloud metadata at 169.254.169.254), reserved, multicast
+        # and unspecified addresses, so it is the whole check.
+        if not ip.is_global:
+            return False
+    return True
+
+
+def _check_redirect_target(target):
+    """Refuse a redirect that leaves http(s) or points inside the network.
+
+    The pasted URL is the owner's own choice and is not checked here: they
+    may point this at whatever they like. A redirect target is different --
+    it is chosen by the page, which is third-party content -- so it is the
+    hop that has to be validated, and every hop, not merely the last one.
+    """
+    parts = urlparse(target)
+    if parts.scheme not in ALLOWED_SCHEMES:
+        raise ValueError(
+            f"redirected to unsupported scheme '{parts.scheme}'; only http "
+            "and https are allowed")
+    host = parts.hostname
+    if not host or not _publicly_routable(host):
+        raise ValueError(
+            f"refused a redirect to '{host or target}': a page may not send "
+            "this fetch to a private or unroutable address")
+
+
 def _fetch_html(url, http):
-    """GET a page under the shared retry policy, with redirect and size guards."""
+    """GET a page under the shared retry policy, with redirect and size guards.
+
+    Redirects are followed by hand rather than by requests, so that every
+    hop's destination can be checked before it is fetched. Following them
+    inside requests would only expose the final URL, by which point an
+    intermediate hop to an internal service has already been requested.
+    """
     sess = http or requests.Session()
-    sess.max_redirects = MAX_REDIRECTS
+    current = url
 
-    def _send():
-        return sess.request("GET", url,
-                            headers={"User-Agent": "HumbleCatalog/1.0"},
-                            timeout=30, stream=True, allow_redirects=True)
+    for _ in range(MAX_REDIRECTS + 1):
+        def _send(target=current):
+            return sess.request("GET", target,
+                                headers={"User-Agent": "HumbleCatalog/1.0"},
+                                timeout=30, stream=True, allow_redirects=False)
 
-    resp = _with_retries(_send)
-    # Re-check after redirects: the allowlist in resolve() only saw the
-    # URL the user pasted, and a page can redirect us anywhere.
+        resp = _with_retries(_send)
+        location = resp.headers.get("Location")
+        if resp.status_code not in REDIRECT_STATUSES or not location:
+            break
+        # Relative Locations are legal and common, so resolve against the
+        # URL we actually requested before judging the destination.
+        current = urljoin(current, location)
+        _check_redirect_target(current)
+    else:
+        raise ValueError(f"too many redirects (more than {MAX_REDIRECTS})")
+
+    # Kept for the response we ended on: a server can answer 200 while
+    # reporting a different final URL, and that URL still has to be http(s).
     final = urlparse(str(resp.url))
     if final.scheme and final.scheme not in ALLOWED_SCHEMES:
         raise ValueError(

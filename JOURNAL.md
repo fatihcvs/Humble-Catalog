@@ -118,3 +118,20 @@ Verification: 25 known-answer assertions, 23 held, 2 failed and are filed. The t
 Learnings: Reproduce a network guard with real servers, not a mocked session: a mock proves what the mock was written to do, whereas two `http.server` instances on ephemeral ports prove what the code does, cost about twenty lines, and run in well under a second. A battery must assert the DESIRED answer, not the observed one - the redirect case was first written to expect the vulnerable behaviour and would then have certified the defect as correct forever.
 
 Next: B1 is the top unblocked item and the only High. Fixing it means checking each redirect hop's resolved address, which needs `allow_redirects=False` and an explicit loop, because a final-URL-only check still lets an intermediate hop reach an internal service.
+
+## iter 5/10 | ceea220f-162935 | 2026-08-01 | B1 | done
+
+Task: B1 (High, runtime, security) - a page could steer an outbound fetch to any address this machine can reach, because only the redirect's scheme was checked and never its destination.
+
+Changed: humble_catalog/url_import.py (`_publicly_routable` and `_check_redirect_target` added; `_fetch_html` now follows redirects by hand), tests/test_url_import.py (+4 regression tests), .jeffy/probes/url-import/probe.py (+16 allow-side and refuse-side cases), BACKLOG.md (B1 deleted, Settled classes line added), PLAN.md (row re-swept).
+
+Checkpoint: pending
+
+Verification: The battery's B1 cases all pass - the two-real-server redirect is now refused, and the address predicate answers correctly on both sides: 8.8.8.8 and a public IPv6 literal allowed; 127.0.0.1, 10.0.0.1, 192.168.1.1, 172.16.0.1, 169.254.169.254, 0.0.0.0, ::1 and fe80::1 all refused; an unresolvable name fails CLOSED, so a resolution failure cannot read as permission. The battery reports 39/40, and the single remaining failure is B2's case, which is a separate open Low and not part of this task. Verify command green: pytest 978 passed (974 before, +4 new), check_no_data_tracked exit 0, leak_check exit 0.
+  Contract preserved, per change discipline: `tests/test_url_import.py` and `tests/test_bundle_preview.py` were run together first and both stayed green at 101 passed, which matters because `_fetch_html` is shared - `bundle_preview.py:60` fetches humblebundle.com pages through it, so a guard that refused ordinary public redirects would have broken the bundle preview rather than only the attack. The existing scheme test still passes: it drives a 200 response carrying a `javascript:` final URL, so the final-URL scheme check was kept rather than replaced by the per-hop one.
+  Design decision, recorded because it is a judgement: the pasted URL is NOT checked, only the redirect hops. The owner may point this tool at whatever they like - that is a user-error surface by the envelope - whereas a redirect target is chosen by third-party content and is adversarial. Checking the pasted URL too would also have put a DNS lookup on every unit test's happy path, since the suite drives real code with Mock sessions.
+  Residual risk, recorded rather than hidden: this resolves the name and then lets requests connect, so a DNS server answering public-then-private between the two calls would still get through. Closing that needs the connection pinned to the checked address via a custom adapter. The remaining exposure is a hostile DNS operator racing their own answers, well past the threat this guard exists for.
+
+Learnings: `requests`' `is_redirect` must not be used in code the tests drive with Mock responses - every Mock attribute is truthy, so a 200 would read as a redirect. Compare `status_code` against an explicit set instead. A relative `Location` is legal and common, so a redirect target has to be urljoin-ed against the URL actually requested before it is judged; judging the raw header would let `/admin` read as an unparseable host and be refused for the wrong reason.
+
+Next: B2, the last open item, a Low: `normalize_url` reports a schemeless `host:port` as an unsupported scheme named after the hostname.

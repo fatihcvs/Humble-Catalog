@@ -10,8 +10,6 @@ Rules:
 
 ## Now
 
-- [ ] B1 (High, runtime, security): `url_import._fetch_html` re-checks the URL scheme after redirects (url_import.py:192) but never the destination host, so a third-party page can steer the fetch to any address this machine can reach - loopback, the LAN, a cloud metadata endpoint - and the response's og:title is returned into the viewer. Reproduced with two real local servers in `.jeffy/probes/url-import/probe.py`: a 302 from one host to another is followed and the destination page is read. In envelope: the redirect target is chosen by third-party content, which the Operating envelope classes adversarial. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/url-import/probe.py` exits 0 with the redirect case refused, and `.venv/Scripts/python.exe -m pytest -q tests/test_url_import.py` stays green so legitimate imports still resolve.
-
 ## Next
 
 ## Later
@@ -26,6 +24,7 @@ Items needing a user decision before any work, one plain line each, never a chec
 
 One line per class: the idiom or defect class, the surface it applies to, and how it was settled - fixed class-complete with its enumerating check, or declined with the reason. Audits must not file findings inside a settled class unless its implementing code changed after settlement.
 
+- Unchecked redirect destination on outbound fetches (`url_import._fetch_html`, the one path `bundle_preview` also uses): fixed class-complete in B1. Redirects are now followed by hand so every hop is validated before it is requested, not just the final URL. Enumerating check: `grep -n "allow_redirects" humble_catalog/` shows the single call site, set to False. Pinned by 4 tests in tests/test_url_import.py and by `.jeffy/probes/url-import/probe.py`. Residual, recorded not hidden: the check resolves the name and then lets requests connect, so a DNS answer that changes between the two would slip through; pinning the connection to the checked address needs a custom adapter.
 - Unvalidated request body / missing existence check on viewer write routes (`humble_catalog/webapp/__init__.py`): fixed class-complete in A1. Enumerating check: `grep -n "request.get_json()\[" humble_catalog/webapp/__init__.py` returns nothing, so no route indexes the body directly; every `/api/items/<id>/...` write now answers 400 for a malformed body and 404 for an unknown item, pinned by 7 tests in tests/test_webapp.py and by `.jeffy/probes/webapp-write-routes/probe.py` (18/18).
 
 ## Declined

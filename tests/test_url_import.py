@@ -253,6 +253,53 @@ def test_redirect_to_non_http_scheme_is_rejected(tmp_path, monkeypatch):
         url_import.resolve(_conn(tmp_path), "https://examplegames.com/p/1",
                            http=http)
 
+def _redirect_to(location, status=302):
+    """An http session whose single response is a redirect to `location`."""
+    http = Mock()
+    resp = Mock(status_code=status)
+    resp.headers = {"Location": location}
+    resp.url = "https://examplegames.com/p/1"
+    resp.raise_for_status = Mock()
+    http.request = Mock(return_value=resp)
+    return http
+
+
+def test_a_redirect_to_loopback_is_refused(tmp_path, monkeypatch):
+    # The pasted URL is the owner's own choice, but a redirect target is
+    # chosen by the page, so it is the hop that has to be checked. Without
+    # this, a product page could steer the fetch at anything on the machine
+    # or the LAN and get the response's og:title back.
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    with pytest.raises(ValueError, match="private or unroutable"):
+        url_import.resolve(_conn(tmp_path), "https://examplegames.com/p/1",
+                           http=_redirect_to("http://127.0.0.1:8087/admin"))
+
+
+def test_a_redirect_to_cloud_metadata_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    with pytest.raises(ValueError, match="private or unroutable"):
+        url_import.resolve(
+            _conn(tmp_path), "https://examplegames.com/p/1",
+            http=_redirect_to("http://169.254.169.254/latest/meta-data/"))
+
+
+def test_a_redirect_loop_stops_rather_than_spinning(tmp_path, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    with pytest.raises(ValueError, match="too many redirects"):
+        url_import.resolve(_conn(tmp_path), "https://examplegames.com/p/1",
+                           http=_redirect_to("https://examplegames.com/p/2"))
+
+
+def test_publicly_routable_judges_each_range(monkeypatch):
+    # IP literals: getaddrinfo does no DNS for these, so this stays offline.
+    assert url_import._publicly_routable("8.8.8.8") is True
+    for private in ("127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1",
+                    "169.254.169.254", "::1", "fe80::1"):
+        assert url_import._publicly_routable(private) is False, private
+    # a name that will not resolve must not read as permission
+    assert url_import._publicly_routable("no-such.invalid.example.test") is False
+
+
 def test_normalize_url_prepends_https_to_bare_host():
     assert url_import.normalize_url("examplegames.com/p/1") == \
         "https://examplegames.com/p/1"
