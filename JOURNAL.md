@@ -238,7 +238,7 @@ Task: Final iteration. Tidy the ledger and write the handoff, rather than starti
 
 Changed: JOURNAL.md (this entry). BACKLOG.md needed no tidying: Now, Next and Later are already empty, nothing is marked [b], and the two closed classes are recorded under Settled classes.
 
-Checkpoint: pending
+Checkpoint: a080543. This iteration changed only JOURNAL.md and no BACKLOG item changed state, which is a stall by the letter of the check - correctly so, because a WRAPUP does no work by design. It is not a hard blocker: the previous primary entry, iteration 9's audit, swept two rows and does not say the same.
 
 Verification: The run is NOT converged, and this entry says so rather than declaring. Convergence requires no unswept row in the Surface inventory; 41 of 54 rows are unswept, so the Definition of done is not close to true and no evaluator gate was invoked - the gate exists to check a convergence claim, and there is no claim to check. No full audit was ever run this run either; all five audits were partial by design, and a partial audit never counts toward convergence.
   Final Verify command state, from iteration 9's gate: pytest 981 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0. The tree is clean at this entry, so that state still stands.
