@@ -247,13 +247,8 @@ def _read_capped(resp, limit=None):
     larger limit rather than raising it for every host.
     """
     cap = MAX_HTML_BYTES if limit is None else limit
-    chunks, total = [], 0
-    for chunk in resp.iter_content(65536):
-        chunks.append(chunk)
-        total += len(chunk)
-        if total >= cap:
-            break
-    return b"".join(chunks).decode(resp.encoding or "utf-8", errors="replace")
+    raw = outbound.read_capped(resp, cap, truncate=True)
+    return raw.decode(resp.encoding or "utf-8", errors="replace")
 
 
 def _generic_og(conn, parts, url, http):

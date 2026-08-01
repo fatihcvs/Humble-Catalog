@@ -43,6 +43,12 @@ def refusal(fn, *a, **kw):
     return "allowed"
 
 
+# One byte past the cover cap this project ships. Held as a literal so the
+# oversized handler works against any revision of extract.py; the check
+# below fails loudly if the shipped constant ever moves away from it.
+OVERSIZED_BYTES = 8 * 1024 * 1024 + 1
+
+
 class Handler(BaseHTTPRequestHandler):
     """Logs every path it is asked for; redirects when the path says so."""
 
@@ -58,6 +64,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", "/loop")
             self.end_headers()
+            return
+        if self.path.startswith("/oversized"):
+            # One byte past the cover cap, streamed rather than built whole.
+            # The size is a LITERAL, not extract.MAX_COVER_BYTES: reading the
+            # constant here made this handler raise against code that predates
+            # it, so the request failed for the wrong reason and the case
+            # passed against the unfixed downloader while measuring nothing.
+            # OVERSIZED_BYTES is checked against the real constant below.
+            total = OVERSIZED_BYTES
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(total))
+            self.end_headers()
+            block, sent = b"\xff\xd8" + b"\x00" * 65534, 0
+            while sent < total:
+                chunk = block[:min(len(block), total - sent)]
+                self.wfile.write(chunk)
+                sent += len(chunk)
             return
         body = b'{"results": {"person_credits": []}}'
         self.send_response(200)
@@ -215,6 +239,60 @@ with tempfile.TemporaryDirectory() as td:
           [r["cover_path"] for r in
            conn.execute("SELECT cover_path FROM items ORDER BY machine_name")],
           [None, None])
+    conn.close()
+
+# ------------------------------------------------------- C2: the body cap
+# read_capped's `truncate` at both values, on ONE oversized body that must
+# produce different answers: refuse, or return a prefix.
+class _Body:
+    """Minimal stand-in exposing only what read_capped uses."""
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def iter_content(self, n):
+        return iter(self._chunks)
+
+
+# getattr, not attribute access: against a revision with no cap at all this
+# must report a plain failure, not raise and take the whole battery with it.
+check("the oversized body is exactly one byte past the shipped cap",
+      OVERSIZED_BYTES, getattr(extract, "MAX_COVER_BYTES", 0) + 1)
+check("read_capped: a body under the cap is returned whole",
+      outbound.read_capped(_Body([b"abc"]), 10), b"abc")
+check("read_capped: a body exactly at the cap is not refused",
+      outbound.read_capped(_Body([b"abcde"]), 5), b"abcde")
+check("read_capped: truncate=False refuses a body over the cap",
+      refusal(outbound.read_capped, _Body([b"a" * 11]), 10), "refused")
+check("read_capped: truncate=True returns a prefix instead of refusing",
+      len(outbound.read_capped(_Body([b"a" * 6] * 4), 10, True)), 12)
+
+# End to end, against the REAL constant rather than a lowered one: a cover
+# one byte past the cap must leave nothing on disk. A truncated write would
+# look like a real cover and would never be re-fetched.
+with tempfile.TemporaryDirectory() as td:
+    conn = db.connect(str(Path(td) / "big.db"))
+    conn.execute("INSERT INTO items (machine_name, name, type, cover_url) "
+                 "VALUES ('a','Salt and Sextant','ebook',?)",
+                 (f"http://127.0.0.1:{port}/oversized",))
+    conn.commit()
+    covers_dir = Path(td) / "covers"
+    # The destination guard would refuse loopback first, so this case has to
+    # get past it to reach the cap at all. Only routability is stubbed; the
+    # cap under test is untouched.
+    real_routable = outbound.publicly_routable
+    outbound.publicly_routable = lambda host: True
+    try:
+        written = extract._download_covers(
+            conn, types.SimpleNamespace(http=sess), covers_dir)
+    finally:
+        outbound.publicly_routable = real_routable
+    check("covers: an oversized cover is not written", written, 0)
+    check("covers: no truncated file was left behind",
+          sorted(p.name for p in covers_dir.iterdir()), [])
+    check("covers: no cover_path was recorded for it",
+          conn.execute("SELECT cover_path FROM items").fetchone()["cover_path"],
+          None)
     conn.close()
 
 srv.shutdown()

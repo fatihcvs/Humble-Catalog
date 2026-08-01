@@ -112,3 +112,34 @@ def test_a_redirect_hop_is_checked_before_it_is_requested(server):
                      check_initial=False)
     # The redirect was answered, but /private was never asked for.
     assert server.seen == ["/redirect"]
+
+
+class _Body:
+    """Minimal stand-in exposing only what read_capped uses."""
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def iter_content(self, n):
+        return iter(self._chunks)
+
+
+def test_a_body_under_the_cap_is_returned_whole():
+    assert outbound.read_capped(_Body([b"abc"]), 10) == b"abc"
+
+
+def test_a_body_exactly_at_the_cap_is_not_refused():
+    # The cap refuses what is LARGER than it, not what reaches it.
+    assert outbound.read_capped(_Body([b"abcde"]), 5) == b"abcde"
+
+
+def test_an_oversized_body_is_refused_by_default():
+    with pytest.raises(ValueError, match="larger than 10 bytes"):
+        outbound.read_capped(_Body([b"a" * 11]), 10)
+
+
+def test_truncate_returns_a_prefix_instead_of_refusing():
+    # The page reader's policy: OpenGraph tags live in <head>, so a partial
+    # read still parses. Same input as the case above, opposite answer.
+    got = outbound.read_capped(_Body([b"a" * 6] * 4), 10, truncate=True)
+    assert len(got) == 12

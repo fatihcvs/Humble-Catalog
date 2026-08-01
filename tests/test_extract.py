@@ -19,12 +19,46 @@ def _routable(monkeypatch):
     monkeypatch.setattr("humble_catalog.outbound.publicly_routable",
                         lambda host: True)
 
-def _client(raw):
+class _Response:
+    """A stand-in for a streamed requests response.
+
+    The cover downloader reads the body in chunks inside a `with`, so the
+    double has to be a context manager that yields itself and serve
+    iter_content, not merely carry a .content attribute. Written out rather
+    than assembled from a mock: the explicit class says exactly which four
+    things the downloader is entitled to use.
+    """
+
+    def __init__(self, body, status_code=200,
+                 url="https://hb.imgix.net/cover.jpg"):
+        self.body = body
+        self.status_code = status_code
+        self.headers = {}
+        # outbound.get re-checks the scheme of the URL the response reports,
+        # because a server can answer 200 while naming a different final
+        # URL. A mock would have invented this attribute silently.
+        self.url = url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_content(self, n):
+        for i in range(0, len(self.body), n):
+            yield self.body[i:i + n]
+
+
+def _response(body, status_code=200):
+    return _Response(body, status_code)
+
+
+def _client(raw, cover_body=b"\xff\xd8fakejpg"):
     client = Mock()
     client.list_order_keys.return_value = [raw["gamekey"]]
     client.get_order.return_value = raw
-    cover = Mock(status_code=200, content=b"\xff\xd8fakejpg")
-    client.http.get.return_value = cover
+    client.http.get.return_value = _response(cover_body)
     return client
 
 def test_extract_stores_and_downloads_covers(tmp_path, monkeypatch):
@@ -119,3 +153,19 @@ def test_extract_backfills_apk_items_from_cached_orders(tmp_path, monkeypatch):
     conn = db.connect(dbp)
     assert conn.execute("SELECT COUNT(*) c FROM items").fetchone()["c"] == 1
     assert conn.execute("SELECT COUNT(*) c FROM downloads").fetchone()["c"] == 1
+
+def test_an_oversized_cover_is_refused_and_nothing_is_written(tmp_path, monkeypatch):
+    """A cover past the cap must leave no file.
+
+    Truncating instead would put half a JPEG on disk under the name a real
+    cover would have, and relink would then treat it as already fetched.
+    """
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    raw = json.loads(FIXTURE.read_text())
+    dbp, covers_dir = tmp_path / "t.db", tmp_path / "covers"
+    oversized = b"\xff\xd8" + b"\x00" * extract.MAX_COVER_BYTES
+    extract.run(db_path=dbp, covers_dir=covers_dir,
+                client=_client(raw, cover_body=oversized))
+    conn = db.connect(dbp)
+    assert conn.execute("SELECT cover_path FROM items").fetchone()["cover_path"] is None
+    assert list(covers_dir.iterdir()) == []

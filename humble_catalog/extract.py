@@ -6,6 +6,11 @@ from humble_catalog import covers, db, humble_api, outbound
 from humble_catalog.progress import Progress
 from humble_catalog.store import store_order
 
+# Generous for cover art - the icons Humble serves run well under a
+# megabyte - and small enough that a hostile endpoint cannot spend the
+# machine's memory on one item.
+MAX_COVER_BYTES = 8 * 1024 * 1024
+
 def run(db_path="catalog.db", covers_dir="covers", client=None, refetch=False):
     conn = db.connect(db_path)
     # Backfill first: parser improvements auto-apply to already-fetched
@@ -73,11 +78,19 @@ def _download_covers(conn, client, covers_dir):
             # requests, so it goes through the outbound guard rather than
             # straight into the session. A refusal raises ValueError and is
             # counted as a failed cover below, never fatal to the harvest.
-            resp = outbound.get(client.http, row["cover_url"], timeout=30)
-            if resp.status_code != 200:
-                prog.count("missing")
-                continue
-            (covers_dir / fname).write_bytes(resp.content)
+            #
+            # stream=True with a capped read, not resp.content: the body is
+            # third-party, and buffering it whole would let one hostile or
+            # broken response balloon memory. Over the cap the cover is
+            # refused outright rather than truncated - half a JPEG on disk
+            # looks like a real cover and would never be re-fetched.
+            with outbound.get(client.http, row["cover_url"], timeout=30,
+                              stream=True) as resp:
+                if resp.status_code != 200:
+                    prog.count("missing")
+                    continue
+                body = outbound.read_capped(resp, MAX_COVER_BYTES)
+            (covers_dir / fname).write_bytes(body)
             conn.execute("UPDATE items SET cover_path=? WHERE id=?",
                          (f"covers/{fname}", row["id"]))
             conn.commit()

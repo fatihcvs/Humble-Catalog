@@ -313,3 +313,24 @@ Verification: The filed reproduction was re-run first, before any edit, and both
 Learnings: Judge an outbound-destination guard by what the request CARRIES, not only by where it goes. A routability check answers "could this reach the LAN"; it does not answer "could this hand our credential to a stranger", and a request with a key in its query string needs a host allowlist. Separately: adding a network guard to code a test drives with a fixture URL can silently make the suite depend on DNS - state the assumption in a fixture rather than letting the resolver decide whether the suite passes.
 
 Next: C2 (Medium) - cap the cover body. The boundary added here is where the cap belongs, since it already owns the request.
+
+## iter 3/10 | 84948f5f-185203 | 2026-08-01 | C2 | done
+
+Task: C2 (Medium, runtime, error handling) - cap the third-party cover body instead of buffering it whole.
+
+Changed: humble_catalog/outbound.py (read_capped added, the cap now lives beside the request it belongs to), humble_catalog/url_import.py (`_read_capped` reduced to a decode over it), humble_catalog/extract.py (MAX_COVER_BYTES, stream=True, capped read), tests/test_outbound.py (+4), tests/test_extract.py (explicit response double, +1 end-to-end), .jeffy/probes/outbound-guard/probe.py (+8 cases), BACKLOG.md (C2 deleted, one Proposed item filed), PLAN.md (two rows re-swept, two Lessons).
+
+Checkpoint: PENDING
+
+Verification: Acceptance check run after the fix, against a real server serving one byte past the shipped cap.
+  - `.jeffy/probes/outbound-guard/probe.py` exits 0 at 49/49. Against the uncapped downloader - copied aside and restored - it scores 45/49, and the four failures are the point: `covers: an oversized cover is not written` got 1, and an 8 MiB file was left on disk under the name a real cover would have.
+  - That differential only became real after a defect in my own probe. The oversized handler read `extract.MAX_COVER_BYTES`, which does not exist in code predating the fix, so the handler raised, the request failed for the wrong reason, and the case PASSED against the unfixed downloader while measuring nothing - 48/48 both sides. Holding the size as a literal and asserting it equals the shipped constant separately is what made the check able to fail.
+  - The overflow policy is a parameter, not an assumption, because the two callers want opposite answers: the page reader truncates (OpenGraph tags live in <head>, so a partial read still parses) and the cover writer refuses (half a JPEG on disk looks like a real cover and would never be re-fetched). Exercised at both values on the same oversized body.
+  - Contract preserved. `_read_capped` keeps its name, signature and truncating behaviour, including that it stops on a chunk boundary and may return up to one chunk past the limit - deliberately not tightened, because bundle_preview passes a larger limit precisely to reach a blob near the end of a page, and slicing to the byte would have shortened it. The 46-case url-import battery held 46/46 unchanged, which is what re-sweeps that row.
+  - Replacing the mocked cover response with an explicit double immediately exposed a dependency the mock had been satisfying invisibly: outbound.get reads `resp.url`, and the mock invented it. The double now states the four things the downloader is entitled to use.
+  - Verify command: pytest 1026 passed (exit 0), up from 1021; check_no_data_tracked exit 0; leak_check exit 0 after replacing that mock class - it is spelled with a private-library term inside it and cannot be reworded, which is now a Proposed item.
+  - One claim in BACKLOG.md was corrected before this checkpoint: the settled-class line briefly quoted a differential score for a combination never actually run. It now states only the two differentials that were measured.
+
+Learnings: A probe's own fixtures must not read anything the unfixed code lacks. A helper that raises makes the request fail for the wrong reason, the case goes green against broken code, and the differential run - the one step meant to prove the check can fail - reports success while measuring nothing. Hold such values as literals and assert them against the shipped constant in a separate case. Also: prefer an explicit test double to a mock for a response object. The mock silently invents every attribute the code reaches for, so it hides which parts of the interface are actually depended on, and it cannot fail when a new one appears.
+
+Next: C3 (Low) is the only item left on the ledger. After it the ledger is empty with 6 iterations remaining, which is the point the evaluator gate should run early rather than at the declaration - but a full fresh-evidence audit has not happened this run, and 40 of 55 rows are unswept, so convergence is not in reach and the budget is better spent sweeping adversarial rows.

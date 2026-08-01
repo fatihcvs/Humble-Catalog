@@ -142,3 +142,39 @@ def get(sess, url, allowed_hosts=None, check_initial=True, send=None, **kwargs):
             f"refused redirect with unsupported scheme '{final.scheme}'; "
             "only http and https are allowed")
     return resp
+
+
+def read_capped(resp, limit, truncate=False):
+    """Read at most `limit` bytes of `resp`, streaming rather than buffering.
+
+    The cap exists so a hostile or broken endpoint cannot balloon memory,
+    and it only means anything when the response was requested with
+    stream=True - otherwise requests has already read the whole body.
+
+    The two callers want opposite things when the body runs past the cap,
+    so the overflow policy is a parameter rather than an assumption:
+
+      truncate=True  - return the first `limit` bytes. What a page read
+                       wants: OpenGraph tags live in <head>, so a partial
+                       read still parses.
+      truncate=False - raise ValueError and return nothing. What a file
+                       download wants: half a JPEG written to disk as
+                       though it were whole is worse than no cover.
+
+    Stops at a chunk boundary rather than an exact byte count, so a
+    truncating read can return up to one chunk more than `limit`. That is
+    the behaviour this had before it moved here, and the callers treat the
+    cap as a memory bound rather than a length contract; slicing to the
+    byte would quietly shorten the bundle-page read that asks for a larger
+    limit precisely to reach a blob near the end.
+    """
+    chunks, total = [], 0
+    for chunk in resp.iter_content(65536):
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > limit:
+            if not truncate:
+                raise ValueError(
+                    f"refused a response larger than {limit} bytes")
+            break
+    return b"".join(chunks)
