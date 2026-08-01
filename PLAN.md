@@ -65,7 +65,7 @@ Storage layer (`humble_catalog/db.py`, 683 lines, split by function family: `gre
 Acquisition (HumbleBundle)
 - [ ] extract-humble: `humble_catalog/extract.py`, `humble_catalog/humble_api.py` - login, bundle fetch, cache write, `reparse`.
 - [x] parse-order: swept at e0b77ba - `parse_order`; battery `.jeffy/probes/sources-base/probe.py` covers platform filtering (both skip branches), format lowercasing and sorting, a missing payee, the gamekey in the bundle url, external key extraction, and an order with neither subproducts nor tpkd_dict. Held.
-- [x] bundle-preview-parts: swept at PENDING - `fetch_bundle`'s scheme and host gates (refusal paths, no network), `delivery_stores`, `_adds`, `_owned`, `_owned_games`; battery `.jeffy/probes/bundle-preview-parts/probe.py`. Held.
+- [x] bundle-preview-parts: swept at cfb97ff - `fetch_bundle`'s scheme and host gates (refusal paths, no network), `delivery_stores`, `_adds`, `_owned`, `_owned_games`; battery `.jeffy/probes/bundle-preview-parts/probe.py`. Held.
 - [ ] bundle-preview-tiers: `preview()` itself, plus `_overlaps`, `_series_note` and `format_report` - the tier walk, the ownership counts a purchase decision rests on, and the report rendering. Split out from the helpers row because these were NOT exercised; `preview` needs a fixture-shaped bundle and a seeded catalog. Enumerate with `grep -n "^def " humble_catalog/bundle_preview.py`.
 
 Title and match logic

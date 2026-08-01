@@ -184,9 +184,9 @@ Next: 3 iterations remain and convergence is out of reach at 43 unswept rows, so
 
 Task: Partial replenishing audit. Swept the bundle-preview helper families, chosen because `fetch_bundle` reuses url_import's fetch guards and is therefore where a regression from this run's own B1 change would surface.
 
-Changed: .jeffy/probes/bundle-preview-parts/probe.py (new), PLAN.md (row split into bundle-preview-parts and bundle-preview-tiers; the helpers row swept).
+Changed: .jeffy/probes/bundle-preview-parts/probe.py (new), PLAN.md (row split into bundle-preview-parts and bundle-preview-tiers; the helpers row swept, one Lesson).
 
-Checkpoint: pending
+Checkpoint: cfb97ff. Not a stall: a probe battery was added under .jeffy/probes/ and two inventory rows changed state (one split, one swept). No BACKLOG item changed state because the sweep found nothing to file; the previous primary entry was also a clean audit, but it recorded row state changes too, so this is not a second consecutive no-progress iteration.
 
 Verification: 26 known-answer assertions, all held. No findings.
   - No B1 regression: `fetch_bundle` still admits humblebundle.com and its subdomains and still refuses the lookalikes - `humblebundle.com.evil.example`, `nothumblebundle.com`, and a URL merely containing the domain in its path - and a non-http scheme is still refused ahead of the host gate. The full suite is green at 981, including the bundle-preview tests.
