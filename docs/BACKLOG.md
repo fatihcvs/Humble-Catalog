@@ -63,24 +63,7 @@ here are neither: both are known defects with a known cause.
 
 ### Next up
 
-1. **`load()`'s badge arithmetic is not inside its own guard** — found
-   2026-08-01 while shipping the bulk-tag undo. `load()` runs its five
-   panel loaders in a `try`/`catch` loop, added after one item with a
-   missing field blanked the entire page. The `pending = {...}` badge
-   computation immediately after that loop is *not* guarded, and it
-   reads the module variables those loaders assign — `dupeGroups.length`
-   and `reviewCount`. So a loader that throws before assigning its
-   variable is caught and logged, and then `load()` throws anyway,
-   defeating the containment the loop exists to provide. Observed with a
-   malformed `/api/duplicates` response: the console showed
-   `loadDupes() failed: TypeError: Cannot read properties of undefined
-   (reading 'length')` and the error surfaced out of an unrelated caller
-   (a bulk tag write), which is the part that makes it expensive — the
-   report points nowhere near the cause. First: check how
-   `badgeCount` in `shell.js` treats a missing count, since a badge
-   silently reading zero for a section that failed to load is the wrong
-   fix. Reachable in production by any malformed response.
-2. **Thirteen buttons keep the browser's default styling in dark mode**
+1. **Thirteen buttons keep the browser's default styling in dark mode**
    — measured 2026-08-01 in a browser against `demo_catalog.py`:
    `sidebar-toggle`, `col-all`, `col-none`, `bulk-add`, `bulk-remove`,
    `bulk-undo`, `cand-btn`, `url-fetch`, `dupe-clear`, `dupe-keep`,
@@ -236,6 +219,40 @@ worklist order; these are what is left.
   shell — one grep for `webpack-bundle-page-data` settles either.
 
 ## Done (formerly on this list)
+
+- **A bad `/api/duplicates` payload took `load()` down** — fixed
+  2026-08-01 (no spec; one line, found while shipping the bulk-tag undo
+  when a test stub returned the wrong shape). `loadDupes` assigned the
+  payload field straight into the module-level `dupeGroups`, so a
+  response without `groups` set it to `undefined`. `renderDupes()` then
+  threw and `load()`'s loop contained that, as designed — but the
+  `pending` badge arithmetic after the loop reads `dupeGroups.length`
+  and is *outside* the guard, so `load()` threw anyway, at whatever had
+  called it. That is what made it expensive: the report surfaced at a
+  bulk tag write, nowhere near the payload that caused it.
+  **The entry as first written had the mechanism wrong**, and the fix
+  would have been wrong with it. It said the loader "throws before
+  assigning its variable", which would make the declaration initialisers
+  the fix — but `let dupeGroups = []` and `let reviewCount = 0` were
+  already there. They guard "never loaded", not "loaded badly": the bad
+  assignment *succeeds*, replacing the safe empty with `undefined`, and
+  every later reader inherits it.
+  The asymmetry across the three loaders is what identified it, and one
+  of them already had the answer. `loadKeys` writes `data.rows || []`
+  and is safe. `loadReview` reads into a local `const` and computes
+  `review.length` there, so a bad payload throws *before* `reviewCount`
+  is assigned and the module variable keeps its last good value — safe
+  by accident of ordering rather than by intent. `loadDupes` was the
+  only one assigning an unchecked field to a module variable. Probing
+  all three confirmed it: malformed `review` and `keys` payloads leave
+  `load()` intact, `duplicates` alone throws.
+  Fixed at the assignment, not by widening the `try`/`catch` to cover
+  the badges. Guarding the arithmetic would leave `dupeGroups` corrupt
+  for its three other readers and would make a section that failed to
+  load report a silent zero — the same answer as "no duplicates", which
+  is the wrong thing to tell someone. With the source fixed, a malformed
+  payload degrades to an empty panel, exactly as `loadKeys` has always
+  degraded.
 
 - **Undo for bulk tagging** —
   `docs/superpowers/specs/2026-08-01-bulk-tag-undo-design.md`.
