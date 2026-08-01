@@ -74,6 +74,29 @@ def test_load_renders_every_panel_even_when_one_renderer_throws():
     assert "#stats-panel" in result["wrote"]
 
 
+def test_load_survives_a_duplicates_payload_without_groups():
+    # loadDupes assigned the payload field straight into dupeGroups, so a
+    # response without `groups` replaced the safe [] with undefined. The
+    # throw inside renderDupes() is contained by load()'s loop -- but the
+    # badge arithmetic after the loop is not, and it reads dupeGroups
+    # too, so load() threw anyway from wherever it had been called.
+    # loadKeys already had the answer: `data.rows || []`.
+    result = eval_js(
+        """(async () => {
+             app.setFetch((url) => Promise.resolve({json: () => Promise.resolve(
+               url === "/api/items"      ? {items: []} :
+               url === "/api/review"     ? {items: []} :
+               url === "/api/duplicates" ? {} :
+               url === "/api/stats"      ? {total: 0, sections: []} : {})}));
+             let threw = null;
+             try { await app.load(); } catch (e) { threw = e.message; }
+             return {threw, maintenance: app.getPending().maintenance};
+           })()""")
+    assert result["threw"] is None
+    # and the badge is a number rather than NaN or a crash
+    assert result["maintenance"] == 0
+
+
 def test_review_panel_collapses_with_a_count_summary():
     # The panel body must be a <details> so it collapses, and the summary
     # must carry the count so a collapsed panel still signals pending work.

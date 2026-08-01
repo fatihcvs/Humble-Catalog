@@ -89,7 +89,14 @@ function dupeGroupHtml(members, manual) {
 let dupeGroups = [];
 
 async function loadDupes() {
-  dupeGroups = (await (await fetch("/api/duplicates")).json()).groups;
+  // `|| []` as loadKeys does, and not merely for tidiness: dupeGroups is
+  // read again by load()'s badge arithmetic, which runs OUTSIDE the
+  // try/catch that contains a loader's failure. Assigning undefined here
+  // survives the contained throw and takes load() down from there, so the
+  // error surfaces at whatever called load() rather than at the payload
+  // that caused it. The `= []` initialiser does not cover this: it guards
+  // "never loaded", not "loaded badly".
+  dupeGroups = (await (await fetch("/api/duplicates")).json()).groups || [];
   renderDupes();
 }
 
