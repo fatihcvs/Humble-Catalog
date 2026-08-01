@@ -1535,6 +1535,43 @@ def test_the_undo_button_names_the_tag_and_the_count():
     assert labels["hiddenWithoutSlot"] is True
 
 
+def test_the_result_message_survives_the_button_redraw():
+    # renderBulkBar() writes #bulk-note unconditionally, so calling it
+    # after the result message wipes it -- the note read "Narrow the view
+    # to remove." straight after a successful add. Invisible to the DOM
+    # stub until something asserted on the ordering; caught in a browser.
+    note = eval_js(
+        """(async () => {
+             let posted = null;
+             app.setItems([%s]);
+             for (const f of Object.values(app.chipFilters)) {
+               f.chips = []; f.text = "";
+             }
+             app.setLastTagOp(null);
+             document.querySelector("#bulk-tag").value = "lent out";
+             %s
+             const btn = document.querySelector("#bulk-add");
+             await app.runBulk(btn, "add");
+             await app.runBulk(btn, "add");
+             return dom.writes["#bulk-note:text"];
+           })()""" % (json.dumps(_item(id=1, name="Item 1")),
+                      _STUB_FETCH % "[1]"))
+    assert note == "Added to 1 of 1 items."
+
+
+def test_the_undo_result_message_survives_the_button_redraw():
+    note = eval_js(
+        """(async () => {
+             let posted = null;
+             app.setItems([]);
+             app.setLastTagOp({ids: [1, 2], tag: "lent out", action: "add"});
+             %s
+             await app.undoBulk();
+             return dom.writes["#bulk-note:text"];
+           })()""" % (_STUB_FETCH % "[1, 2]"))
+    assert note == 'Restored "lent out" on 2 of 2 items.'
+
+
 def test_undo_is_offered_while_remove_is_gated_off():
     # The gate exists so "remove from all N" is never one click. Undo acts
     # on a recorded id list, not on the current view, so it is available

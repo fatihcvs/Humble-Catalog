@@ -457,9 +457,12 @@ async function runBulk(el, action) {
       : null;
     const verb = action === "add" ? "Added to" : "Removed from";
     await load();
+    // Before the note, never after: renderBulkBar() writes #bulk-note
+    // unconditionally, so redrawing the button afterwards would wipe the
+    // result the owner just asked for.
+    renderBulkBar();
     $("#bulk-note").textContent =
       `${verb} ${changedIds.length} of ${ids.length} items.`;
-    renderBulkBar();
   });
 }
 
@@ -479,10 +482,10 @@ async function undoBulk() {
   // The original operation is one click away in this same bar.
   lastTagOp = null;
   await load();
+  renderBulkBar();          // before the note; see runBulk
   const verb = action === "add" ? "Restored" : "Removed";
   $("#bulk-note").textContent =
     `${verb} "${tag}" on ${changedIds.length} of ${ids.length} items.`;
-  renderBulkBar();
 }
 
 // Every filter currently narrowing the table, summarised in the main
