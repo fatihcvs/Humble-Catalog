@@ -151,3 +151,31 @@ Verification: `.jeffy/probes/url-import/probe.py` exits 0 at 46/46 - the first f
 Learnings: When a parser's failure message names the user's input as the wrong KIND of thing, the fix is usually to recognise the right shape earlier rather than to reword the message - the message was accurate about what urlparse did and useless about what the user did.
 
 Next: The ledger is empty and 4 iterations remain. Iteration 7 replenishes with a partial audit over the remaining adversarial rows - bundle-preview, sources-base, extract-humble - which are the rows most likely to hold another finding of B1's kind.
+
+## iter 7/10 | ceea220f-162935 | 2026-08-01 | AUDIT | audit
+
+Task: Partial replenishing audit, continuing on the adversarial rows. Swept sources-base and parse-order: the shared request/retry/redaction path every metadata source funnels through, and the parser every HumbleBundle order passes through.
+
+Changed: .jeffy/probes/sources-base/probe.py (new), PLAN.md (two rows swept).
+
+Checkpoint: pending
+
+Verification: 49 known-answer assertions, all held. No findings; the ledger stays empty.
+  - redact: an api_key, apikey or bare key is replaced in any casing, the parameter NAME is preserved while the value is destroyed, replacement stops at the ampersand so later params survive, two keys in one string are both caught, and a string with no key is returned unchanged. Checked directly that the secret value is absent from the output rather than only that the output looks redacted.
+  - candidate: every default key present, kwargs override, and `extra` is a fresh dict per call - mutating one candidate's `extra` leaves the next one empty. That is the shared-mutable-default bug this shape invites, and it is not present.
+  - cache_key_params: the `secret_params` argument changes the result at both its values, and a pair sequence works as well as a dict, which matters because the db migration that rekeys old rows shares this function.
+  - _with_retries: exercised by counting attempts and sleeps rather than by observing success. A 5xx retries to ATTEMPTS with backoff 5s then 10s; 404, 429 and 403 are each tried exactly once, which is the documented reasoning that a dead quota and a bot wall will not improve; connection errors and timeouts retry; a success is called exactly once. The documented `retry_server_errors` parameter changes behaviour at both values - False stops a 5xx after one attempt and sleeps not at all - and, importantly, does NOT disable connection retries, which is the distinction the docstring draws and the one a careless refactor would flatten.
+  - parse_order: only ebook/audio/android subproducts become items; a subproduct with an unrecognised platform and one with no downloads are both skipped; formats are lowercased and sorted; a missing payee yields None rather than a crash; the bundle url carries the gamekey; externals are extracted with their raw JSON; and an order with no subproducts and no tpkd_dict parses to empty lists rather than raising.
+  One finding was considered and NOT filed: `parse_order` subscripts `raw["gamekey"]`, `raw["product"]["human_name"]` and `tpk["machine_name"]`, so a HumbleBundle schema change would raise KeyError rather than report something readable. The rubric would call a crash on realistic in-envelope input High, and HumbleBundle JSON is adversarial-class. It is not filed because the code documents the choice at parse_order.py:33-35 with measured evidence (2,278 of 2,278 tpks carry the field, and the column is NOT NULL), and deliberately prefers to raise at the parse site over writing a NULL that fails a constraint two layers later. That is a defensible documented decision, not an oversight, and filing against it would be second-guessing a choice whose rationale is better evidenced than my objection. Recorded here so a later audit does not re-derive it as new.
+  Scores, claiming ONLY the 10 swept rows of 53 - the other 43 are unswept:
+  - correctness: None across all 10 swept rows.
+  - security: None on sources-base (redaction and retry policy) and url-import as fixed. Still NOT SCORED for the project: extract-humble, sources-books, sources-media, bundle-preview and covers-store remain unswept and adversarial.
+  - error handling: None on the swept rows.
+  - architecture, code quality, documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  Partial audit; never counts toward convergence, and closeout is NOT entered - that needs a full audit, and 43 rows are unswept.
+  Verify command: pytest 981 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+
+Learnings: A retry policy is swept by counting attempts and sleeps, never by watching a call succeed - "it worked" is identical output whether the policy retried three times, once, or not at all, so a liveness probe certifies nothing about it.
+
+Next: 3 iterations remain and convergence is out of reach at 43 unswept rows, so iteration 10 should be a WRAPUP with a handoff rather than a task that cannot finish. Iterations 8 and 9 keep sweeping: bundle-preview first, since it shares the fetch path B1 changed, then export-columns and stats-report.

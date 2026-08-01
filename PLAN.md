@@ -160,6 +160,7 @@ Audit discipline: the audit procedure is exactly what this Method prescribes. Ne
 ## Lessons
 Operational rules future iterations must obey, learned during runs. One line each: a build quirk, a command that must or must not be used, a mistake made twice. When a JOURNAL Learnings line states a rule future iterations need, copy it here as one line. The project owner can add lines here too, to steer every future run: fix the loop, not the run. Keep it brief; never write status reports, run narration, or task state here. A Lesson recording its second occurrence is marked `[recurred]`, and the run report proposes promoting it to a mechanism - a hook check or a Method rule - for the user to decide: a rule that had to be written twice is a rule this text is not enforcing.
 
+- Sweep a retry or backoff policy by counting attempts and sleeps, never by watching a call succeed: "it worked" looks identical whether the policy retried three times, once, or not at all.
 - The privacy standing order in CLAUDE.md outranks everything here: probes, fixtures, docs and commit messages use invented titles from docs/TEST-DATA.md, never real library items. `leak_check.py` is part of the Verify command, so a breach fails the gate.
 - Genre names are private data too, not neutral vocabulary: a plausible one used as a probe fixture tripped the gate in iteration 3. Invent an obviously fake one rather than widening `ALLOWED`.
 - Probe a network guard with real `http.server` instances on ephemeral ports, never a mocked session: a mock proves only what it was written to do.
