@@ -98,12 +98,21 @@ In:
 
 Out, deliberately:
 
-- **Parsing ranges.** Zero occurrences, and the issue ranges that do
-  occur are stripped upstream.
-- **"You own 1 of 6."** The denominator needs the collection's volume
-  count, which no title carries. `Shadow Hound Omnibus` says nothing
-  about its size, so the report states what is known — how many volumes
-  are owned — and leaves the denominator unstated rather than guessed.
+- **Expanding a range into a set of volumes.** Zero occurrences among
+  owned titles, and the issue ranges that do occur are stripped upstream.
+
+Ranges must still be **recognized**, which is not the same thing and is
+the correction that writing the plan produced. A bare-volume pattern
+reads `Shadow Hound Vol. 1-6` as volume 1; that would match an owned
+Vol. 1 and print ALREADY OWNED, discouraging the purchase of five books
+not held. So a range parses as `kind="collection"` carrying its span,
+never as its lower bound. The failure it prevents is the expensive one,
+and it costs one pattern tried before the single-volume pattern.
+
+Handled that way, the range is also the one spelling that states its own
+denominator — so **"you own 1 of 6" returns, for exactly that case**. An
+omnibus word carries no size, so there the report says how many volumes
+are owned and leaves the denominator unstated rather than guessed.
 - **Widening `clean_title`'s series-number hint.** It fires on 3 of 2,729
   items because it understands only the parenthesized `(Vol. 1)`
   spelling, while the bare spelling covers 687. Widening it looks
@@ -126,9 +135,18 @@ Runs on `clean_title`'s output, so trailing parentheticals are already
 gone and the issue ranges never reach it.
 
 - `kind` is `"volume"` for a bare `Vol.` / `Vol` / `Volume` / `Book`
-  marker, `"collection"` for a collection word (*omnibus*, *complete
-  collection*, *compendium*, *anthology*, *box set*), and `None`
-  otherwise.
+  marker, `"collection"` for a range (`Vol. 1-6`) or a collection word
+  (*omnibus*, *complete collection*, *compendium*, *anthology*, *box
+  set*), and `None` otherwise. The range pattern is tried **first**, so a
+  range can never be read as its lower bound.
+- `span` is `(lo, hi)` for a range and `None` otherwise — the only source
+  of a denominator.
+
+A marker may be followed by `: Subtitle`: **113 of 679** volume markers
+are, so anchoring to end-of-string alone would drop a sixth of the
+population. The subtitle is discarded, which correctly files
+`Vol. 1: Origins` and `Vol. 1: Endings` as the same volume of the same
+series.
 - `key` is everything before the marker, non-word characters replaced by
   spaces, runs collapsed, lowercased — the normalization measured above.
 - `display` is that same slice left as written, for output and for the
@@ -188,6 +206,7 @@ One new field beside `overlaps`:
             "series_name": str,       # parse_series' `display`, for the jump
             "kind": "volume" | "collection",
             "offered_volume": int | None,
+            "span": [1, 6] | None,    # only an explicit range has one
             "owned": [1, 2, 3, 5, 6],
             "owned_display": "Vol. 1-3, 5-6",
             "already_owned": bool}]
@@ -245,6 +264,23 @@ to exactly today's output.
   identical volume sets, stay two series.
 - `Shadow Hound Vol. 22 (#127-132)` yields volume **22**, never a range —
   the regression test for this entry's original premise.
+- `Shadow Hound Vol. 1-6` yields a **collection** spanning 1-6, never
+  volume 1 — the regression test for the mis-parse that would print
+  ALREADY OWNED against an owned Vol. 1.
+- A marker followed by `: Subtitle` still parses.
+
+Two committed tests change behaviour deliberately and are rewritten
+rather than deleted. `test_an_omnibus_matching_an_owned_volume_becomes_an_overlap`
+and `test_overlaps_carry_the_item_id_so_the_viewer_can_link_to_the_row`
+both use the fixture's `Shadow Hound Vol. 1-6` and `Moonfall Vol. 1-3`,
+which become series hits and leave the overlap list. The first is
+rewritten to assert the richer series line; the second needs a genuine
+non-series overlap, and gets one from a locally seeded catalog rather
+than by editing the shared fixture — adding an item to `bundle_data.json`
+would shift the tier counts and `adds` lists that a dozen other tests
+assert on. The `Building Widget Services 2e` / `Building Widget Services,
+2nd Edition` pair from `docs/TEST-DATA.md` scores 100 through
+`clean_title` with no volume marker, so it serves exactly.
 - Each of the three outcomes renders, and a series hit is absent from
   `overlaps`.
 - Range collapsing renders a gap as `Vol. 1-3, 5-6`.
