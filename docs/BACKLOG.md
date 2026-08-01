@@ -259,6 +259,15 @@ verdict; these are what is left.
   Idempotence is load-bearing rather than tidy: both columns are in
   `_RESET_FIELDS`, so a reset clears the fill and re-running is the
   recovery path.
+  **The live run amended 668 rows, not 667, and the extra one is the
+  design's own argument arriving as data.** 667 gained a number and 119
+  gained a name; the counts differ because one row already carried a
+  number with no name beside it — exactly the bare `#3` the name fill
+  exists to prevent, and it predated this work. It is also why "8 rows
+  already have a number" and "7 rows need nothing" are both true. Every
+  planned figure otherwise landed exactly: `series_number` 330 → 997,
+  `series` 1,257 → 1,376, no `pre_edit` written, and a second run
+  reporting 0. Rows carrying a number with no name: now zero.
   One bug, and it was in the tests rather than the feature.
   `tests/test_enrich.py` already had a `_seed_enriched(conn, name,
   status)`; a second definition appended at the bottom silently rebound

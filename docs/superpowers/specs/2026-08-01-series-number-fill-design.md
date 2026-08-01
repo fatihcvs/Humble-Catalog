@@ -107,6 +107,12 @@ number written to a row with no name prints a bare `#3`. Among the 667:
 | …whose name differs | 78 |
 | no series name at all | **118** |
 
+**Shipped correction (the live run, same day):** the pass amended 668
+rows, not 667. 667 gained a number and **119** gained a name — one more
+than the 118 counted here, because one row already carried a number with
+no name beside it and so is outside the 667 while still needing the name
+fill. The same row is why 8 rows have a number but only 7 need nothing.
+
 The 118 gain a name from `parse_series`'s `display`. The 549 keep what
 the source gave them, including all 78 disagreements — 74 of those 78
 share a word with the title base or are a substring of it, so they are
