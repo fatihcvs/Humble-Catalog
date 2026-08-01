@@ -73,8 +73,10 @@ function armOrFire(el, fire) {
   if (el.dataset.armed) {
     delete el.dataset.armed;
     el.classList.remove("armed");
-    fire();
-    return;
+    // Returned, not dropped: callers are async, and a test (or any future
+    // caller that needs to know the write finished) has nothing else to
+    // await. Every current caller ignores it.
+    return fire();
   }
   el.dataset.armed = "1";
   el.classList.add("armed");

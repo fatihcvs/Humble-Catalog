@@ -431,8 +431,11 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
             return jsonify({"error": "action must be 'add' or 'remove'"}), 400
         # Unknown ids are ignored rather than rejected: the catalog can
         # change under a page that has been open a while.
-        changed = db.bulk_user_tag(conn(), ids, tag, action)
-        return jsonify({"changed": changed})
+        #
+        # The ids and not a count: they are the set an undo has to act on,
+        # and a count beside them would be a second derivation of one fact.
+        # The client says ids.length.
+        return jsonify({"ids": db.bulk_user_tag(conn(), ids, tag, action)})
 
     @app.post("/api/items/<int:item_id>/revert")
     def revert(item_id):

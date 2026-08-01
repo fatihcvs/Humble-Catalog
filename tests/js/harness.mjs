@@ -115,6 +115,9 @@ const publish = `
 ;globalThis.__app = {
   tagBadges, person, personField, esc, highlight, chipFilters, passesChipFilters,
   visible, render, tagCounts, shouldPostEnrichmentEdit, load, loadReview, shownRows,
+  renderBulkBar, runBulk, undoBulk,
+  getLastTagOp: () => lastTagOp,
+  setLastTagOp: (v) => { lastTagOp = v; },
   refreshStats, renderStats, SECTION_FILTERS,
   SECTIONS, currentSection, showSection,
   renderBadges, badgeCount,
