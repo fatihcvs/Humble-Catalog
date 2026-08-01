@@ -1,4 +1,5 @@
 import re
+from typing import NamedTuple
 
 _NUMBERED_PAREN = re.compile(r"\s*\((?:book|vol\.?|volume|part)\s*(\d+)\)\s*$", re.I)
 _A_NOVEL = re.compile(r":\s*a\s+novel\s*$", re.I)
@@ -88,3 +89,90 @@ def sort_tokens(cleaned):
     exactly what token_sort_ratio does internally.
     """
     return " ".join(sorted(cleaned.split()))
+
+
+class Series(NamedTuple):
+    """A title's series identity.
+
+    `key` is punctuation-insensitive and used for matching; `display` is
+    the same slice as written and used for output. Two fields rather than
+    one because the key must discard punctuation to match -- three
+    spellings of one initialism share a key -- and the display must keep
+    it to read.
+    """
+    key: str | None
+    display: str | None
+    number: int | None
+    kind: str | None          # "volume" | "collection" | None
+    span: tuple | None        # (lo, hi) for an explicit range only
+
+NO_SERIES = Series(None, None, None, None, None)
+
+_DASH = r"(?:-|\u2013|\u2014|to)"
+# A marker may end the title or be followed by ": Subtitle" -- 113 of 679
+# volume markers in the catalog are, so anchoring to end-of-string alone
+# would drop a sixth of them. The subtitle is discarded, which correctly
+# files "Vol. 1: Origins" and "Vol. 1: Endings" as the same volume.
+_TAIL = r"\s*(?::.*)?$"
+_VOL_WORD = r"\b(?:vol|volume|book)\b"
+# Tried FIRST, and that order is the whole point: a bare-volume pattern
+# reads "Vol. 1-6" as volume 1, which matches an owned Vol. 1 and reports
+# a six-volume collection as already owned. A range names a product.
+_VOL_RANGE = re.compile(
+    r"[\s,:]*" + _VOL_WORD + r"s?\.?\s*#?(\d+)\s*" + _DASH + r"\s*#?(\d+)" + _TAIL,
+    re.I)
+_VOL_ONE = re.compile(r"[\s,:]*" + _VOL_WORD + r"\.?\s*#?(\d+)" + _TAIL, re.I)
+_COLLECTION = re.compile(
+    r"[\s,:]*\b(?:omnibus|compendium|anthology|box(?:ed)?\s+set|"
+    r"complete\s+(?:collection|series)|collection)\b" + _TAIL, re.I)
+
+def series_key(text):
+    """A series name reduced to a match key: no punctuation, lowercase.
+
+    Reuses the character classes clean_game_title uses -- they are pure
+    character classes rather than policy, so sharing them couples nothing.
+    Measured 2026-08-01: exact bases fragment a series on punctuation
+    alone. One was split three ways by a trailing period on an initialism,
+    another by a space where a sibling used a hyphen. Stripping
+    punctuation takes 172 bases to 169, merging exactly those and nothing
+    else -- the one near-identical pair that survives holds identical
+    volume sets, which is the evidence that it is two series rather than
+    one drift.
+    """
+    return _SPACES.sub(" ", _NON_WORD.sub(" ", text)).strip().lower()
+
+def parse_series(cleaned, number_hint=None):
+    """The series identity of an ALREADY-CLEANED title.
+
+    Takes clean_title's output. Trailing parentheticals are gone by then,
+    so the issue ranges that look like volume ranges -- "Vol. 22
+    (#127-132)" -- never reach these patterns. That matters: measured
+    across 2,729 items, every range in the catalog is an issue range, 8 of
+    11 of them annotating a single volume. Volume 22 COLLECTS issues
+    127-132; it is one volume, not six.
+
+    `number_hint` is clean_title's own series number, which understands
+    only the parenthesized "(Book 1)" spelling and fires on 3 of 2,729
+    items. It is accepted here rather than widened: enrich.py consumes it
+    for matching, so changing what it fires on changes enrichment
+    catalog-wide. See docs/BACKLOG.md.
+    """
+    t = (cleaned or "").strip()
+    for pattern in (_VOL_RANGE, _VOL_ONE, _COLLECTION):
+        m = pattern.search(t)
+        if m is None:
+            continue
+        display = t[:m.start()].strip(" ,:-")
+        if not display:
+            break            # the marker IS the title; no series to name
+        if pattern is _VOL_RANGE:
+            lo, hi = (int(g) for g in m.groups())
+            return Series(series_key(display), display, None, "collection",
+                          (lo, hi) if hi >= lo else (hi, lo))
+        if pattern is _VOL_ONE:
+            return Series(series_key(display), display, int(m.group(1)),
+                          "volume", None)
+        return Series(series_key(display), display, None, "collection", None)
+    if number_hint is not None and t:
+        return Series(series_key(t), t, int(number_hint), "volume", None)
+    return NO_SERIES

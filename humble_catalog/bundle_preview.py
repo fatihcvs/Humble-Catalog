@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from rapidfuzz import fuzz, process
 
-from humble_catalog import db, import_games, stats, url_import
+from humble_catalog import db, import_games, series, stats, url_import
 from humble_catalog.game_match import classify_game, prepare_pool
 from humble_catalog.titles import clean_game_title, clean_title
 
@@ -324,6 +324,24 @@ def preview(conn, bundle, url=None):
     # Sorted on the numeric amount, never on tier_order: that key was
     # observed descending but nothing documents that it must be.
     ordered.sort(key=lambda pair: pair[0]["price"], reverse=True)
+    # Series lines are computed before _overlaps runs, and take their
+    # candidates OUT of it. An offered Vol. 7 scores 94.7 against an owned
+    # Vol. 3 -- over the 0.90 cutoff -- so it printed as "possibly already
+    # owned in part" when it is certainly not owned at all, and the score
+    # rises with the error: Vol. 7 against Vol. 17 scores 97.4. Meanwhile
+    # an omnibus scores 77.4 against an owned volume and never appeared,
+    # though that is the genuine partial-ownership case. The list showed
+    # the wrong pairs and hid the right ones; each is reported once now,
+    # in the place that describes it accurately.
+    volumes = series.owned_volumes(conn)
+    series_hits = []
+    for machine_name, offered in list(candidates.items()):
+        hit = series.describe(offered, volumes)
+        if hit is None:
+            continue
+        series_hits.append(hit)
+        del candidates[machine_name]
+    series_hits.sort(key=series.sort_key)
     _adds(ordered, items)
     tiers = [tier for tier, _new_names in ordered]
     libraries = import_games.imported_stores(conn)
@@ -350,6 +368,10 @@ def preview(conn, bundle, url=None):
         # A game fuzzy-matched against the book catalog invents an
         # overlap across media; that was observed on a live bundle, and
         # the filter that fixed it could not cover an unsold entry.
+        #
+        # Facts about which volumes are held, where an overlap is a
+        # suspicion -- so they are separate fields and never summed.
+        "series": series_hits,
         "overlaps": _overlaps(conn, candidates),
     }
 
@@ -357,6 +379,29 @@ def preview(conn, bundle, url=None):
 # Symbols for the currencies Humble actually quotes. A currency not
 # listed prints its ISO code, which is unambiguous if less pretty.
 _SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
+
+
+def _series_note(hit):
+    """The right-hand side of one series line."""
+    if hit["already_owned"]:
+        # Shouted, like the APPROXIMATE warning below. This is the one
+        # line in the whole report that should stop a purchase: the
+        # offered volume matched no machine_name yet is already held, so
+        # it is a re-issue or another edition of a book on the shelf.
+        return f"ALREADY OWNED -- you hold Vol. {hit['offered_volume']}"
+    if hit["kind"] == "collection":
+        span = hit["span"]
+        if span:
+            # A range states its own size, so this is the one case where a
+            # denominator is known rather than guessed. Counted over the
+            # volumes INSIDE the range: owning Vol. 9 says nothing about a
+            # collection selling Vol. 1-6.
+            inside = sum(1 for v in hit["owned"] if span[0] <= v <= span[1])
+            return (f"you own {inside} of {span[1] - span[0] + 1} "
+                    f"({hit['owned_display']})")
+        noun = "volume" if len(hit["owned"]) == 1 else "volumes"
+        return f"you own {len(hit['owned'])} {noun} ({hit['owned_display']})"
+    return f"you own {hit['owned_display']}"
 
 
 def format_report(report, encoding="utf-8"):
@@ -425,6 +470,14 @@ def format_report(report, encoding="utf-8"):
                 lines.append(f"                {hit['offered']}  ~  "
                              f"{hit['owned_title']}  ({hit['score']:.2f})")
             lines.append("")
+    # Before the overlap list and after the tiers: these are facts about
+    # which volumes are held, where an overlap is a suspicion. Omitted
+    # entirely when empty, as `adds` and `keyed_items` are.
+    if report.get("series"):
+        lines += ["", f"  Series you already hold ({len(report['series'])}):"]
+        width = max(len(hit["offered"]) for hit in report["series"])
+        for hit in report["series"]:
+            lines.append(f"    {hit['offered']:<{width}}  {_series_note(hit)}")
     if report["overlaps"]:
         lines += ["", f"  Possibly already owned in part "
                       f"({len(report['overlaps'])}):"]

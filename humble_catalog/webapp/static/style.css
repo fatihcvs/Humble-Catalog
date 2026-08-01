@@ -382,6 +382,8 @@ a { color: var(--accent); }
 .bundle-price { text-align: right; font-variant-numeric: tabular-nums; }
 .bundle-overlaps h4 { margin: .6rem 0 .2rem; font-size: 1em; }
 .bundle-overlaps ul { margin: 0; padding-left: 1.2rem; }
+.bundle-series h4 { margin: .6rem 0 .2rem; font-size: 1em; }
+.bundle-series ul { margin: 0; padding-left: 1.2rem; }
 .bundle-score { color: var(--muted); font-size: .85em; }
 .bundle-error { color: var(--danger); }
 /* The lists sit below the whole tier table, not interleaved between its

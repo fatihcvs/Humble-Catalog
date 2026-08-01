@@ -1618,3 +1618,45 @@ def test_undo_is_offered_while_remove_is_gated_off():
     assert state["filtered"] is False
     assert state["removeDisabled"] is True
     assert state["undoHidden"] is False
+
+
+_SERIES_REPORT = dict(_BUNDLE_REPORT, overlaps=[], series=[
+    {"offered": "Shadow Hound Vol. 1-6", "series_name": "Shadow Hound",
+     "kind": "collection", "offered_volume": None, "span": [1, 6],
+     "owned": [1], "owned_display": "Vol. 1", "already_owned": False},
+])
+
+
+def test_bundle_panel_renders_a_series_section():
+    html = _render_bundle(_SERIES_REPORT)
+    assert "Series you already hold (1)" in html
+    assert "you own 1 of 6" in html
+    assert 'data-series="Shadow Hound"' in html
+
+
+def test_bundle_panel_omits_the_series_block_when_there_is_none():
+    assert "Series you already hold" not in _render_bundle(
+        dict(_BUNDLE_REPORT, series=[]))
+
+
+def test_bundle_panel_survives_a_payload_carrying_no_series_field():
+    # The `|| []` guard, same as keyed_items: an older server sends no
+    # series key at all, and a renderer that throws blanks the page.
+    assert "The World of Examplia" in _render_bundle(_BUNDLE_REPORT)
+
+
+def test_bundle_panel_shouts_a_re_buy():
+    html = _render_bundle(dict(_BUNDLE_REPORT, overlaps=[], series=[
+        {"offered": "Shadow Hound Vol. 1", "series_name": "Shadow Hound",
+         "kind": "volume", "offered_volume": 1, "span": None,
+         "owned": [1], "owned_display": "Vol. 1", "already_owned": True}]))
+    assert "ALREADY OWNED" in html
+
+
+def test_a_collection_with_no_span_states_no_denominator_in_the_panel():
+    html = _render_bundle(dict(_BUNDLE_REPORT, overlaps=[], series=[
+        {"offered": "Shadow Hound Omnibus", "series_name": "Shadow Hound",
+         "kind": "collection", "offered_volume": None, "span": None,
+         "owned": [1, 2], "owned_display": "Vol. 1-2", "already_owned": False}]))
+    assert "you own 2 volumes (Vol. 1-2)" in html
+    assert " of " not in html.split("Series you already hold")[1]

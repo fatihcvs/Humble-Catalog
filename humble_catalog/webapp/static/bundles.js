@@ -86,6 +86,35 @@ function renderBundlePreview() {
           k.key_type ? k.key_type + " key" : null, k.bundle,
         ].filter(Boolean).join(", "))})</span></li>`).join("")}</ul>
     </section>`).join("");
+  // Mirrors the CLI's _series_note. These are facts about which volumes
+  // are held, so the block sits ABOVE the overlap list, which is a list
+  // of suspicions. The two are never summed.
+  const seriesNote = (s) => {
+    if (s.already_owned) return `ALREADY OWNED — you hold Vol. ${s.offered_volume}`;
+    if (s.kind === "collection") {
+      if (s.span) {
+        // A range states its own size; an omnibus word does not, so only
+        // this branch has a denominator to print. Counted over the
+        // volumes INSIDE the range: owning Vol. 9 says nothing about a
+        // collection selling Vol. 1-6.
+        const inside = s.owned.filter((v) => v >= s.span[0] && v <= s.span[1]).length;
+        return `you own ${inside} of ${s.span[1] - s.span[0] + 1} (${s.owned_display})`;
+      }
+      return `you own ${s.owned.length} ${s.owned.length === 1 ? "volume" : "volumes"}`
+        + ` (${s.owned_display})`;
+    }
+    return `you own ${s.owned_display}`;
+  };
+  // `|| []` because a payload from an older server carries no series field.
+  const seriesHits = bundlePreview.series || [];
+  const series = seriesHits.length ? `
+    <section class="bundle-series">
+      <h4>Series you already hold (${seriesHits.length})</h4>
+      <ul>${seriesHits.map((s) => `<li>
+        ${esc(s.offered)} —
+        <button class="bundle-series-jump" data-series="${esc(s.series_name)}"
+          >${esc(seriesNote(s))}</button></li>`).join("")}</ul>
+    </section>` : "";
   // Kept visually separate from the counts above, and labelled a
   // suspicion: owned/new are exact-id facts, these are guesses. If the
   // two ever merge into one number, that number stops being a fact.
@@ -101,7 +130,7 @@ function renderBundlePreview() {
   panel.innerHTML = `<details${bundlePreviewOpen ? " open" : ""}>
     <summary>${esc(bundlePreview.name)}</summary>
     <table class="bundle-tiers"><tbody>${rows}</tbody></table>
-    ${lists}${keyed}${overlaps}</details>`;
+    ${lists}${keyed}${series}${overlaps}</details>`;
   panel.querySelector("details").addEventListener("toggle",
     (ev) => { bundlePreviewOpen = ev.target.open; });
 }

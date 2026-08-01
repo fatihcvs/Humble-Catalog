@@ -73,13 +73,6 @@ _(empty)_
 
 ### Bundle preview (deferred from `specs/2026-07-25-bundle-preview-design.md`)
 
-- **Volume-range resolution** — parse an offered `Vol. 1-6` into a set
-  of volumes, compare against the volumes actually owned, and report
-  "you own 1 of 6" instead of listing the pair as a possible overlap.
-  The most useful answer the feature could give and the most likely to
-  be subtly wrong, since Humble's title conventions are not consistent.
-  Revisit once the overlap list has shown how often ranges appear in
-  practice.
 - **GOG/Epic OAuth instead of Heroic's caches** (deferred from
   `specs/2026-07-25-game-library-ownership-design.md`) — talk to
   `auth.gog.com` and `galaxy-library.gog.com` directly rather than
@@ -154,6 +147,16 @@ verdict; these are what is left.
 
 ### Other
 
+- **`clean_title`'s series-number hint understands the wrong spelling** —
+  it fires on 3 of 2,729 items because it matches only the parenthesized
+  `(Vol. 1)`, while the bare `Vol. 3` spelling covers 687. Measured
+  2026-08-01 while building volume-aware overlaps, which worked around it
+  by adding `parse_series` rather than widening it. Widening looks
+  obviously right and is not free: `enrich.py:156` consumes `num_hint`
+  for matching, so it would silently change enrichment across the whole
+  catalog, and that wants its own measurement of what changes.
+  `test_clean_title_hint_still_fires_only_on_the_parenthesized_spelling`
+  pins the current behaviour so the change cannot happen by accident.
 - **Standalone Android viewer app** — a read-only catalog viewer for
   phone use. Referenced as a "separately recorded gap" in
   `specs/2026-07-18-android-apk-items-design.md`; this entry is that
@@ -226,6 +229,64 @@ verdict; these are what is left.
   shell — one grep for `webpack-bundle-page-data` settles either.
 
 ## Done (formerly on this list)
+
+- **Volume-range resolution, which became volume-aware overlaps** —
+  `docs/superpowers/specs/2026-08-01-volume-aware-overlaps-design.md`.
+  A row now says "you own Vol. 1-6", "you own 1 of 6", or ALREADY OWNED,
+  instead of a bare fuzzy score under a heading claiming partial
+  ownership.
+  **The entry's premise was false, and the measurement it asked for is
+  what showed it.** `Vol. 1-6` occurs **zero** times across 2,729 items.
+  The only ranges present are *issue* ranges, 8 of 11 annotating a single
+  volume — `Vol. 22 (#127-132)` is one volume collecting six issues, so
+  "you own 1 of 6" applied to it would report a one-item product as a
+  six-item one. `clean_title` strips them anyway, all 11 being
+  parenthetical.
+  **Where the wrong premise came from is worth recording.** The design
+  spec illustrates the case with `Shadow Hound Vol. 1-6` and
+  `docs/TEST-DATA.md` carried the same row. Under the privacy standing
+  order the illustration is invented by necessity — and the anonymized
+  stand-in became the thing later work reasoned from. The lesson is
+  cheap: **cite counts alongside invented examples**, so the example
+  carries its own evidence. Both rows now do.
+  **The overlap list was backwards, and the error grew with the score.**
+  An offered Vol. 7 scores 94.7 against an owned Vol. 3 — over the 0.90
+  cutoff, so it printed as possibly owned when it was not owned at all —
+  and Vol. 7 against Vol. 17 scores 97.4. Meanwhile an omnibus scores
+  77.4 against an owned volume and never appeared, though that is the
+  genuine partial-ownership case. Same shape as `sequel_mismatch`: the
+  near-identical pair is the one that is definitely a different product,
+  so it needs a rule rather than a threshold.
+  **No threshold appears anywhere in the feature**, which is measured
+  rather than asserted. Exact bases fragment a series on punctuation
+  alone — one was split three ways by a trailing period on an initialism,
+  another by a space where a sibling used a hyphen — and stripping
+  punctuation takes 172 bases to 169, merging exactly those. The one
+  surviving near-identical pair holds *identical* volume sets, which is
+  the evidence that it is two series rather than one drift. Same
+  conclusion as the edition-linking entry, reached the same way.
+  **A range must still be recognized even though it is never expanded**,
+  and that correction came from writing the implementation plan rather
+  than the spec. A bare-volume pattern reads `Vol. 1-6` as volume 1,
+  matches an owned Vol. 1, and prints ALREADY OWNED — discouraging the
+  purchase of five books not held. Parsed as a collection it is also the
+  one spelling stating its own denominator, so "you own 1 of 6" survives
+  for exactly that case and stays unstated for an omnibus word.
+  **The re-buy case was not anticipated and is the most valuable line.**
+  An offered volume that matched no `machine_name` yet is a volume
+  already held is a re-issue or another edition of a book on the shelf —
+  the mistake the preview exists to prevent. It costs one `in` test
+  against a set the feature already builds, and it printed as a bare 0.94
+  before.
+  Four committed tests changed behaviour, not the two the plan predicted;
+  the two extras had their expectations moved to the series list rather
+  than deleted, so their teeth are intact. The marker is not always
+  trailing either — 113 of 679 carry a `: Subtitle`, so anchoring to
+  end-of-string alone would have dropped a sixth of the population.
+  Detection is live with no stored state, mirroring `dedupe.find_groups`:
+  nothing to migrate, nothing for `reset` to preserve. `clean_title` was
+  left alone; its hint understands the wrong spelling, which is now its
+  own entry under **Open → Other**.
 
 - **Are google_books' 503s the title or the load?** — measured
   2026-08-01 and answered *load*, so the query normalization the entry
