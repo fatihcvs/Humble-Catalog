@@ -231,3 +231,37 @@ Verification: 48 known-answer assertions, all held. No findings.
 Learnings: The leak check has now caught the loop's own prose three times (iterations 1, 3 and 9) and never once caught a real leak. That is the check working as intended on a substring matcher, but it is a recurring cost: assume any evocative English noun in a comment may collide with the library, and prefer plain technical wording in probe files.
 
 Next: The budget is spent after iteration 10, which is the WRAPUP. Nothing is left open on the ledger, so the handoff should record where the inventory stands and what the next run should sweep first.
+
+## iter 10/10 | ceea220f-162935 | 2026-08-01 | WRAPUP | done
+
+Task: Final iteration. Tidy the ledger and write the handoff, rather than starting a sweep that cannot finish inside one iteration.
+
+Changed: JOURNAL.md (this entry). BACKLOG.md needed no tidying: Now, Next and Later are already empty, nothing is marked [b], and the two closed classes are recorded under Settled classes.
+
+Checkpoint: pending
+
+Verification: The run is NOT converged, and this entry says so rather than declaring. Convergence requires no unswept row in the Surface inventory; 41 of 54 rows are unswept, so the Definition of done is not close to true and no evaluator gate was invoked - the gate exists to check a convergence claim, and there is no claim to check. No full audit was ever run this run either; all five audits were partial by design, and a partial audit never counts toward convergence.
+  Final Verify command state, from iteration 9's gate: pytest 981 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0. The tree is clean at this entry, so that state still stands.
+  Closed this run: A1 (Medium, error handling) - viewer write routes validated class-complete; B1 (High, security) - outbound fetches no longer follow a redirect to a private address; B2 (Low, error handling) - a pasted host:port URL is read as a host and a port. Nothing open, nothing blocked, nothing Declined, nothing under Proposed.
+
+HANDOFF - what the next run should know:
+
+  1. Start a NEW session. Relaunching /jeffy in this one keeps every accumulated token and forfeits the clean context that makes a run useful; the state files carry everything forward.
+
+  2. The inventory is the map and the bound: 13 of 54 rows swept, 41 unswept, none marked `[~]` unreachable. Rows swept: cli-dispatch is NOT among them - the swept set is webapp-write-routes, webapp-host-guard, db-tags, db-items, matching-score, classify-type, series-report, url-import, parse-order, sources-base, bundle-preview-parts, export-columns, stats-report.
+
+  3. Sweep next, in this order and for these reasons:
+     - extract-humble, sources-books, sources-media, covers-store: the last unswept ADVERSARIAL rows. B1, the only High this run, came out of that neighbourhood, and `covers-store` writes third-party bytes to disk under a derived filename, which is the shape that hides a path-traversal defect.
+     - bundle-preview-tiers: `preview()` itself was split out and never exercised. Its numbers drive a purchase decision.
+     - db-schema: every migration step is unswept, and a migration defect corrupts data permanently rather than returning a wrong answer once.
+     - The seven front-end rows, about 2,600 lines of JS and CSS: UX and accessibility have never been scored at all this run, and no claim about them has been made.
+
+  4. Two residual risks are recorded, not hidden. The B1 guard resolves a hostname then lets requests connect, so a DNS answer that changes between the two would still slip through; closing that needs the connection pinned to the checked address via a custom adapter. And `parse_order` raises KeyError on a HumbleBundle schema change - considered in iteration 7 and deliberately not filed, because parse_order.py:33-35 documents that choice with measured evidence. Both are reasoned positions, not oversights; re-open either only with new evidence.
+
+  5. The probe batteries under `.jeffy/probes/` are the instrument, not scaffolding. A re-sweep re-runs the battery rather than rebuilding it, and a battery is updated in the same iteration as the behaviour it pins. All eight are green as of c5b285b except by design - none records a known defect.
+
+  6. `leak_check.py` tripped three times this run on the loop's own prose and never on a real leak. That Lesson is marked `[recurred]`, and the run report proposes a mechanism for the user to decide on: a pre-commit hook running the check over staged files only would catch it in a second instead of at the end of a 90-second gate.
+
+Learnings: A run that ends out of budget should say plainly that it is not converged and hand off, rather than reaching for a weaker claim. The Definition of done here was never nearly true - 41 unswept rows - and the honest report is more useful than a qualified declaration.
+
+Next: Nothing. The budget is spent; the loop ends with this entry.
