@@ -1,0 +1,38 @@
+#!/bin/sh
+# The privacy gate (CLAUDE.md), run on the content actually being committed.
+#
+# Install once, from the repo root:
+#     git config core.hooksPath scripts/hooks
+# Uninstall:
+#     git config --unset core.hooksPath
+# Skip for one commit:
+#     git commit --no-verify
+#
+# This checks the STAGED version of each file, not the copy on disk, so a
+# file staged and then edited further is judged on what would ship.
+#
+# It is not a replacement for `verify`. This reads only the staged files,
+# so a term that reached the repo some other way -- an earlier commit, a
+# file nobody touched this time -- is still only caught by the full sweep.
+# The point is speed: catching a leak in the second before the commit
+# rather than at the end of a 90-second run.
+
+root=$(git rev-parse --show-toplevel) || exit 1
+
+# The venv interpreter, whichever platform this is. Deliberately NOT bare
+# `python`: on Windows that resolves to the Microsoft Store stub, which
+# exists and then fails on the first third-party import.
+if [ -x "$root/.venv/Scripts/python.exe" ]; then
+    python="$root/.venv/Scripts/python.exe"
+elif [ -x "$root/.venv/bin/python" ]; then
+    python="$root/.venv/bin/python"
+else
+    # Passing rather than blocking: a contributor who has not run setup yet
+    # must still be able to commit, and on a machine with no catalog.db the
+    # check has nothing to search for anyway.
+    echo "pre-commit: no .venv found, skipping the privacy check." >&2
+    echo "            run scripts/<your-os>/setup to create one." >&2
+    exit 0
+fi
+
+exec "$python" "$root/scripts/leak_check.py" --staged

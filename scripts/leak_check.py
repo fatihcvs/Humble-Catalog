@@ -16,6 +16,7 @@ exit, or importing this file would run a second scan as a side effect.
 import json
 import pathlib
 import sqlite3
+import subprocess
 import sys
 
 import openpyxl
@@ -185,7 +186,84 @@ EXCLUDE_DIRS = {".git", ".venv", "covers", "cache", "backups", "__pycache__",
 # small window. All of these are gitignored and can never be committed.
 DATA_FILES = (".db", ".db-wal", ".db-shm", ".db-journal", ".bak", ".xlsx")
 
-def main():
+def should_scan(rel):
+    """Whether a repo-relative POSIX path is one the term check reads.
+
+    Shared by both modes so the staged check and the full sweep cannot
+    disagree about what counts as a data file.
+    """
+    parts = pathlib.PurePosixPath(rel).parts
+    if any(part in EXCLUDE_DIRS for part in parts):
+        return False
+    return parts[-1] != "leak_check.py" and not parts[-1].endswith(DATA_FILES)
+
+
+def scan(sources, terms):
+    """({term: [label, ...]}, files_scanned) over (label, text) pairs.
+
+    `sources` may be a generator, so the full sweep never holds the whole
+    repo in memory at once.
+    """
+    hits, nfiles = {}, 0
+    for label, text in sources:
+        nfiles += 1
+        lowered = text.lower()
+        for t in terms:
+            if t.lower() in lowered:
+                hits.setdefault(t, []).append(label)
+    return hits, nfiles
+
+
+def worktree_sources(root=ROOT):
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root)
+        if not should_scan(rel.as_posix()):
+            continue
+        try:
+            yield str(rel), p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+
+
+def staged_paths(root=ROOT):
+    """Repo-relative paths staged for the current commit.
+
+    ACMR only: a staged deletion carries no content, and a file being
+    removed cannot leak anything. -z because a path with a space in it --
+    `Reference spreadsheets/` is one -- comes back quoted otherwise.
+    """
+    out = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
+        cwd=root, capture_output=True, text=True, check=True)
+    return [p for p in out.stdout.split("\0") if p]
+
+
+def staged_sources(root=ROOT):
+    """(path, staged text) for each staged file worth scanning.
+
+    Read from the INDEX, not the working tree. Staging a file and then
+    editing it further leaves two different versions, and the one that
+    ships is the staged one -- scanning the file on disk would check a
+    version nobody is committing.
+    """
+    for rel in staged_paths(root):
+        if not should_scan(rel):
+            continue
+        try:
+            blob = subprocess.run(["git", "show", f":{rel}"], cwd=root,
+                                  capture_output=True, check=True).stdout
+        except subprocess.CalledProcessError:
+            continue  # vanished from the index between listing and reading
+        yield rel, blob.decode("utf-8", errors="ignore")
+
+
+def main(argv=()):
+    # --staged is the pre-commit path: same terms, same rules, but only
+    # over what is about to be committed, which turns a whole-repo sweep
+    # into something fast enough to run on every commit.
+    staged = "--staged" in argv
     terms = build_terms()
     if not terms:
         # Say so loudly rather than printing "clean": with nothing to search
@@ -194,28 +272,15 @@ def main():
         print(NOTHING_TO_CHECK)
         return 0
 
-    hits = {}
-    nfiles = 0
-    for p in ROOT.rglob("*"):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(ROOT)
-        if any(part in EXCLUDE_DIRS for part in rel.parts):
-            continue
-        if p.name == "leak_check.py" or p.name.endswith(DATA_FILES):
-            continue
-        try:
-            text = p.read_text(encoding="utf-8", errors="ignore").lower()
-        except OSError:
-            continue
-        nfiles += 1
-        for t in terms:
-            if t.lower() in text:
-                hits.setdefault(t, []).append(str(rel))
+    hits, nfiles = scan(
+        staged_sources() if staged else worktree_sources(), terms)
 
-    print(f"checked {len(terms)} terms against {nfiles} files")
+    where = "staged file" if staged else "file"
+    print(f"checked {len(terms)} terms against {nfiles} {where}"
+          f"{'' if nfiles == 1 else 's'}")
     if hits:
-        print(f"LEAK: {len(hits)} term(s) from the private library found in the repo:")
+        print(f"LEAK: {len(hits)} term(s) from the private library found "
+              f"in {'the staged changes' if staged else 'the repo'}:")
         for t in sorted(hits):
             print(f"  {t!r}: {sorted(set(hits[t]))}")
         print("Fix: replace with invented names from docs/TEST-DATA.md, "
@@ -226,4 +291,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

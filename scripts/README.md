@@ -116,6 +116,30 @@ than printing "clean", which would imply a check that never ran. The
 same is true of `leak_check_history.py`, and of the privacy step in CI,
 which runs on a runner that has no catalog either.
 
+**There is an optional pre-commit hook** at `scripts/hooks/pre-commit`,
+which runs `leak_check.py --staged`. Install it once per clone:
+
+```
+git config core.hooksPath scripts/hooks
+```
+
+`git config --unset core.hooksPath` removes it, and `git commit
+--no-verify` skips it for one commit.
+
+It reads the **staged** version of each file rather than the copy on
+disk, so a file staged and then edited further is judged on what would
+actually ship. With no `.venv` it prints a note and passes, so a fresh
+clone can still commit.
+
+**It does not replace `verify`.** The hook sees only the files in the
+current commit, so a term that reached the repo some other way — an
+earlier commit, or a file this change did not touch — is still caught
+only by the full sweep. What it buys is the moment of the catch: the
+same failure a second before the commit instead of at the end of a
+90-second run. That matters because the substring matcher trips on
+ordinary prose far more often than on a real leak, and each of those is
+a reword.
+
 **`leak_check_history.py` has no wrapper and is not part of `verify`.**
 It scans the commit messages and blobs reachable from one ref rather
 than the working tree, which is slower and only matters at two moments:

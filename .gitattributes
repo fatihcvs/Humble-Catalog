@@ -4,3 +4,8 @@
 
 # PowerShell is fine either way, but pin CRLF so Windows tooling is happy.
 *.ps1 text eol=crlf
+
+# Git hooks cannot carry a .sh extension -- the filename IS the hook name --
+# so they need the LF rule spelled out separately or the rule above misses
+# them and a CRLF checkout breaks the shebang on macOS and Linux.
+scripts/hooks/* text eol=lf
