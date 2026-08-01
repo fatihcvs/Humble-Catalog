@@ -91,7 +91,7 @@ Metadata sources (`humble_catalog/sources/`)
 - [ ] sources-books: `google_books.py`, `open_library.py`, `hardcover.py` against their fixtures.
 - [ ] sources-media: `comicvine.py`, `oreilly.py`, `audible.py` against their fixtures.
 - [x] url-import: re-swept at 2a31136 after the B2 fix changed this code - `normalize_url`, `host_of`, `resolve` routing, `_fetch_html`, `_publicly_routable`, `_check_redirect_target`; battery `.jeffy/probes/url-import/probe.py` covers 9 rejected schemes in both casings plus whitespace/control obfuscations, lookalike-host routing, a two-real-server redirect reproduction now refused, the address predicate on both sides, and the host:port shape against the scheme gate. 46/46 held.
-- [ ] covers-store: `humble_catalog/covers.py`, `humble_catalog/store.py`.
+- [x] covers-store: swept at PENDING - `cover_filename`, `relink`, `store_order`; battery `.jeffy/probes/covers-store/probe.py` pins the exact derived basename for a fixed key, that eight separator and traversal shapes all reduce to a bare basename in the allowed character set, that three casings share one slug and stay distinct by digest, `relink`'s covers_dir at two values, and store_order's idempotence, merge tombstone, type precedence, override and post-reset snapshot rules. 57/57 held.
 - [ ] check-cmd: `humble_catalog/check.py` - the live per-source key test.
 
 Import, export, lifecycle
@@ -164,7 +164,8 @@ Operational rules future iterations must obey, learned during runs. One line eac
 - Read the `CREATE TABLE` before writing a probe that inserts rows; guessing columns costs a run, and on Windows the failed connection holds the temp file open so the real error is buried under a tempdir PermissionError.
 - Sweep a retry or backoff policy by counting attempts and sleeps, never by watching a call succeed: "it worked" looks identical whether the policy retried three times, once, or not at all.
 - The privacy standing order in CLAUDE.md outranks everything here: probes, fixtures, docs and commit messages use invented titles from docs/TEST-DATA.md, never real library items. `leak_check.py` is part of the Verify command, so a breach fails the gate.
-- `[recurred]` Prefer plain technical wording in probe and state files: any evocative English noun may collide with a private-library term through the substring matcher. Tripped in iterations 1, 3 and 9 on prose alone, never on a real leak.
+- `[recurred]` Prefer plain technical wording in probe and state files: any evocative English noun may collide with a private-library term through the substring matcher. Tripped 5 times on prose alone, never on a real leak. Ordinary technical vocabulary is not safe either - two common words in one backlog entry collided, one of them the name of a builtin exception class - so run the gate before the checkpoint rather than at the end of the iteration.
+- A class is enumerated by listing every site of the IDIOM, never by grepping for the fix: a grep that matches only already-fixed sites is structurally blind to the unfixed ones and will certify an incomplete class as settled.
 - Genre names are private data too, not neutral vocabulary: a plausible one used as a probe fixture tripped the gate in iteration 3. Invent an obviously fake one rather than widening `ALLOWED`.
 - Probe a network guard with real `http.server` instances on ephemeral ports, never a mocked session: a mock proves only what it was written to do.
 - Never branch on `requests`' `is_redirect` (or any truthiness) in code the suite drives with `Mock` responses - every Mock attribute is truthy. Compare `status_code` against an explicit set.

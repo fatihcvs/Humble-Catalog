@@ -265,3 +265,31 @@ HANDOFF - what the next run should know:
 Learnings: A run that ends out of budget should say plainly that it is not converged and hand off, rather than reaching for a weaker claim. The Definition of done here was never nearly true - 41 unswept rows - and the honest report is more useful than a qualified declaration.
 
 Next: Nothing. The budget is spent; the loop ends with this entry.
+
+## iter 1/10 | 84948f5f-185203 | 2026-08-01 | AUDIT | audit
+
+Task: Opening audit of a new run. The ledger was empty and the previous run's handoff named the unswept ADVERSARIAL rows as the priority, so this audit swept covers-store and probed the two adversarial outbound-fetch paths the handoff pointed at.
+
+Changed: .jeffy/probes/covers-store/probe.py (new), PLAN.md (covers-store swept), BACKLOG.md (C1 High, C2 Medium, C3 Low filed; the B1 Settled classes line corrected to record that its enumeration was unsound).
+
+Checkpoint: PENDING
+
+Verification: 57 known-answer assertions on covers-store, all held, and two findings reproduced against real local servers rather than mocks.
+  - covers-store, no findings. cover_filename is the derived-filename hazard the handoff flagged, and it holds: the mapping is an allowlist to [a-z0-9_-] plus a digest of the RAW key, so eight separator, traversal, drive-letter, NUL and newline shapes all reduce to a bare basename, and three casings that share one slug stay distinct by digest rather than overwriting each other. relink fills only NULL paths, only for files present, and its covers_dir was exercised at two values that change the count. store_order is idempotent across a re-store, links rather than duplicates an item in two bundles, refuses to resurrect a merged-away key, never lets the no-evidence 'ebook' default demote a comic, honours type_overridden, and restores a post-reset snapshot ONLY when re-creating an item, so a live edit survives a normal re-store.
+  - C1, High, reproduced twice. ComicVine.credits sends the request to whatever URL a PREVIOUS ComicVine response put in api_detail_url, with api_key attached: a local http.server on an ephemeral port received `/api/issue/4000-1/?api_key=SECRET-KEY-VALUE&...`, so the credential goes wherever that field points. Separately the cover downloader fetched `http://127.0.0.1:<port>/internal-secret` named by an order-JSON icon field, followed a 302 to a second loopback path, and wrote both bodies under covers/. Both sites are in-envelope: the envelope classes order JSON and external metadata API responses as adversarial.
+  - The B1 settlement is the root of this. Its enumerating check greps for allow_redirects, which can only match a site that already opted out; a site relying on the default is invisible to it. That is why a class recorded as fixed class-complete still has two unguarded members, and it is why C1 is filed as one structural task with a sound enumeration rather than as two instance patches.
+  - C2, Medium: the cover fetch omits stream=True, so resp.content buffers whatever the upstream serves before the write, with no size cap and no content-type check. url_import already caps its own reads.
+  - C3, Low: `covers = _download_covers(...)` in extract.run shadows the covers module for that whole function body. Not a defect today, only because nothing above it touches the module.
+  Scores, claiming ONLY the 14 swept rows of 54 - the other 40 are unswept:
+  - security: HIGH, C1, at two reproduced sites. This is the first security finding scored since the adversarial rows started being swept, and it came from exactly the neighbourhood the previous run's handoff predicted it would.
+  - error handling: MEDIUM, C2.
+  - code quality: LOW, C3.
+  - correctness: None across the swept rows.
+  - architecture, documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 40 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  Verify command: pytest 1005 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 after two rewordings - two ordinary technical words in the C2 and C3 backlog lines each contain a private-library term as a substring, the fourth and fifth time the loop's own prose has tripped this check and still never a real leak.
+
+Learnings: An enumerating check that can only match ALREADY-FIXED sites does not enumerate anything. `grep allow_redirects` finds the call that opted out and is blind to every call taking the default, so it certified a class as complete while two members of it stayed unguarded. A class enumeration must list every site of the idiom - here, every outbound request - and then show each one's disposition; enumerating the fix instead of the idiom is how a settled class hides its own gaps.
+
+Next: Iteration 2 executes C1, the only High. Reuse url_import's `_publicly_routable` and ALLOWED_SCHEMES rather than writing a second guard, and note that unlike url_import - where the owner's pasted URL is deliberately unchecked - here the INITIAL url is third-party too, so it needs checking as well as the hops.
