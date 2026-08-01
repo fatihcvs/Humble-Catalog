@@ -320,7 +320,7 @@ Task: C2 (Medium, runtime, error handling) - cap the third-party cover body inst
 
 Changed: humble_catalog/outbound.py (read_capped added, the cap now lives beside the request it belongs to), humble_catalog/url_import.py (`_read_capped` reduced to a decode over it), humble_catalog/extract.py (MAX_COVER_BYTES, stream=True, capped read), tests/test_outbound.py (+4), tests/test_extract.py (explicit response double, +1 end-to-end), .jeffy/probes/outbound-guard/probe.py (+8 cases), BACKLOG.md (C2 deleted, one Proposed item filed), PLAN.md (two rows re-swept, two Lessons).
 
-Checkpoint: PENDING
+Checkpoint: 0a5816b. Not a stall: runtime code, tests and a probe battery changed, and C2 moved from open to closed.
 
 Verification: Acceptance check run after the fix, against a real server serving one byte past the shipped cap.
   - `.jeffy/probes/outbound-guard/probe.py` exits 0 at 49/49. Against the uncapped downloader - copied aside and restored - it scores 45/49, and the four failures are the point: `covers: an oversized cover is not written` got 1, and an 8 MiB file was left on disk under the name a real cover would have.
