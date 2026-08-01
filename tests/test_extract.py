@@ -1,10 +1,23 @@
 import json
 from pathlib import Path
 from unittest.mock import Mock
+import pytest
 from humble_catalog import db, extract
 from humble_catalog import covers as covers_mod
 
 FIXTURE = Path(__file__).parent / "fixtures" / "order_book.json"
+
+@pytest.fixture(autouse=True)
+def _routable(monkeypatch):
+    """Treat the fixture's cover host as publicly routable.
+
+    The cover downloader now validates its destination, and that check
+    resolves the hostname. Without this the suite would depend on live DNS
+    for the fixture's imgix URL. The guard itself is tested against
+    addresses that need no lookup, in test_outbound.py.
+    """
+    monkeypatch.setattr("humble_catalog.outbound.publicly_routable",
+                        lambda host: True)
 
 def _client(raw):
     client = Mock()

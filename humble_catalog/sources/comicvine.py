@@ -1,11 +1,16 @@
 import os
 from datetime import datetime, timedelta, timezone
+from humble_catalog import outbound
 from humble_catalog.sources.base import Source, candidate
 
 class ComicVine(Source):
     name = "comicvine"
     delay = 20.0  # stays under Comic Vine's 200 requests/hour
     secret_params = ("api_key",)
+    # The only hosts a Comic Vine URL taken from a Comic Vine response may
+    # name. Every request to them carries the API key, so this is an
+    # allowlist and not a routability check.
+    API_HOSTS = frozenset({"comicvine.gamespot.com", "www.comicvine.com"})
 
     def __init__(self, conn, http=None, key=None, offline=False):
         super().__init__(conn, http=http, offline=offline)
@@ -50,9 +55,18 @@ class ComicVine(Source):
         resource. Volumes only expose `people`, an unroled list of everyone
         who ever worked on the series, and asking a volume for
         `person_credits` returns error "OK" with an empty result.
+
+        `issue_api_url` is not ours: it is `api_detail_url` copied out of a
+        previous Comic Vine response, and this request carries the API key
+        in its query string. So the host is checked against API_HOSTS
+        before the request is sent - routability would not be enough, since
+        an attacker's own server is routable and would be handed the key.
+        Raises ValueError when the URL points anywhere else.
         """
         if not self.key or not issue_api_url:
             return None, None
+        outbound.check_url(issue_api_url, allowed_hosts=self.API_HOSTS,
+                           what="a Comic Vine issue URL")
         data = self.get_json(issue_api_url,
                              params={"api_key": self.key, "format": "json",
                                      "field_list": "person_credits"})

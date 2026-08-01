@@ -2,7 +2,7 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from humble_catalog import covers, db, humble_api
+from humble_catalog import covers, db, humble_api, outbound
 from humble_catalog.progress import Progress
 from humble_catalog.store import store_order
 
@@ -68,7 +68,12 @@ def _download_covers(conn, client, covers_dir):
         prog.step(row["name"])
         fname = covers.cover_filename(row["machine_name"])
         try:
-            resp = client.http.get(row["cover_url"], timeout=30)
+            # cover_url comes out of the order JSON, which the envelope
+            # classifies adversarial: it names a URL this project then
+            # requests, so it goes through the outbound guard rather than
+            # straight into the session. A refusal raises ValueError and is
+            # counted as a failed cover below, never fatal to the harvest.
+            resp = outbound.get(client.http, row["cover_url"], timeout=30)
             if resp.status_code != 200:
                 prog.count("missing")
                 continue
