@@ -51,7 +51,7 @@ CLI and dispatch
 Viewer HTTP API (`humble_catalog/webapp/__init__.py`, split by route family: `grep -n "@app\." humble_catalog/webapp/__init__.py`)
 - [ ] webapp-host-guard: `host_is_loopback` and the `refuse_foreign_hosts` before_request hook.
 - [ ] webapp-read-routes: GET `/`, `/covers/<path>`, `/api/items`, `/api/stats`, `/api/keys`, `/api/review`, `/api/duplicates`, `/api/status`.
-- [x] webapp-write-routes: swept at 70adab5 - POST rating/type/read-status/comment/user-tags/edit/revert/override/reopen/apply/choose; battery `.jeffy/probes/webapp-write-routes/probe.py` exercises malformed body, wrong value type, and unknown item id against each. 2/12 known answers held; the 10 failures are filed as A1.
+- [x] webapp-write-routes: re-swept at b46399e after the A1 fix changed this code - POST rating/type/read-status/comment/user-tags/edit/revert/override/reopen/apply/choose; battery `.jeffy/probes/webapp-write-routes/probe.py` exercises malformed body, wrong value type, unknown item id, the rating domain's boundaries (0, 6, bool, null-to-clear) and the bare-body `/reopen` contract. 18/18 held.
 - [ ] webapp-tag-vocab-routes: POST `/api/genres/{rename,delete}`, `/api/user-tags/{rename,delete,bulk}`.
 - [ ] webapp-merge-routes: POST `/api/merge`, `/api/dismiss_pair` and the type-mismatch refusal.
 - [ ] webapp-remote-routes: POST `/api/items/<id>/fetch_url`, `/api/bundle-preview` - the two routes that reach the network.
