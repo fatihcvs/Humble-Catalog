@@ -461,3 +461,58 @@ def test_run_counts_source_errors_once_per_item(tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.count("503 upstream") == 2          # logged per failing source
     assert "1 items hit source errors" in out      # but counted per item
+
+
+def test_series_from_title_reads_the_bare_volume_spelling():
+    assert enrich.series_from_title("Shadow Hound Vol. 2") == ("Shadow Hound", 2.0)
+
+
+def test_series_from_title_reads_a_marker_followed_by_a_subtitle():
+    # 113 of 679 volume markers in the catalog carry one.
+    assert enrich.series_from_title("Shadow Hound Vol. 1: Origins") == \
+           ("Shadow Hound", 1.0)
+
+
+def test_series_from_title_still_honours_the_parenthesized_hint():
+    # clean_title strips "(Book 1)" and hands the number over separately;
+    # that path is unchanged by this work.
+    assert enrich.series_from_title("Wings of Autumn Dusk", 1.0) == \
+           ("Wings of Autumn Dusk", 1.0)
+
+
+def test_series_from_title_answers_nothing_for_a_collection():
+    # An omnibus states no volume number, and inventing one would be the
+    # overclaim volume-aware overlaps removed.
+    assert enrich.series_from_title("Shadow Hound Omnibus") == (None, None)
+
+
+def test_series_from_title_answers_nothing_for_a_plain_title():
+    assert enrich.series_from_title("Unrelated Book") == (None, None)
+
+
+def test_enrich_fills_the_series_from_the_title_when_the_source_has_none(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed(conn, name="Shadow Hound Vol. 2", typ="comic")
+    bare = candidate(source="comicvine", title="Shadow Hound Vol. 2",
+                     url="https://comicvine.gamespot.com/shadow-hound")
+    enrich.run(db_path=tmp_path / "t.db",
+               sources={"comicvine": _source([bare])}, _conn=conn)
+    row = conn.execute("SELECT * FROM enrichment WHERE item_id=?",
+                       (item_id,)).fetchone()
+    assert row["status"] == "matched"
+    assert row["series"] == "Shadow Hound"
+    assert row["series_number"] == 2.0
+
+
+def test_enrich_prefers_the_source_series_over_the_title(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed(conn, name="Shadow Hound Vol. 2", typ="comic")
+    named = candidate(source="comicvine", title="Shadow Hound Vol. 2",
+                      series="Shadow Hound Chronicles", series_number=7.0,
+                      url="https://comicvine.gamespot.com/shadow-hound")
+    enrich.run(db_path=tmp_path / "t.db",
+               sources={"comicvine": _source([named])}, _conn=conn)
+    row = conn.execute("SELECT * FROM enrichment WHERE item_id=?",
+                       (item_id,)).fetchone()
+    assert row["series"] == "Shadow Hound Chronicles"
+    assert row["series_number"] == 7.0
