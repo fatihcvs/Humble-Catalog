@@ -234,6 +234,15 @@ worklist order; these are what is left.
   the JS harness stubs `setTimeout` to a no-op, so without it no test can
   wait for a two-click write to land — the arming idiom was untestable
   end to end.
+  One bug only a browser found, the fourth of its kind on this list.
+  `renderBulkBar()` writes `#bulk-note` unconditionally, so redrawing the
+  button *after* writing the result replaced "Added to 12 of 13 items."
+  with "Narrow the view to remove." the instant it appeared. Every JS test
+  passed: they asserted on the slot and the label, and the stubbed DOM has
+  no ordering to observe. Both writers redraw first and report second now,
+  pinned by two tests that fail against the old order. The same run
+  confirmed the asymmetry on live data — the demo catalog already carried
+  the tag on one row, so the button offered 12 where 13 rows showed it.
 
 - **The same work owned in two formats** —
   `docs/superpowers/specs/2026-07-31-edition-linking-design.md`.
