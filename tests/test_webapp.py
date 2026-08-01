@@ -169,6 +169,21 @@ def test_autocomplete_anchors_popup_to_the_input():
     # viewport coordinates only work against a fixed element
     assert ".ac-list { position: fixed;" in css
 
+def test_buttons_are_themed_by_a_base_rule():
+    # Three buttons had been hand-fixed with the same recipe and a comment
+    # saying an unstyled <button> "keeps the browser's grey default, which
+    # glares in dark mode". Thirteen more had never opted in, because
+    # opting in was the rule. A base rule makes theming the default and
+    # leaves opting OUT to the link-style buttons, which are all
+    # class- or id-selected and so outrank it.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    rule = css[css.index("\nbutton {"):]
+    rule = rule[:rule.index("}")]
+    # custom properties, never a literal colour, or one theme breaks
+    assert "var(--surface)" in rule and "var(--fg)" in rule
+    assert "#" not in rule
+
 def test_search_box_has_title_typeahead():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")

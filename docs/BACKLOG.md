@@ -58,26 +58,12 @@ Two things that stay true regardless:
 
 Entries under **Next up** are taken before the rest. Everything below
 that heading is unordered — most of it is parked on data or on an
-external change, so ordering it would be pretending. The two entries
-here are neither: both are known defects with a known cause.
+external change, so ordering it would be pretending. Nothing is queued
+there today.
 
 ### Next up
 
-1. **Thirteen buttons keep the browser's default styling in dark mode**
-   — measured 2026-08-01 in a browser against `demo_catalog.py`:
-   `sidebar-toggle`, `col-all`, `col-none`, `bulk-add`, `bulk-remove`,
-   `bulk-undo`, `cand-btn`, `url-fetch`, `dupe-clear`, `dupe-keep`,
-   `dupe-dismiss`, `bundle-go` all compute to `rgb(240, 240, 240)` with
-   black text against a `rgb(22, 24, 28)` page, where every other button
-   is themed to `rgb(30, 33, 39)` or deliberately transparent. Cosmetic,
-   hence second, but it is the same defect the viewer visual
-   improvements spec already fixed for inputs ("unstyled inputs had kept
-   the browser's white default, which glared in dark mode") — these were
-   missed. Widen whichever selector themes the working buttons rather
-   than adding a rule per id, and check `#export`, which is transparent
-   with accent text on purpose. Computed styles are invisible to the JS
-   harness, so this is eyes-in-a-browser plus at most a text assertion
-   that the rule exists.
+_(empty)_
 
 ### Bundle preview (deferred from `specs/2026-07-25-bundle-preview-design.md`)
 
@@ -219,6 +205,40 @@ worklist order; these are what is left.
   shell — one grep for `webpack-bundle-page-data` settles either.
 
 ## Done (formerly on this list)
+
+- **Thirteen buttons kept the browser's default styling** — fixed
+  2026-08-01 (no spec; one CSS rule). `#sidebar-toggle`, the column
+  picker's two, the bulk bar's three, `.cand-btn`, `#url-fetch`, the
+  three dupe controls and `#bundle-go` all computed to
+  `rgb(240, 240, 240)` with black text against a `rgb(22, 24, 28)` page.
+  **The root cause was the absence of a rule, not a wrong one.**
+  `style.css` themes `input, select, textarea` in one base rule but had
+  nothing for `button`, so theming was something each button had to opt
+  *into* — and `#theme-toggle`, `.status-chip` and `.key-chip` each did,
+  by hand, with the same five declarations and three separate comments
+  saying an unstyled button "keeps the browser's grey default, which
+  glares in dark mode". Three hand-fixes of one defect is the signal
+  that was there to read: the fourth, fifth and sixth cases were never
+  going to be caught by whoever wrote them either.
+  So the fix inverts the default — theming is what a `<button>` gets,
+  and opting out is the exception. It is safe because every opt-out is
+  already class- or id-selected and outranks a bare element selector:
+  the link-style buttons (`#export`, `.stat-jump` and friends,
+  `.tag-x`), the chips, and `.armed`. Verified in a browser in both
+  themes: zero buttons left at the UA default, `#export` still
+  transparent with accent text, `.armed` still `--danger`.
+  `--surface` and not `--surface-alt`, deliberately: it matches the
+  three buttons already fixed rather than the input fields, because a
+  button should read as a button.
+  One declaration came along by necessity rather than by choice.
+  Setting `color: var(--fg)` overrides the browser's own greying of
+  disabled text, so a disabled button would have looked enabled;
+  `button:disabled` restores `--muted`. Not scope creep — the base rule
+  is wrong without it.
+  Pinned only by a text assertion that the rule exists and uses custom
+  properties rather than a literal colour. Computed styles are invisible
+  to the JS harness, which is why this class of bug keeps reaching a
+  browser to be found — the fourth such entry on this list.
 
 - **A bad `/api/duplicates` payload took `load()` down** — fixed
   2026-08-01 (no spec; one line, found while shipping the bulk-tag undo
