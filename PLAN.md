@@ -49,7 +49,7 @@ CLI and dispatch
 - [ ] cli-dispatch: `humble_catalog/__main__.py` - argparse wiring, `check_dependencies`, per-command routing and the `parser.error` validation paths.
 
 Viewer HTTP API (`humble_catalog/webapp/__init__.py`, split by route family: `grep -n "@app\." humble_catalog/webapp/__init__.py`)
-- [ ] webapp-host-guard: `host_is_loopback` and the `refuse_foreign_hosts` before_request hook.
+- [x] webapp-host-guard: swept at e5c665d - `host_is_loopback` and `refuse_foreign_hosts`; battery `.jeffy/probes/webapp-host-guard/probe.py` covers suffix/prefix spoofs, loopback-resolving addresses that are not loopback names, userinfo and fragment smuggling, absent and blank Host, casing and port variants, and that the 403 precedes routing on reads, writes, the static index and unknown routes. 34/34 held.
 - [ ] webapp-read-routes: GET `/`, `/covers/<path>`, `/api/items`, `/api/stats`, `/api/keys`, `/api/review`, `/api/duplicates`, `/api/status`.
 - [x] webapp-write-routes: re-swept at b46399e after the A1 fix changed this code - POST rating/type/read-status/comment/user-tags/edit/revert/override/reopen/apply/choose; battery `.jeffy/probes/webapp-write-routes/probe.py` exercises malformed body, wrong value type, unknown item id, the rating domain's boundaries (0, 6, bool, null-to-clear) and the bare-body `/reopen` contract. 18/18 held.
 - [ ] webapp-tag-vocab-routes: POST `/api/genres/{rename,delete}`, `/api/user-tags/{rename,delete,bulk}`.
@@ -59,8 +59,8 @@ Viewer HTTP API (`humble_catalog/webapp/__init__.py`, split by route family: `gr
 
 Storage layer (`humble_catalog/db.py`, 683 lines, split by function family: `grep -n "^def " humble_catalog/db.py`)
 - [ ] db-schema: `connect`, schema creation and every migration step.
-- [ ] db-tags: `normalize_tags`, `tags_to_json`, `tags_from_json`, `rename_tag`, `delete_tag`, `bulk_user_tag`.
-- [ ] db-items: `fetch_items`, `apply_hand_edit`, `merge_items` and the pre_edit snapshot contract.
+- [x] db-tags: swept at e5c665d - `tags_to_json`, `tags_from_json`, `titleize`, `normalize_tags`, `rename_tag`, `delete_tag`, `bulk_user_tag`; battery `.jeffy/probes/db-tags/probe.py` exercises `col` at both values (GENRE titleizes, USER_TAGS does not) and `action` at both, plus the pre_edit snapshot rewrite, NULL-on-empty, and vocabulary case-snapping. 42/42 held.
+- [x] db-items: swept at e5c665d - `fetch_items`, `apply_hand_edit`, `merge_items`; battery `.jeffy/probes/db-items/probe.py` pins snapshot-once (a second edit must not re-snapshot), merge refusals deleting nothing, fill-if-empty versus the user_tags union, and the `merges` tombstone. 25/25 held.
 
 Acquisition (HumbleBundle)
 - [ ] extract-humble: `humble_catalog/extract.py`, `humble_catalog/humble_api.py` - login, bundle fetch, cache write, `reparse`.
