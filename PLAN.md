@@ -164,6 +164,7 @@ Operational rules future iterations must obey, learned during runs. One line eac
 - Read the `CREATE TABLE` before writing a probe that inserts rows; guessing columns costs a run, and on Windows the failed connection holds the temp file open so the real error is buried under a tempdir PermissionError.
 - Sweep a retry or backoff policy by counting attempts and sleeps, never by watching a call succeed: "it worked" looks identical whether the policy retried three times, once, or not at all.
 - The privacy standing order in CLAUDE.md outranks everything here: probes, fixtures, docs and commit messages use invented titles from docs/TEST-DATA.md, never real library items. `leak_check.py` is part of the Verify command, so a breach fails the gate.
+- `[recurred]` Prefer plain technical wording in probe and state files: any evocative English noun may collide with a private-library term through the substring matcher. Tripped in iterations 1, 3 and 9 on prose alone, never on a real leak.
 - Genre names are private data too, not neutral vocabulary: a plausible one used as a probe fixture tripped the gate in iteration 3. Invent an obviously fake one rather than widening `ALLOWED`.
 - Probe a network guard with real `http.server` instances on ephemeral ports, never a mocked session: a mock proves only what it was written to do.
 - Never branch on `requests`' `is_redirect` (or any truthiness) in code the suite drives with `Mock` responses - every Mock attribute is truthy. Compare `status_code` against an explicit set.

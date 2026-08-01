@@ -204,3 +204,30 @@ Verification: 26 known-answer assertions, all held. No findings.
 Learnings: Do not guess a table's columns when writing a probe - read the CREATE TABLE first. This battery cost a run to `games.store_id NOT NULL`, and on Windows the failed connection then held the temp file open and buried the real error under a PermissionError from the tempdir cleanup. The row total rose from 53 to 54 because a row was SPLIT rather than swept: sweeping the helpers did not exercise `preview` itself, and marking the whole row swept would have claimed ground nobody had walked.
 
 Next: Iteration 9 is the last working iteration - sweep export-columns and stats-report, the arithmetic a user reads directly. Iteration 10 writes the WRAPUP and the handoff.
+
+## iter 9/10 | ceea220f-162935 | 2026-08-01 | AUDIT | audit
+
+Task: Partial replenishing audit, the last working iteration. Swept export-columns and stats-report: the cells and counts a user reads directly and would act on.
+
+Changed: .jeffy/probes/export-stats/probe.py (new), PLAN.md (two rows swept).
+
+Checkpoint: pending
+
+Verification: 48 known-answer assertions, all held. No findings.
+  - export `_columns`: None and empty both mean every column; a subset returns in CANONICAL order rather than the caller's, which is the documented asymmetry against `_select` (column order is not information, row order is); unknown names are dropped; duplicates collapse; an all-unknown selection falls back to every column rather than writing an empty file.
+  - export `_select`: with ids the CALLER's order is preserved and never re-sorted, an unknown id is skipped rather than fatal, and an empty list selects nothing. Both the ids and columns parameters were exercised at two values each and both change the output.
+  - export `_row`: list fields join with "; "; `first_purchased` is the EARLIEST of an item's bundle dates, not the first listed, checked against an item in two bundles whose earlier purchase is the second one; read_status renders its human label; None becomes an empty cell rather than the text "None"; and an item in no bundle yields an empty date instead of raising on min() of an empty sequence.
+  - export `_clean`: the openpyxl illegal set is stripped while TAB, NEWLINE and CARRIAGE RETURN survive, which is the documented distinction - stripping those would silently reformat a multi-line note. Non-strings pass through.
+  - stats `_tally`: a value outside the vocabulary is counted NOWHERE rather than inventing a row, so a section deliberately need not sum to the total, and that is asserted directly rather than assumed. The `default` parameter was exercised at two values and changes the counts as documented, which is how a missing read_status key is honoured.
+  - stats: ratings count 1..5 only (unrated is a gap, not a row, so no item is counted twice); gaps count falsiness, so "" and None both register; genres sort biggest-first with alphabetical tie-breaking, giving a total and stable order; `report` returns sections in SECTIONS order and is pure across repeated calls. `console_safe` degrades the star to an asterisk under cp1252 and leaves it alone under utf-8 - the encoding parameter at two values, changing the output.
+  Scores, claiming ONLY the 13 swept rows of 54 - the other 41 are unswept:
+  - correctness: None across all 13 swept rows. This is the dimension with the most evidence behind it now: roughly 250 known-answer assertions across scoring, classification, the tag vocabulary, the item write paths, the retry policy, the order parser, the bundle helpers, the export projection and the stats counts.
+  - security: None on the rows swept (host guard, url-import as fixed, source redaction, bundle-preview gates). Still NOT SCORED for the project: extract-humble, sources-books, sources-media and covers-store remain unswept and adversarial.
+  - error handling, architecture, code quality, documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept. The whole viewer front end - 7 rows, about 2,600 lines of JS and CSS - is unswept, so no UX or accessibility claim is made at all.
+  Partial audit; never counts toward convergence, and closeout is NOT entered.
+  Verify command: pytest 981 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 after one fix - the battery's own comment used a word that is also a term in the private library, the third time this run that ordinary prose has tripped the substring check.
+
+Learnings: The leak check has now caught the loop's own prose three times (iterations 1, 3 and 9) and never once caught a real leak. That is the check working as intended on a substring matcher, but it is a recurring cost: assume any evocative English noun in a comment may collide with the library, and prefer plain technical wording in probe files.
+
+Next: The budget is spent after iteration 10, which is the WRAPUP. Nothing is left open on the ledger, so the handoff should record where the inventory stands and what the next run should sweep first.
