@@ -95,11 +95,11 @@ Metadata sources (`humble_catalog/sources/`)
 - [ ] check-cmd: `humble_catalog/check.py` - the live per-source key test.
 
 Import, export, lifecycle
-- [ ] export-columns: `humble_catalog/export.py` - COLUMNS, `write_csv`, `write_xlsx`, the ids/columns subsetting.
+- [x] export-columns: swept at c5b285b - `_columns`, `_select`, `_row`, `_clean`, `write_csv`, `write_xlsx`; battery `.jeffy/probes/export-stats/probe.py` exercises ids and columns at two values each, canonical column order against caller-owned row order, earliest-purchase selection, the empty-bundle case, and the illegal-character set against the legal whitespace it must keep. Held.
 - [ ] import-sheets: `humble_catalog/import_sheets.py` - gap-fill rules and unmatched-row reporting.
 - [ ] import-games: `humble_catalog/import_games.py` against the Steam and Heroic fixtures.
 - [ ] keys-report: `humble_catalog/keys.py` - expiry handling, `--all`, `--hidden`, store scoping.
-- [ ] stats-report: `humble_catalog/stats.py` - `report` section counts.
+- [x] stats-report: swept at c5b285b - `_tally`, `_by_type`, `_by_rating`, `_by_read_status`, `_by_enrichment`, `_by_gap`, `_by_genre`, `report`, `console_safe`; same battery, with the `default` and `encoding` parameters each exercised at two values, an out-of-vocabulary value asserted to be counted nowhere, and the section-need-not-sum-to-total property checked directly. Held.
 - [ ] backup-restore: `humble_catalog/backup.py` - snapshot naming, cover zip, restore confirmation.
 - [ ] reset-cmd: `humble_catalog/reset.py` - what it wipes and what it must preserve.
 

@@ -209,9 +209,9 @@ Next: Iteration 9 is the last working iteration - sweep export-columns and stats
 
 Task: Partial replenishing audit, the last working iteration. Swept export-columns and stats-report: the cells and counts a user reads directly and would act on.
 
-Changed: .jeffy/probes/export-stats/probe.py (new), PLAN.md (two rows swept).
+Changed: .jeffy/probes/export-stats/probe.py (new), PLAN.md (two rows swept, one recurred Lesson).
 
-Checkpoint: pending
+Checkpoint: c5b285b. Not a stall: a probe battery was added under .jeffy/probes/ and two inventory rows changed state.
 
 Verification: 48 known-answer assertions, all held. No findings.
   - export `_columns`: None and empty both mean every column; a subset returns in CANONICAL order rather than the caller's, which is the documented asymmetry against `_select` (column order is not information, row order is); unknown names are dropped; duplicates collapse; an all-unknown selection falls back to every column rather than writing an empty file.
