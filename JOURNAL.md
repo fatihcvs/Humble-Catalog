@@ -272,7 +272,7 @@ Task: Opening audit of a new run. The ledger was empty and the previous run's ha
 
 Changed: .jeffy/probes/covers-store/probe.py (new), PLAN.md (covers-store swept), BACKLOG.md (C1 High, C2 Medium, C3 Low filed; the B1 Settled classes line corrected to record that its enumeration was unsound).
 
-Checkpoint: PENDING
+Checkpoint: 4ac8be3. Not a stall: a probe battery was added under .jeffy/probes/, one inventory row changed state, and three BACKLOG items were filed.
 
 Verification: 57 known-answer assertions on covers-store, all held, and two findings reproduced against real local servers rather than mocks.
   - covers-store, no findings. cover_filename is the derived-filename hazard the handoff flagged, and it holds: the mapping is an allowlist to [a-z0-9_-] plus a digest of the RAW key, so eight separator, traversal, drive-letter, NUL and newline shapes all reduce to a bare basename, and three casings that share one slug stay distinct by digest rather than overwriting each other. relink fills only NULL paths, only for files present, and its covers_dir was exercised at two values that change the count. store_order is idempotent across a re-store, links rather than duplicates an item in two bundles, refuses to resurrect a merged-away key, never lets the no-evidence 'ebook' default demote a comic, honours type_overridden, and restores a post-reset snapshot ONLY when re-creating an item, so a live edit survives a normal re-store.
