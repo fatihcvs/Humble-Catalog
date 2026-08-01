@@ -21,3 +21,6 @@ __pycache__/
 *.pyc
 .venv/
 humble_catalog.egg-info/
+
+# Jeffy transient loop state (session-scoped, never commit)
+.claude/jeffy-loop.local.md
