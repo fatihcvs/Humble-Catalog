@@ -1044,16 +1044,16 @@ def test_bulk_add_and_remove(tmp_path):
     client = create_app(db_path=str(dbp)).test_client()
     resp = client.post("/api/user-tags/bulk", json={
         "ids": [item_id], "tag": "to reread", "action": "add"})
-    assert resp.status_code == 200 and resp.get_json()["changed"] == 1
+    assert resp.status_code == 200 and resp.get_json()["ids"] == [item_id]
     assert client.get("/api/items").get_json()["items"][0]["user_tags"] \
         == ["to reread"]
     # adding again changes nothing
     assert client.post("/api/user-tags/bulk", json={
         "ids": [item_id], "tag": "to reread",
-        "action": "add"}).get_json()["changed"] == 0
+        "action": "add"}).get_json()["ids"] == []
     resp = client.post("/api/user-tags/bulk", json={
         "ids": [item_id], "tag": "to reread", "action": "remove"})
-    assert resp.get_json()["changed"] == 1
+    assert resp.get_json()["ids"] == [item_id]
     assert client.get("/api/items").get_json()["items"][0]["user_tags"] == []
 
 def test_bulk_does_not_mark_rows_edited(tmp_path):
@@ -1086,7 +1086,26 @@ def test_bulk_ignores_unknown_ids(tmp_path):
     # a stale page can hold ids that no longer exist; that is not an error
     resp = client.post("/api/user-tags/bulk", json={
         "ids": [item_id, 999], "tag": "to reread", "action": "add"})
-    assert resp.status_code == 200 and resp.get_json()["changed"] == 1
+    assert resp.status_code == 200 and resp.get_json()["ids"] == [item_id]
+
+def test_undoing_a_bulk_add_leaves_rows_that_already_had_the_tag(tmp_path):
+    # The add-side asymmetry. The item starts with the tag, so the bulk
+    # add reports no change, and the undo over that empty list must not
+    # take the tag away.
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    client.post(f"/api/items/{item_id}/user-tags", json={"tags": ["lent out"]})
+    changed = client.post("/api/user-tags/bulk", json={
+        "ids": [item_id], "tag": "lent out", "action": "add"}).get_json()["ids"]
+    assert changed == []
+    # an undo over no ids is rejected by the route's own validation, which
+    # is why the viewer never offers one -- see the JS test
+    assert client.post("/api/user-tags/bulk", json={
+        "ids": changed, "tag": "lent out",
+        "action": "remove"}).status_code == 400
+    assert client.get("/api/items").get_json()["items"][0]["user_tags"] \
+        == ["lent out"]
 
 def test_bulk_bar_is_present():
     html = _index_html()

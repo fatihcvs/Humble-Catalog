@@ -259,9 +259,13 @@ def apply_hand_edit(conn, item_id, fields):
     return True
 
 def bulk_user_tag(conn, ids, tag, action):
-    """Add or remove one user tag across many items. Returns the number
-    of rows actually changed; items already in the wanted state are left
-    alone and not counted.
+    """Add or remove one user tag across many items. Returns the ids of
+    the rows actually changed; items already in the wanted state are left
+    alone and absent from the list.
+
+    The ids and not a count, because they are what an undo has to act on:
+    undoing over the ids the caller SENT would strip the tag from rows
+    that were carrying it beforehand.
 
     Deliberately USER_TAGS-only, with no TagColumn parameter. Bulk-editing
     genre would have to snapshot pre_edit and mark rows edited, because
@@ -271,13 +275,13 @@ def bulk_user_tag(conn, ids, tag, action):
         raise ValueError(f"action must be 'add' or 'remove', got {action!r}")
     tag = (tag or "").strip()
     if not tag or not ids:
-        return 0
+        return []
     # Snap to the spelling already in the vocabulary, so a bulk add cannot
     # fork "to reread" into a second casing.
     if action == "add":
         tag = normalize_tags(conn, USER_TAGS, [tag])[0]
     wanted = tag.lower()
-    changed = 0
+    changed = []
     placeholders = ",".join("?" * len(ids))
     rows = conn.execute(
         f"SELECT id, user_tags FROM items WHERE id IN ({placeholders})",
@@ -295,7 +299,7 @@ def bulk_user_tag(conn, ids, tag, action):
             updated = [t for t in current if t.lower() != wanted]
         conn.execute("UPDATE items SET user_tags=? WHERE id=?",
                      (tags_to_json(updated), r["id"]))
-        changed += 1
+        changed.append(r["id"])
     conn.commit()
     return changed
 

@@ -426,10 +426,11 @@ async function runBulk(el, action) {
       alert((await resp.json()).error || "Could not apply the tag.");
       return;
     }
-    const {changed} = await resp.json();
+    const {ids: changedIds} = await resp.json();
     const verb = action === "add" ? "Added to" : "Removed from";
     await load();
-    $("#bulk-note").textContent = `${verb} ${changed} of ${ids.length} items.`;
+    $("#bulk-note").textContent =
+      `${verb} ${changedIds.length} of ${ids.length} items.`;
   });
 }
 

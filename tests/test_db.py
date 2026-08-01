@@ -496,11 +496,11 @@ def _seed_user_tags(tmp_path, rows):
     conn.commit()
     return conn
 
-def test_bulk_add_appends_and_counts_only_changes(tmp_path):
+def test_bulk_add_appends_and_returns_only_changed_ids(tmp_path):
     conn = _seed_user_tags(tmp_path, [
         ("a", []), ("b", ["lent out"]), ("c", ["to reread"])])
     # c already has it, so only a and b change
-    assert db.bulk_user_tag(conn, [1, 2, 3], "to reread", "add") == 2
+    assert db.bulk_user_tag(conn, [1, 2, 3], "to reread", "add") == [1, 2]
     rows = conn.execute("SELECT user_tags FROM items ORDER BY id").fetchall()
     assert json.loads(rows[0]["user_tags"]) == ["to reread"]
     assert json.loads(rows[1]["user_tags"]) == ["lent out", "to reread"]
@@ -508,7 +508,7 @@ def test_bulk_add_appends_and_counts_only_changes(tmp_path):
 
 def test_bulk_add_snaps_to_an_existing_spelling(tmp_path):
     conn = _seed_user_tags(tmp_path, [("a", ["to reread"]), ("b", [])])
-    assert db.bulk_user_tag(conn, [1, 2], "To Reread", "add") == 1
+    assert db.bulk_user_tag(conn, [1, 2], "To Reread", "add") == [2]
     assert json.loads(conn.execute(
         "SELECT user_tags FROM items WHERE id=2").fetchone()["user_tags"]) \
         == ["to reread"]
@@ -516,7 +516,7 @@ def test_bulk_add_snaps_to_an_existing_spelling(tmp_path):
 def test_bulk_remove_is_case_insensitive_and_empties_to_null(tmp_path):
     conn = _seed_user_tags(tmp_path, [
         ("a", ["to reread"]), ("b", ["lent out", "to reread"]), ("c", [])])
-    assert db.bulk_user_tag(conn, [1, 2, 3], "TO REREAD", "remove") == 2
+    assert db.bulk_user_tag(conn, [1, 2, 3], "TO REREAD", "remove") == [1, 2]
     rows = conn.execute("SELECT user_tags FROM items ORDER BY id").fetchall()
     assert rows[0]["user_tags"] is None          # emptied -> NULL
     assert json.loads(rows[1]["user_tags"]) == ["lent out"]
@@ -524,13 +524,13 @@ def test_bulk_remove_is_case_insensitive_and_empties_to_null(tmp_path):
 
 def test_bulk_only_touches_the_given_ids(tmp_path):
     conn = _seed_user_tags(tmp_path, [("a", []), ("b", [])])
-    assert db.bulk_user_tag(conn, [1], "to reread", "add") == 1
+    assert db.bulk_user_tag(conn, [1], "to reread", "add") == [1]
     assert conn.execute(
         "SELECT user_tags FROM items WHERE id=2").fetchone()["user_tags"] is None
 
 def test_bulk_ignores_unknown_ids(tmp_path):
     conn = _seed_user_tags(tmp_path, [("a", [])])
-    assert db.bulk_user_tag(conn, [1, 999], "to reread", "add") == 1
+    assert db.bulk_user_tag(conn, [1, 999], "to reread", "add") == [1]
 
 def test_bulk_never_marks_rows_edited(tmp_path):
     conn = _seed_user_tags(tmp_path, [("a", []), ("b", ["to reread"])])
@@ -543,6 +543,27 @@ def test_bulk_rejects_an_unknown_action(tmp_path):
     conn = _seed_user_tags(tmp_path, [("a", [])])
     with pytest.raises(ValueError):
         db.bulk_user_tag(conn, [1], "to reread", "replace")
+
+def test_bulk_returns_an_empty_list_when_nothing_changes(tmp_path):
+    # An empty list and not None: the caller stores it and asks for
+    # .length, and a None here would become an undo button offering to
+    # restore nothing.
+    conn = _seed_user_tags(tmp_path, [("a", ["to reread"])])
+    assert db.bulk_user_tag(conn, [1], "to reread", "add") == []
+    assert db.bulk_user_tag(conn, [], "to reread", "add") == []
+    assert db.bulk_user_tag(conn, [1], "   ", "add") == []
+
+def test_undoing_a_bulk_remove_restores_only_the_changed_rows(tmp_path):
+    # The whole reason the id list is returned: b never carried the tag,
+    # so undoing over the ids originally SENT would give it one it never
+    # had. Undo goes over the ids that changed.
+    conn = _seed_user_tags(tmp_path, [("a", ["lent out"]), ("b", [])])
+    changed = db.bulk_user_tag(conn, [1, 2], "lent out", "remove")
+    assert changed == [1]
+    assert db.bulk_user_tag(conn, changed, "lent out", "add") == [1]
+    rows = conn.execute("SELECT user_tags FROM items ORDER BY id").fetchall()
+    assert json.loads(rows[0]["user_tags"]) == ["lent out"]
+    assert rows[1]["user_tags"] is None
 
 def test_new_db_has_override_columns(tmp_path):
     conn = db.connect(tmp_path / "t.db")
