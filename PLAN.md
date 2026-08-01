@@ -64,7 +64,7 @@ Storage layer (`humble_catalog/db.py`, 683 lines, split by function family: `gre
 
 Acquisition (HumbleBundle)
 - [ ] extract-humble: `humble_catalog/extract.py`, `humble_catalog/humble_api.py` - login, bundle fetch, cache write, `reparse`.
-- [ ] parse-order: `humble_catalog/parse_order.py` against `tests/fixtures/order_*.json`.
+- [x] parse-order: swept at e0b77ba - `parse_order`; battery `.jeffy/probes/sources-base/probe.py` covers platform filtering (both skip branches), format lowercasing and sorting, a missing payee, the gamekey in the bundle url, external key extraction, and an order with neither subproducts nor tpkd_dict. Held.
 - [ ] bundle-preview: `humble_catalog/bundle_preview.py` - tier maths, ownership counts, `fetch_bundle` parsing.
 
 Title and match logic
@@ -86,7 +86,7 @@ Enrichment and harvest
 - [ ] progress-failures: `humble_catalog/progress.py`, `humble_catalog/failures.py`.
 
 Metadata sources (`humble_catalog/sources/`)
-- [ ] sources-base: `sources/base.py` - the `candidate` shape and shared request/retry path.
+- [x] sources-base: swept at e0b77ba - `redact`, `candidate`, `cache_key_params`, `_with_retries`; battery `.jeffy/probes/sources-base/probe.py` counts attempts and sleeps rather than watching a call succeed, exercises `retry_server_errors` at both values including that it does not disable connection retries, and pins that `candidate`'s `extra` is a fresh dict per call. Held.
 - [ ] sources-books: `google_books.py`, `open_library.py`, `hardcover.py` against their fixtures.
 - [ ] sources-media: `comicvine.py`, `oreilly.py`, `audible.py` against their fixtures.
 - [x] url-import: re-swept at 2a31136 after the B2 fix changed this code - `normalize_url`, `host_of`, `resolve` routing, `_fetch_html`, `_publicly_routable`, `_check_redirect_target`; battery `.jeffy/probes/url-import/probe.py` covers 9 rejected schemes in both casings plus whitespace/control obfuscations, lookalike-host routing, a two-real-server redirect reproduction now refused, the address predicate on both sides, and the host:port shape against the scheme gate. 46/46 held.

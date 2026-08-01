@@ -156,9 +156,9 @@ Next: The ledger is empty and 4 iterations remain. Iteration 7 replenishes with 
 
 Task: Partial replenishing audit, continuing on the adversarial rows. Swept sources-base and parse-order: the shared request/retry/redaction path every metadata source funnels through, and the parser every HumbleBundle order passes through.
 
-Changed: .jeffy/probes/sources-base/probe.py (new), PLAN.md (two rows swept).
+Changed: .jeffy/probes/sources-base/probe.py (new), PLAN.md (two rows swept, one Lesson).
 
-Checkpoint: pending
+Checkpoint: e0b77ba. Not a stall: a probe battery was added under .jeffy/probes/ and two inventory rows changed state. No BACKLOG item changed state because the sweep found nothing to file, which is a clean result rather than a no-progress iteration; the previous primary entry recorded closed work, not a stall.
 
 Verification: 49 known-answer assertions, all held. No findings; the ledger stays empty.
   - redact: an api_key, apikey or bare key is replaced in any casing, the parameter NAME is preserved while the value is destroyed, replacement stops at the ampersand so later params survive, two keys in one string are both caught, and a string with no key is returned unchanged. Checked directly that the secret value is absent from the output rather than only that the output looks redacted.
