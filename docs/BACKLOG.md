@@ -56,6 +56,46 @@ Two things that stay true regardless:
 
 ## Open
 
+Entries under **Next up** are taken before the rest. Everything below
+that heading is unordered — most of it is parked on data or on an
+external change, so ordering it would be pretending. The two entries
+here are neither: both are known defects with a known cause.
+
+### Next up
+
+1. **`load()`'s badge arithmetic is not inside its own guard** — found
+   2026-08-01 while shipping the bulk-tag undo. `load()` runs its five
+   panel loaders in a `try`/`catch` loop, added after one item with a
+   missing field blanked the entire page. The `pending = {...}` badge
+   computation immediately after that loop is *not* guarded, and it
+   reads the module variables those loaders assign — `dupeGroups.length`
+   and `reviewCount`. So a loader that throws before assigning its
+   variable is caught and logged, and then `load()` throws anyway,
+   defeating the containment the loop exists to provide. Observed with a
+   malformed `/api/duplicates` response: the console showed
+   `loadDupes() failed: TypeError: Cannot read properties of undefined
+   (reading 'length')` and the error surfaced out of an unrelated caller
+   (a bulk tag write), which is the part that makes it expensive — the
+   report points nowhere near the cause. First: check how
+   `badgeCount` in `shell.js` treats a missing count, since a badge
+   silently reading zero for a section that failed to load is the wrong
+   fix. Reachable in production by any malformed response.
+2. **Thirteen buttons keep the browser's default styling in dark mode**
+   — measured 2026-08-01 in a browser against `demo_catalog.py`:
+   `sidebar-toggle`, `col-all`, `col-none`, `bulk-add`, `bulk-remove`,
+   `bulk-undo`, `cand-btn`, `url-fetch`, `dupe-clear`, `dupe-keep`,
+   `dupe-dismiss`, `bundle-go` all compute to `rgb(240, 240, 240)` with
+   black text against a `rgb(22, 24, 28)` page, where every other button
+   is themed to `rgb(30, 33, 39)` or deliberately transparent. Cosmetic,
+   hence second, but it is the same defect the viewer visual
+   improvements spec already fixed for inputs ("unstyled inputs had kept
+   the browser's white default, which glared in dark mode") — these were
+   missed. Widen whichever selector themes the working buttons rather
+   than adding a rule per id, and check `#export`, which is transparent
+   with accent text on purpose. Computed styles are invisible to the JS
+   harness, so this is eyes-in-a-browser plus at most a text assertion
+   that the rule exists.
+
 ### Bundle preview (deferred from `specs/2026-07-25-bundle-preview-design.md`)
 
 - **Volume-range resolution** — parse an offered `Vol. 1-6` into a set
