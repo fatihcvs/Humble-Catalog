@@ -81,8 +81,15 @@ titleized, so these keep the casing they are written with here.
 | MOONFALL, Vol. 1 / Moonfall Vol. 1 | — | — | case/comma cosmetic duplicate pair |
 | _(role-policy cast, no title)_ | Pat Pencil (penciler, inker), Ann Art (artist, cover), Ink Only (inker), Col Only (colorist), Cov Only (cover), Let Only (letterer), Ed Only (editor), Jo Journo (journalist) | — | one invented name per real Comic Vine role atom; pins the narrow illustrator policy in `test_split_credits_keeps_illustrator_narrow` |
 | Innkeeper’s Ledger / Innkeeper's Ledger | — | — | curly-vs-straight apostrophe pair |
-| Shadow Hound Vol. 1-6 | — | Example Comics | omnibus offered by a bundle against the owned *Shadow Hound Vol 1*; bundle-preview overlap example |
-| Moonfall Vol. 1-3 | — | — | second omnibus/volume overlap pair, against *MOONFALL, Vol. 1* |
+| Shadow Hound Vol. 1-6 | — | Example Comics | omnibus offered by a bundle against the owned *Shadow Hound Vol 1*; bundle-preview series example. **Measured 2026-08-01: this spelling occurs zero times among owned titles.** Kept because tests depend on it and because a range must still be *recognized* — parsed as its lower bound it would match the owned Vol. 1 and report the whole collection as already owned. It is also the only spelling stating its own denominator, so "you own 1 of 6" is derivable here and nowhere else |
+| Moonfall Vol. 1-3 | — | — | second range/volume pair, against *MOONFALL, Vol. 1*; also the comma-versus-no-comma case for `series_key` |
+| Shadow Hound Vol. 22 (#127-132) | — | Example Comics | an issue range annotating a **single** volume — the shape every real range in the catalog has, 8 of 11 of them. `clean_title` strips the parenthetical, so `parse_series` sees `Vol. 22`; pins that an issue range never becomes a volume count |
+| S.H.A.D.O.W Vol. 1 / S.H.A.D.O.W. Vol. 2 / S.H.A.D.O.W.: Vol. 3 | — | — | one series split three ways by punctuation drift; pins that `series_key` merges them |
+| Shadow-Hound Quest Vol. 1 / Shadow-Hound-Quest Vol. 2 | — | — | space-versus-hyphen drift, the second measured fragmentation |
+| Moonfalls Vol. 1 | — | — | the negative: differs from *Moonfall* by more than punctuation and holds an overlapping volume set, so it must **not** merge |
+| Shadow Hound Vol. 1: Origins | — | — | a marker followed by a subtitle — 113 of 679 volume markers in the catalog, so the parser cannot anchor to end-of-string alone |
+| Shadow Hound Omnibus | — | Example Comics | a collection word, which carries no volume count and so states no denominator — "you own 2 volumes", never "2 of N" |
+| Shadow Hound Vol. 2 | — | Example Comics | offered against an owned *Shadow Hound Vol 2* under a different machine_name: the re-buy case, reported ALREADY OWNED |
 | Nightjar Post | — | — | comic half of the comic↔ebook edition pair |
 | Shadow Hound Vol 1 Bonus Art Pack | — | Example Comics | described in a bundle's `tier_item_data` but sold by no tier; bundle-preview phantom-item tests. Contains *Shadow Hound Vol 1*'s tokens, so `token_set_ratio` scores it 100 and it heads the overlap list if the exclusion regresses |
 
