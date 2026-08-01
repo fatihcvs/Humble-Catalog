@@ -162,6 +162,8 @@ Operational rules future iterations must obey, learned during runs. One line eac
 
 - The privacy standing order in CLAUDE.md outranks everything here: probes, fixtures, docs and commit messages use invented titles from docs/TEST-DATA.md, never real library items. `leak_check.py` is part of the Verify command, so a breach fails the gate.
 - Genre names are private data too, not neutral vocabulary: a plausible one used as a probe fixture tripped the gate in iteration 3. Invent an obviously fake one rather than widening `ALLOWED`.
+- Probe a network guard with real `http.server` instances on ephemeral ports, never a mocked session: a mock proves only what it was written to do.
+- A battery asserts the DESIRED answer, never the observed one. A case written to match current behaviour certifies a defect as correct forever.
 - A probe that opens a database uses a FRESH file per case. Reusing one carries the previous case's rows into the next and trips the `machine_name` UNIQUE constraint.
 - `bool` is a subclass of `int` in Python: a range check on a JSON number must exclude it explicitly, or `true` passes as 1.
 - Never pipe a test run or the Verify command through `Select-Object -Last N` in PowerShell: like `head`/`tail` in bash it reports the pipeline's status, not the suite's, so a red suite reads as green. Redirect to a file and check the exit status.

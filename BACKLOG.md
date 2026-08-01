@@ -10,9 +10,13 @@ Rules:
 
 ## Now
 
+- [ ] B1 (High, runtime, security): `url_import._fetch_html` re-checks the URL scheme after redirects (url_import.py:192) but never the destination host, so a third-party page can steer the fetch to any address this machine can reach - loopback, the LAN, a cloud metadata endpoint - and the response's og:title is returned into the viewer. Reproduced with two real local servers in `.jeffy/probes/url-import/probe.py`: a 302 from one host to another is followed and the destination page is read. In envelope: the redirect target is chosen by third-party content, which the Operating envelope classes adversarial. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/url-import/probe.py` exits 0 with the redirect case refused, and `.venv/Scripts/python.exe -m pytest -q tests/test_url_import.py` stays green so legitimate imports still resolve.
+
 ## Next
 
 ## Later
+
+- [ ] B2 (Low, runtime, error handling): a schemeless `host:port` URL is misdiagnosed - `normalize_url("example.com:8080/book")` raises "unsupported URL scheme 'example.com'", naming the hostname as the scheme, because urlparse reads `example.com` as a scheme when a colon follows it. The owner pastes URLs by hand, so a wrong diagnosis costs a real minute. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/url-import/probe.py` exits 0 with the host:port case no longer reporting the hostname as a scheme.
 
 ## Proposed
 
