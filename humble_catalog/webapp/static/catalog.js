@@ -836,6 +836,18 @@ document.addEventListener("click", async (ev) => {
     $("#search").value = el.dataset.name;
     relevanceSort = true;
     render();
+  } else if (el.classList.contains("bundle-series-jump")) {
+    // One control for the whole run, not one per volume: a 26-volume
+    // series would otherwise emit 26 buttons. The type filter is cleared
+    // for the same reason the edition jump clears it -- a series can span
+    // comic and ebook, and an active filter would hide half the run.
+    // Setting the hash puts the jump in history, like the bundle jump
+    // above, so Back returns to the bundle the question was asked about.
+    $("#f-type").value = "";
+    $("#search").value = el.dataset.series;
+    relevanceSort = true;
+    location.hash = "#/library";
+    render();
   } else if (el.classList.contains("stat-show-all")) {
     genresShowAll = true;
     renderStats();
