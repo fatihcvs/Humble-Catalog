@@ -5,7 +5,7 @@ extensions" / "out of scope" sections. When an item ships, move it to the
 **Done** list at the bottom with its version. When a new design doc defers
 something, record it here so the deferral has a home.
 
-Last updated: 2026-07-31.
+Last updated: 2026-08-01.
 
 ## Privacy
 
@@ -55,15 +55,6 @@ Two things that stay true regardless:
   should be treated as public, whatever HEAD says afterwards.
 
 ## Open
-
-### User tags and comments (deferred from user tags, `specs/2026-07-19-user-tags-and-comments-design.md`)
-
-- **Undo for bulk tagging** — a single-level undo ("restored 'lent out'
-  to 47 items"). Deferred from bulk tagging: `user_tags` sits outside
-  `pre_edit` by design, so a bulk *remove* is unrecoverable. A bulk add
-  can already be undone with catalog-wide tag delete when the tag is
-  new; removal has no equivalent. Removal is gated behind an active
-  filter in the meantime.
 
 ### Bundle preview (deferred from `specs/2026-07-25-bundle-preview-design.md`)
 
@@ -205,6 +196,44 @@ worklist order; these are what is left.
   shell — one grep for `webpack-bundle-page-data` settles either.
 
 ## Done (formerly on this list)
+
+- **Undo for bulk tagging** —
+  `docs/superpowers/specs/2026-08-01-bulk-tag-undo-design.md`.
+  A bulk add or remove now leaves an Undo in the bulk bar naming the tag
+  and the count, and firing it posts the inverse over exactly the rows
+  that changed.
+  The precondition was already there and unused: `bulk_user_tag` computed
+  the changed set and returned only its size. Undoing over the ids the
+  caller *sent* is the trap — bulk-add to 47 rows where 12 already carried
+  the tag, undo by removing from all 47, and the tag is gone from 12 rows
+  that had it beforehand. So the route answers `ids` and drops `changed`.
+  Staleness needs no mechanism, which is unusual enough to record. Both
+  inverse operations are per-item idempotent and the route already ignores
+  unknown ids, so an undo fired after unrelated edits, or after a merge
+  took some of its rows, quietly does the right thing. That is what made
+  browser memory sufficient: a persisted slot would answer "undo something
+  from last Tuesday", which the catalog moves underneath, and would drag
+  in a `reset` decision for state that is derived but not rebuildable.
+  **Scope was cut by a finding, not by taste.** The design first covered
+  the catalog-wide `POST /api/user-tags/delete` too, on the strength of
+  the statistics panel's tag management — which is genre-only. That route
+  has no caller in the viewer or the CLI, so its undo could never have
+  been reached, and `delete_tag`/`_rewrite_tags` were left alone rather
+  than changed for a path no user can take. The finding widens the
+  original entry rather than narrowing it: the escape hatch the bulk
+  tagging spec offered for a bad bulk add is reachable by `curl` and by
+  nothing else, so until now a mis-aimed bulk add had no in-app remedy at
+  all. Wiring that UI is left as its own question.
+  Built against **zero** user tags in the catalog, and the spec says so.
+  Two questions that would normally be measured — whether case variants
+  coexist, and whether array order carries meaning — have no data behind
+  them and are settled by reasoning plus tests: the undo restores
+  membership, not position, and collapses case variants to the spelling
+  the operation was issued with.
+  `armOrFire` returns the fired promise now. Every caller ignores it, but
+  the JS harness stubs `setTimeout` to a no-op, so without it no test can
+  wait for a two-click write to land — the arming idiom was untestable
+  end to end.
 
 - **The same work owned in two formats** —
   `docs/superpowers/specs/2026-07-31-edition-linking-design.md`.

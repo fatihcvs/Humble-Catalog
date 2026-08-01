@@ -25,6 +25,17 @@ or fixtures that name books, bundles, or people.
 | Humble Game Bundle: Key Vault | a past order whose games arrived as store keys, not as items (`external_keys`); bundle-preview keyed-ownership example |
 | Humble Game Bundle: Expiring Keys | an order whose keys carry expiry dates; key-report sort-order example |
 
+## User tags
+
+The owner's personal vocabulary is separate from genre and is never
+titleized, so these keep the casing they are written with here.
+
+| Tag | Used for |
+|---|---|
+| lent out | bulk tagging and bulk-undo examples; the tag whose loss has no revert |
+| to reread | second tag, for asserting that an operation touches one and not the other |
+| Lent Out / To Reread | title-case variants, for the snap-to-an-existing-spelling tests |
+
 ## E-books
 
 | Title | Author(s) | Publisher | Notes |
