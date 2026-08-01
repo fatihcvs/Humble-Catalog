@@ -89,7 +89,9 @@ titleized, so these keep the casing they are written with here.
 | Moonfalls Vol. 1 | — | — | the negative: differs from *Moonfall* by more than punctuation and holds an overlapping volume set, so it must **not** merge |
 | Shadow Hound Vol. 1: Origins | — | — | a marker followed by a subtitle — 113 of 679 volume markers in the catalog, so the parser cannot anchor to end-of-string alone |
 | Shadow Hound Omnibus | — | Example Comics | a collection word, which carries no volume count and so states no denominator — "you own 2 volumes", never "2 of N" |
-| Shadow Hound Vol. 2 | — | Example Comics | offered against an owned *Shadow Hound Vol 2* under a different machine_name: the re-buy case, reported ALREADY OWNED |
+| Shadow Hound Vol. 2 | — | Example Comics | offered against an owned *Shadow Hound Vol 2* under a different machine_name: the re-buy case, reported ALREADY OWNED. Also the plain bare-marker row for the `enrich --series` fill |
+| Shadow Hound Vol. 5 | — | Example Comics | a hand-edited row carrying the typed series name *Shadow Hound Legends*; pins that the `enrich --series` top-up leaves both the value and the `hand_edited` flag alone |
+| _(series name only)_ Shadow Hound Chronicles | — | Example Comics | a series name a **source** supplied, deliberately unlike the *Shadow Hound* base a title split produces — the shape of the 78 catalog rows where the two disagree. Pins that the fill adds a number without touching the name. Both invented series names must stay distinct from the derived base, or a fixture cannot show which one was preferred |
 | Nightjar Post | — | — | comic half of the comic↔ebook edition pair |
 | Shadow Hound Vol 1 Bonus Art Pack | — | Example Comics | described in a bundle's `tier_item_data` but sold by no tier; bundle-preview phantom-item tests. Contains *Shadow Hound Vol 1*'s tokens, so `token_set_ratio` scores it 100 and it heads the overlap list if the exclusion regresses |
 

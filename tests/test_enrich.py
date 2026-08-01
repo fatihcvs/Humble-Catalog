@@ -516,3 +516,101 @@ def test_enrich_prefers_the_source_series_over_the_title(tmp_path):
                        (item_id,)).fetchone()
     assert row["series"] == "Shadow Hound Chronicles"
     assert row["series_number"] == 7.0
+
+
+def _seed_columns(conn, name, typ="comic", **fields):
+    """An item plus an enrichment row with the given columns already set."""
+    item_id = _seed(conn, name=name, typ=typ)
+    if fields:
+        conn.execute(
+            "UPDATE enrichment SET " + ", ".join(f"{k}=?" for k in fields)
+            + " WHERE item_id=?", (*fields.values(), item_id))
+        conn.commit()
+    return item_id
+
+
+def _enrichment(conn, item_id):
+    return conn.execute("SELECT * FROM enrichment WHERE item_id=?",
+                        (item_id,)).fetchone()
+
+
+def test_fill_series_writes_both_fields_from_the_title(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2", status="matched")
+    assert enrich.fill_series(_conn=conn) == 1
+    row = _enrichment(conn, item_id)
+    assert row["series"] == "Shadow Hound"
+    assert row["series_number"] == 2.0
+
+
+def test_fill_series_keeps_a_source_supplied_name_while_adding_a_number(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2", status="matched",
+                             series="Shadow Hound Chronicles")
+    assert enrich.fill_series(_conn=conn) == 1
+    row = _enrichment(conn, item_id)
+    assert row["series"] == "Shadow Hound Chronicles"
+    assert row["series_number"] == 2.0
+
+
+def test_fill_series_never_overwrites_a_disagreeing_number(tmp_path):
+    # clean_title strips the issue range, so this parses as Vol. 22 -- but
+    # a stored 99 is somebody's answer and outranks the title's.
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 22 (#127-132)",
+                             status="matched", series="Shadow Hound",
+                             series_number=99.0)
+    assert enrich.fill_series(_conn=conn) == 0
+    assert _enrichment(conn, item_id)["series_number"] == 99.0
+
+
+def test_fill_series_leaves_a_hand_edited_row_alone(tmp_path):
+    # The apply_candidate trap: that function clears hand_edited and
+    # snapshots pre_edit. This pass must do neither.
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 5", status="matched",
+                             series="Shadow Hound Legends", series_number=5.0,
+                             hand_edited=1)
+    assert enrich.fill_series(_conn=conn) == 0
+    row = _enrichment(conn, item_id)
+    assert row["series"] == "Shadow Hound Legends"
+    assert row["hand_edited"] == 1
+    assert row["pre_edit"] is None
+
+
+def test_fill_series_fills_an_unmatched_row(tmp_path):
+    # Deliberate: the number comes from the item's own name, so "no source
+    # matched this" says nothing about whether the title states a volume.
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2", status="unmatched")
+    assert enrich.fill_series(_conn=conn) == 1
+    row = _enrichment(conn, item_id)
+    assert row["series_number"] == 2.0
+    assert row["status"] == "unmatched"
+
+
+def test_fill_series_leaves_status_and_confidence_alone(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2",
+                             status="low_confidence", match_confidence=0.62)
+    enrich.fill_series(_conn=conn)
+    row = _enrichment(conn, item_id)
+    assert row["status"] == "low_confidence"
+    assert row["match_confidence"] == 0.62
+    assert row["series_number"] == 2.0
+
+
+def test_fill_series_is_idempotent(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    _seed_columns(conn, "Shadow Hound Vol. 2", status="matched")
+    assert enrich.fill_series(_conn=conn) == 1
+    assert enrich.fill_series(_conn=conn) == 0
+
+
+def test_fill_series_ignores_collections_and_plain_titles(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    omnibus = _seed_columns(conn, "Shadow Hound Omnibus", status="matched")
+    plain = _seed_columns(conn, "Unrelated Book", typ="ebook", status="matched")
+    assert enrich.fill_series(_conn=conn) == 0
+    assert _enrichment(conn, omnibus)["series"] is None
+    assert _enrichment(conn, plain)["series"] is None
