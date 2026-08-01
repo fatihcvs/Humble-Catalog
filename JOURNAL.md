@@ -300,7 +300,7 @@ Task: C1 (High, runtime, security) - close the class of outbound requests sent t
 
 Changed: humble_catalog/outbound.py (new, the boundary), humble_catalog/url_import.py (destination rules moved out, `_fetch_html` now runs through the boundary), humble_catalog/extract.py (cover fetch guarded), humble_catalog/sources/comicvine.py (API_HOSTS allowlist, credits checks before sending), tests/test_outbound.py (new, 12 tests), tests/test_extract.py (autouse fixture keeping the suite off live DNS), .jeffy/probes/outbound-guard/probe.py (new), PLAN.md (outbound-guard row added and swept, url-import re-swept), BACKLOG.md (C1 deleted, the unsound B1 settled-class line replaced).
 
-Checkpoint: PENDING
+Checkpoint: 45a18f4. Not a stall: runtime code, tests and a probe battery changed, and C1 moved from open to settled.
 
 Verification: The filed reproduction was re-run first, before any edit, and both halves still reproduced.
   - Acceptance check, both halves, after the fix. `.jeffy/probes/outbound-guard/probe.py` exits 0 at 41/41. Against the UNFIXED extract.py and comicvine.py - copied aside and restored, never checked out over uncommitted work - it scores 34/41, and the 7 failures are the two reproductions: the foreign server's log shows `/api/issue/4000-1/?api_key=PROBE-KEY-VALUE&...` and two cover files written from loopback. So the check is strong enough to fail.
