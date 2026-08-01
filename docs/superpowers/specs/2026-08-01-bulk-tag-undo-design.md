@@ -3,8 +3,8 @@
 Recover from a bulk tag operation that did the wrong thing, without
 reaching for the catalog-wide delete that over-removes.
 
-Covers three operations: bulk add, bulk remove, and the catalog-wide
-user-tag delete. Not rename — see **Out of scope**.
+Covers the two bulk operations: add and remove. Not the catalog-wide
+user-tag delete, and not rename — see **Out of scope**.
 
 ## Why this is prospective, not measured
 
@@ -16,11 +16,15 @@ data behind them. Both are decided by reasoning below and pinned by
 tests rather than by counts. Said plainly here so a later reader does
 not mistake the reasoning for evidence.
 
-What is not prospective is the gap itself. `user_tags` sits outside
-`pre_edit` by design, so a bulk *remove* has no revert, and the bulk
-tagging spec's own escape hatch for a bad bulk *add* — the catalog-wide
-`POST /api/user-tags/delete` — removes the tag everywhere, including
-from rows the bulk add never touched.
+What is not prospective is the gap itself, and it is wider than the
+bulk tagging spec recorded. `user_tags` sits outside `pre_edit` by
+design, so a bulk *remove* has no revert. That spec then offered the
+catalog-wide `POST /api/user-tags/delete` as the escape hatch for a bad
+bulk *add*, noting it over-removes when the tag was already in use
+elsewhere — but **that route has no caller**: not in the viewer, not in
+the CLI. The rename/delete UI in the statistics panel is genre-only.
+So the escape hatch is reachable by hand with `curl` and by nothing
+else, and a mis-aimed bulk add currently has no in-app remedy at all.
 
 ## The slot
 
@@ -34,9 +38,9 @@ Three fields and no stored label: the button's text is derived from
 `tag` and `ids.length` at render time, so it cannot disagree with the
 operation it will perform.
 
-Set by a bulk add, a bulk remove, or a catalog-wide delete, but **only
-when the operation changed at least one row**. Cleared when the undo
-fires. Replaced by the next qualifying operation.
+Set by a bulk add or a bulk remove, but **only when the operation
+changed at least one row**. Cleared when the undo fires. Replaced by the
+next qualifying operation.
 
 Browser memory, deliberately, and not a table in `catalog.db`. This
 undo exists to correct a mistake while its result is still on screen.
@@ -53,15 +57,12 @@ keep.
 operation, one click away in the same bar.
 
 `action` holds the *inverse* verb, stored ready to fire, so the undo
-path has no branching left to get wrong. All three operations reduce to
-one call:
+path has no branching left to get wrong. The undo is the same call the
+operation was:
 
 ```
 POST /api/user-tags/bulk  {ids: <rows that actually changed>, tag, action: <inverse>}
 ```
-
-A catalog-wide delete's inverse is a bulk add over the ids it touched.
-That is why delete was cheap to include and rename was not.
 
 ### Staleness needs no mechanism
 
@@ -75,7 +76,8 @@ the right thing quietly rather than clobbering.
 
 ## Server: return what changed, not how much
 
-Both operations already compute the changed set and discard it.
+`bulk_user_tag` already computes the changed set and discards it,
+returning only its size.
 
 Undoing by re-sending the *original* ids with the inverse verb would be
 wrong, which is the whole reason the server has to answer with ids: bulk
@@ -83,31 +85,23 @@ add to 47 rows where 12 already carried the tag, then "undo" by removing
 from all 47, and the tag is stripped from 12 items that had it
 beforehand. The recoverable set is the changed set.
 
-- `bulk_user_tag` returns the list of changed ids instead of a count.
-  Callers wanting a count take `len()`.
-- `_rewrite_tags` returns the list of changed keys instead of a count.
-  `rename_tag` returns `len()` of it and is otherwise untouched.
-- `delete_tag` returns `(ids, spelling)`: the ids it changed, and **the
-  stored spelling it removed**, read from `tag_vocab` before the delete.
-  The spelling is load-bearing. `delete_tag` lowercases its argument for
-  matching, and once the tag is gone from the vocabulary
-  `normalize_tags` has nothing to snap to — so an undo built from the
-  user's typed string could restore `lent out` where `Lent Out` stood.
-  It returns `(None, None)` where it used to return `None`, keeping the
-  route's 404-on-unknown-tag behaviour.
+So `bulk_user_tag` returns the list of changed ids instead of a count.
+Callers wanting a count take `len()`.
 
-`_rewrite_tags` keeps its existing rule about what counts as a changed
-row, including the `GENRE`-only case where `pre_edit` moved but the live
-column did not. That case cannot arise for `USER_TAGS`, which is
-`snapshot=False`, so the undo never receives a row whose visible tags
-stayed put. The rule is left alone rather than narrowed: `rename_tag`
-and the genre routes depend on it.
+`delete_tag`, `rename_tag` and `_rewrite_tags` are **not touched**. An
+earlier draft of this spec changed `delete_tag` to return ids and the
+stored spelling so a catalog-wide delete could be undone too; that was
+dropped once the route turned out to have no caller. Changing a function
+shared with `GENRE` — and its live genre route and tests — to serve a
+path no user can take is speculative work, and the spelling subtlety it
+was solving (`delete_tag` lowercases its argument, and after the delete
+`normalize_tags` has nothing left to snap to) is recorded here rather
+than built.
 
-### Routes
+### Route
 
 ```
-POST /api/user-tags/bulk    → {"ids": [1, 2, 3]}
-POST /api/user-tags/delete  → {"ids": [1, 2, 3], "tag": "Lent Out"}
+POST /api/user-tags/bulk  → {"ids": [1, 2, 3]}
 ```
 
 `changed` is dropped rather than left beside `ids` as a second
@@ -115,7 +109,7 @@ derivation of one fact; the client says `ids.length`. Same reasoning as
 the unsold-overlaps fix — a count re-derived beside the set it came from
 is where the two quietly stop agreeing.
 
-Validation on the bulk route is unchanged.
+Validation is unchanged.
 
 ## Client
 
@@ -127,23 +121,15 @@ Bulk: [tag input] [Add to N shown] [Remove from N shown]  [Undo: restore "lent o
 
 Hidden when the slot is empty.
 
-**The label names the operation, not just "Undo".** Required, because
-the affordance lives in a bar labelled *Bulk* while one of the three
-operations it covers was performed in a different panel entirely.
+**The label names the tag and the count, not just "Undo".** The two
+operations are opposites, so a bare "Undo" beside them says nothing
+about which direction the click goes — and the count is the same
+blast-radius readout the Add and Remove labels already carry.
 
-**The bulk bar, and not in place beside each control.** Rendering the
-undo next to whichever control fired is better to read and has a
-specific failure here: tag management sits behind an *Edit tags* toggle
-inside the collapsible statistics panel, which is rebuilt via
-`innerHTML` on every render, so an undo offered there can vanish the
-moment the panel closes. An undo you cannot find is worse than none,
-because you stop looking for another remedy. The bulk bar is outside the
-table's `innerHTML` rebuild and is never collapsed.
-
-**Two slots, one per panel, were rejected.** Single-level undo makes at
-most one operation recoverable anyway, and two slots would let you undo
-the older of two operations while the newer stands — not what
-single-level means, and confusing to offer.
+**The bulk bar.** Both operations are fired from it and it is outside
+the table's `innerHTML` rebuild — there is already a comment saying so
+at the listener that refreshes it — so the affordance cannot be
+destroyed by a re-render or hidden by a collapse.
 
 **No `armOrFire`.** The other two buttons arm-then-confirm because they
 are the destructive direction; undo is by construction the recovering
@@ -162,9 +148,10 @@ After firing: `await load()`, clear the slot, and report into
   end of its array, and `tagBadges` renders array order, so a tag that
   sat first may come back last. An order-preserving record is not worth
   it for a personal vocabulary with no ordering semantics.
-- **Collapses case variants.** Both operations match case-insensitively
-  and drop every spelling; the undo restores one. Reasoned, not
-  measured — there is no data to measure.
+- **Collapses case variants.** Bulk remove matches case-insensitively
+  and drops every spelling of the tag; undoing it restores one, the
+  spelling the operation was issued with. Reasoned, not measured —
+  there is no data to measure.
 - **`pre_edit` and `hand_edited` stay untouched throughout**, undo
   included. Pinned by a test, because the point of `user_tags` living
   outside them is that tagging never marks a row edited or locks it for
@@ -178,24 +165,15 @@ Database level:
   rows already in the wanted state are absent from the list.
 - `bulk_user_tag` returns an empty list, not `None`, when nothing
   changes.
-- `delete_tag` returns the ids it changed and the stored spelling, with
-  the spelling taken from the catalog rather than from the argument
-  (delete `lent out` where `Lent Out` is stored, and get `Lent Out`
-  back).
-- `delete_tag` still reports an unknown tag distinguishably.
-- `rename_tag` still returns a count, unchanged by `_rewrite_tags`'
-  new return type.
 - `pre_edit` stays `NULL` and `hand_edited` stays false across a bulk
-  add, a bulk remove, a delete and an undo of each.
+  add, a bulk remove, and an undo of each.
 
 API level:
 
-- both routes' new response shape;
+- the route's new response shape;
 - a round trip — bulk remove, then the inverse bulk add over the
   returned ids, restores exactly the rows that changed and leaves rows
   that never carried the tag alone;
-- the same round trip for a catalog-wide delete, restoring the stored
-  spelling;
 - the add-side asymmetry: bulk add where some rows already carried the
   tag, then undo, leaves those rows still carrying it.
 
@@ -213,6 +191,13 @@ new invented tag is vetted against `build_terms()` like any other.
 
 ## Out of scope
 
+- **The catalog-wide user-tag delete.** `POST /api/user-tags/delete` has
+  no caller in the viewer or the CLI, so an undo for it would be
+  unreachable: nothing in the browser could set the slot. Undoing it
+  properly means first giving user tags the rename/delete UI that genre
+  has — a separate feature, and one that would put a destructive
+  catalog-wide button in front of the owner where none exists today.
+  Worth its own backlog entry rather than being smuggled in here.
 - **Rename.** Its inverse needs a per-item record of which rows held the
   old spelling and which already held the new one — the merge is
   genuinely lossy, and a changed-id list cannot reconstruct it. A
