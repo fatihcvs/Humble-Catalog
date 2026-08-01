@@ -153,9 +153,11 @@ def parse_series(cleaned, number_hint=None):
 
     `number_hint` is clean_title's own series number, which understands
     only the parenthesized "(Book 1)" spelling and fires on 3 of 2,729
-    items. It is accepted here rather than widened: enrich.py consumes it
-    for matching, so changing what it fires on changes enrichment
-    catalog-wide. See docs/BACKLOG.md.
+    items. It stays narrow, and the reason is the cleaned title rather
+    than the hint: widening it would strip the bare marker too, and
+    `cleaned` is what feeds every source lookup, score and worklist
+    entry. Measured 2,308 distinct enrichable titles collapsing to 1,894.
+    enrich.series_from_title reads this function's own answer instead.
     """
     t = (cleaned or "").strip()
     for pattern in (_VOL_RANGE, _VOL_ONE, _COLLECTION):

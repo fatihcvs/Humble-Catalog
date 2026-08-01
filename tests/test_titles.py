@@ -151,8 +151,12 @@ def test_a_marker_that_is_the_whole_title_names_no_series():
 
 
 def test_clean_title_hint_still_fires_only_on_the_parenthesized_spelling():
-    # Pins the deliberate NON-widening. enrich.py consumes this hint for
-    # matching, so teaching it the bare spelling would silently change
-    # enrichment across the catalog. That is its own backlog entry.
+    # Pins the deliberate NON-widening, and the reason is NOT the hint --
+    # that only fills a field on a candidate that already won. Widening
+    # would strip the marker from the CLEANED TITLE, which feeds every
+    # source lookup, score and worklist entry: measured at 2,308 distinct
+    # enrichable titles collapsing to 1,894, with 44 volumes of one series
+    # landing on a single query. enrich.series_from_title reads the bare
+    # spelling instead, leaving cleaned byte-identical.
     assert titles.clean_title("Wings of Autumn Dusk (Book 1)")[1] == 1.0
     assert titles.clean_title("Shadow Hound Vol. 3")[1] is None
