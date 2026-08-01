@@ -381,6 +381,29 @@ def preview(conn, bundle, url=None):
 _SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
 
 
+def _series_note(hit):
+    """The right-hand side of one series line."""
+    if hit["already_owned"]:
+        # Shouted, like the APPROXIMATE warning below. This is the one
+        # line in the whole report that should stop a purchase: the
+        # offered volume matched no machine_name yet is already held, so
+        # it is a re-issue or another edition of a book on the shelf.
+        return f"ALREADY OWNED -- you hold Vol. {hit['offered_volume']}"
+    if hit["kind"] == "collection":
+        span = hit["span"]
+        if span:
+            # A range states its own size, so this is the one case where a
+            # denominator is known rather than guessed. Counted over the
+            # volumes INSIDE the range: owning Vol. 9 says nothing about a
+            # collection selling Vol. 1-6.
+            inside = sum(1 for v in hit["owned"] if span[0] <= v <= span[1])
+            return (f"you own {inside} of {span[1] - span[0] + 1} "
+                    f"({hit['owned_display']})")
+        noun = "volume" if len(hit["owned"]) == 1 else "volumes"
+        return f"you own {len(hit['owned'])} {noun} ({hit['owned_display']})"
+    return f"you own {hit['owned_display']}"
+
+
 def format_report(report, encoding="utf-8"):
     """The report as printable text, safe for a console using `encoding`.
 
@@ -447,6 +470,14 @@ def format_report(report, encoding="utf-8"):
                 lines.append(f"                {hit['offered']}  ~  "
                              f"{hit['owned_title']}  ({hit['score']:.2f})")
             lines.append("")
+    # Before the overlap list and after the tiers: these are facts about
+    # which volumes are held, where an overlap is a suspicion. Omitted
+    # entirely when empty, as `adds` and `keyed_items` are.
+    if report.get("series"):
+        lines += ["", f"  Series you already hold ({len(report['series'])}):"]
+        width = max(len(hit["offered"]) for hit in report["series"])
+        for hit in report["series"]:
+            lines.append(f"    {hit['offered']:<{width}}  {_series_note(hit)}")
     if report["overlaps"]:
         lines += ["", f"  Possibly already owned in part "
                       f"({len(report['overlaps'])}):"]

@@ -980,3 +980,61 @@ def test_an_offered_volume_already_held_is_flagged_on_a_live_report(tmp_path):
     hit = report["series"][0]
     assert hit["already_owned"] is True
     assert hit["offered_volume"] == 1
+
+
+def _report_text(tmp_path):
+    conn = _conn(tmp_path)
+    try:
+        return bundle_preview.format_report(
+            bundle_preview.preview(conn, _bundle()))
+    finally:
+        conn.close()
+
+
+def test_the_cli_prints_a_series_block(tmp_path):
+    text = _report_text(tmp_path)
+    assert "Series you already hold (2):" in text
+    assert "you own 1 of 6" in text
+
+
+def test_the_cli_omits_the_series_block_when_there_is_nothing_to_say():
+    report = {"name": "Bundle One", "url": "", "currency": "USD", "tiers": [],
+              "series": [], "overlaps": [], "game_matching": False}
+    assert "Series you already hold" not in bundle_preview.format_report(report)
+
+
+def test_a_re_buy_is_shouted_because_it_should_stop_a_purchase():
+    assert bundle_preview._series_note({
+        "already_owned": True, "kind": "volume", "offered_volume": 2,
+        "owned": [1, 2], "owned_display": "Vol. 1-2", "span": None,
+    }) == "ALREADY OWNED -- you hold Vol. 2"
+
+
+def test_a_continuation_names_the_run_you_hold():
+    assert bundle_preview._series_note({
+        "already_owned": False, "kind": "volume", "offered_volume": 7,
+        "owned": [1, 2, 3, 5, 6], "owned_display": "Vol. 1-3, 5-6", "span": None,
+    }) == "you own Vol. 1-3, 5-6"
+
+
+def test_a_collection_without_a_span_states_no_denominator():
+    # No title carries an omnibus's volume count, so none is invented.
+    assert bundle_preview._series_note({
+        "already_owned": False, "kind": "collection", "offered_volume": None,
+        "owned": [1, 2], "owned_display": "Vol. 1-2", "span": None,
+    }) == "you own 2 volumes (Vol. 1-2)"
+
+
+def test_a_collection_of_one_volume_reads_as_a_volume():
+    assert "you own 1 volume (" in bundle_preview._series_note({
+        "already_owned": False, "kind": "collection", "offered_volume": None,
+        "owned": [1], "owned_display": "Vol. 1", "span": None,
+    })
+
+
+def test_a_range_counts_only_the_volumes_inside_it():
+    # Owning Vol. 9 says nothing about a bundle selling Vol. 1-6.
+    assert bundle_preview._series_note({
+        "already_owned": False, "kind": "collection", "offered_volume": None,
+        "owned": [1, 2, 9], "owned_display": "Vol. 1-2, 9", "span": [1, 6],
+    }) == "you own 2 of 6 (Vol. 1-2, 9)"
