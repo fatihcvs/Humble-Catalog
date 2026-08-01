@@ -179,3 +179,28 @@ Verification: 49 known-answer assertions, all held. No findings; the ledger stay
 Learnings: A retry policy is swept by counting attempts and sleeps, never by watching a call succeed - "it worked" is identical output whether the policy retried three times, once, or not at all, so a liveness probe certifies nothing about it.
 
 Next: 3 iterations remain and convergence is out of reach at 43 unswept rows, so iteration 10 should be a WRAPUP with a handoff rather than a task that cannot finish. Iterations 8 and 9 keep sweeping: bundle-preview first, since it shares the fetch path B1 changed, then export-columns and stats-report.
+
+## iter 8/10 | ceea220f-162935 | 2026-08-01 | AUDIT | audit
+
+Task: Partial replenishing audit. Swept the bundle-preview helper families, chosen because `fetch_bundle` reuses url_import's fetch guards and is therefore where a regression from this run's own B1 change would surface.
+
+Changed: .jeffy/probes/bundle-preview-parts/probe.py (new), PLAN.md (row split into bundle-preview-parts and bundle-preview-tiers; the helpers row swept).
+
+Checkpoint: pending
+
+Verification: 26 known-answer assertions, all held. No findings.
+  - No B1 regression: `fetch_bundle` still admits humblebundle.com and its subdomains and still refuses the lookalikes - `humblebundle.com.evil.example`, `nothumblebundle.com`, and a URL merely containing the domain in its path - and a non-http scheme is still refused ahead of the host gate. The full suite is green at 981, including the bundle-preview tests.
+  - `_adds` is the one that most deserved known answers, because it decides what a tier is described as adding and a wrong answer there costs money. Checked cheapest-first accumulation, case-insensitive sorting, and the fallback to a raw machine_name when `items` has no entry. Two invariants beyond the literal lists: the per-tier lists are disjoint, and together they account for exactly the richest tier's names. Also checked the non-nesting bonus-tier case the running-set design exists for - a pairwise difference would emit a title twice there, and the running set does not.
+  - `_owned` unions the merge tombstones, so a duplicate merged away still reads as owned rather than as a new item to buy. `_owned_games` dedupes on normalized_title, so a game owned on two stores counts once.
+  - `delivery_stores` returns the inner storefront keys, and yields an empty set for a book, for the observed empty `{"game": {}}` entry, and for an explicit null - the three shapes that route an item to the book path.
+  Scores, claiming ONLY the 11 swept rows of 54 - the other 43 are unswept:
+  - correctness: None across the swept rows.
+  - security: None on the bundle-preview host and scheme gates. Still NOT SCORED for the project: extract-humble, sources-books, sources-media and covers-store remain unswept and adversarial.
+  - error handling, architecture, code quality, documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  Partial audit; never counts toward convergence, and closeout is NOT entered.
+  Verify command: pytest 981 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+
+Learnings: Do not guess a table's columns when writing a probe - read the CREATE TABLE first. This battery cost a run to `games.store_id NOT NULL`, and on Windows the failed connection then held the temp file open and buried the real error under a PermissionError from the tempdir cleanup. The row total rose from 53 to 54 because a row was SPLIT rather than swept: sweeping the helpers did not exercise `preview` itself, and marking the whole row swept would have claimed ground nobody had walked.
+
+Next: Iteration 9 is the last working iteration - sweep export-columns and stats-report, the arithmetic a user reads directly. Iteration 10 writes the WRAPUP and the handoff.

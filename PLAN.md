@@ -65,7 +65,8 @@ Storage layer (`humble_catalog/db.py`, 683 lines, split by function family: `gre
 Acquisition (HumbleBundle)
 - [ ] extract-humble: `humble_catalog/extract.py`, `humble_catalog/humble_api.py` - login, bundle fetch, cache write, `reparse`.
 - [x] parse-order: swept at e0b77ba - `parse_order`; battery `.jeffy/probes/sources-base/probe.py` covers platform filtering (both skip branches), format lowercasing and sorting, a missing payee, the gamekey in the bundle url, external key extraction, and an order with neither subproducts nor tpkd_dict. Held.
-- [ ] bundle-preview: `humble_catalog/bundle_preview.py` - tier maths, ownership counts, `fetch_bundle` parsing.
+- [x] bundle-preview-parts: swept at PENDING - `fetch_bundle`'s scheme and host gates (refusal paths, no network), `delivery_stores`, `_adds`, `_owned`, `_owned_games`; battery `.jeffy/probes/bundle-preview-parts/probe.py`. Held.
+- [ ] bundle-preview-tiers: `preview()` itself, plus `_overlaps`, `_series_note` and `format_report` - the tier walk, the ownership counts a purchase decision rests on, and the report rendering. Split out from the helpers row because these were NOT exercised; `preview` needs a fixture-shaped bundle and a seeded catalog. Enumerate with `grep -n "^def " humble_catalog/bundle_preview.py`.
 
 Title and match logic
 - [x] matching-score: swept at 70adab5 - `matching.score`/`status_for`; battery `.jeffy/probes/pure-scoring/probe.py`, closed-form weights and both threshold boundaries, every parameter varied. 26/26 held.
@@ -160,6 +161,7 @@ Audit discipline: the audit procedure is exactly what this Method prescribes. Ne
 ## Lessons
 Operational rules future iterations must obey, learned during runs. One line each: a build quirk, a command that must or must not be used, a mistake made twice. When a JOURNAL Learnings line states a rule future iterations need, copy it here as one line. The project owner can add lines here too, to steer every future run: fix the loop, not the run. Keep it brief; never write status reports, run narration, or task state here. A Lesson recording its second occurrence is marked `[recurred]`, and the run report proposes promoting it to a mechanism - a hook check or a Method rule - for the user to decide: a rule that had to be written twice is a rule this text is not enforcing.
 
+- Read the `CREATE TABLE` before writing a probe that inserts rows; guessing columns costs a run, and on Windows the failed connection holds the temp file open so the real error is buried under a tempdir PermissionError.
 - Sweep a retry or backoff policy by counting attempts and sleeps, never by watching a call succeed: "it worked" looks identical whether the policy retried three times, once, or not at all.
 - The privacy standing order in CLAUDE.md outranks everything here: probes, fixtures, docs and commit messages use invented titles from docs/TEST-DATA.md, never real library items. `leak_check.py` is part of the Verify command, so a breach fails the gate.
 - Genre names are private data too, not neutral vocabulary: a plausible one used as a probe fixture tripped the gate in iteration 3. Invent an obviously fake one rather than widening `ALLOWED`.
