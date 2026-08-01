@@ -7,6 +7,12 @@ something, record it here so the deferral has a home.
 
 Last updated: 2026-08-01.
 
+Not every entry ships code. An entry whose content is a question can be
+closed by measuring it, and the answer "nothing needs building" is a
+result rather than an abandonment — the google_books 503 entry on the
+Done list is the worked example, and it closed against the hypothesis
+it was written to confirm.
+
 ## Privacy
 
 Not a backlog item — the rule itself is the standing order in
@@ -87,9 +93,10 @@ _(empty)_
 ### Harvest (identified 2026-07-26 while debugging resume)
 
 Surfaced by investigating a harvest that appeared to restart from
-scratch on every rerun. The two bugs behind that are fixed, and three
-entries have since shipped - quota budgeting, the retry spend, and the
-worklist order; these are what is left.
+scratch on every rerun. The two bugs behind that are fixed, and four
+entries have since shipped - quota budgeting, the retry spend, the
+worklist order, and the failure recording that has now returned its
+verdict; these are what is left.
 
 - **Shorten the google_books worklist** — it is fetched for every type,
   so its list is roughly twice the size of any other source's, which is
@@ -99,21 +106,17 @@ worklist order; these are what is left.
   matching-quality decision and wants its own measurement. Split out of
   the quota-budget entry (now shipped) precisely so the two effects stay
   measurable apart.
-- **Failure recording shipped as measurement only (2026-07-31)** —
-  `source_failure` counts the runs in which each title failed. It exists
-  to answer one question before any policy is written: are google_books'
-  503s transient, or do the same titles fail every run? A title Google
-  does not have returns 200 with `totalItems: 0` and is cached forever,
-  so "missing from the index" is not the failure mode — only a
-  non-response leaves nothing behind. A run on 2026-07-31 failed mostly
-  on TTRPG supplements, comics and programming books, which share a
-  query shape rather than a subject: long titles with internal colons,
-  `#`, `+` and volume ranges, none of which `clean_title` strips. If a
-  few runs show the same titles at a rising count, the fix is query
-  normalization for this one source, not retry scheduling. If the counts
-  stay at 1 and the titles keep changing, the 503s are load and nothing
-  needs doing. See
-  `specs/2026-07-31-harvest-failure-recording-design.md`.
+  **Its premise weakened on 2026-08-01** and the entry should not be
+  acted on without re-checking it. "Its small daily quota takes so many
+  days" was true while the budget was the binding constraint; the run of
+  2026-08-01 spent 524 live requests of ~1,000 and did not hit the wall,
+  so the list being long is no longer what is costing days — the 503
+  rate is (599 of 1,524 live attempts across the two runs, 39.3%).
+  Shortening the worklist would still shorten the walk, but
+  it would be buying a resource that is currently not scarce, at a
+  matching-quality price. Re-read `harvest_run.quota_died` before
+  starting: if it is back to 1 on recent runs, the original motivation
+  has returned.
 - **Run tally shipped alongside it (2026-07-31)** — `harvest_run` records
   what each run cost per source: titles answered, live fetches, failures,
   and whether the budget died in that run. It measures the *rate* and
@@ -125,6 +128,24 @@ worklist order; these are what is left.
   from one that began with it already spent. Capped at the newest 500
   runs by `runs.record`; `harvest --forget-runs` clears it. See
   `specs/2026-07-31-harvest-run-tally-design.md`.
+  **Half discharged as of 2026-08-01.** Its contribution to the
+  transient-versus-deterministic question is spent — it supplied the
+  denominator without which `source_failure` reads exactly backwards,
+  and that question is now answered on the Done list. Its own question,
+  whether the rate is *moving*, is not: two runs give 361/1000 = 36.1%
+  and 238/524 = 45.4%, which is one difference and not a trend. Stays
+  open for that reason alone. It closes when several more runs either
+  hold a flat rate — nothing to do — or show a rising one, which would
+  mean the load explanation is decaying into something else and the
+  question reopens with new evidence rather than the old guess.
+- **Google's own comment now overstates the budget** —
+  `sources/google_books.py` says "the budget - not the clock - is what
+  decides how far a run gets", which the run tally contradicts as of
+  2026-08-01 (524 live requests of ~1,000, quota never hit). Left as a
+  flag rather than a fix on purpose: that comment is the stated
+  justification for `retry_server_errors = False`, so editing it means
+  re-deciding the retry policy, which is a code change this measurement
+  deliberately stopped short of. Take the two together or neither.
 - **A rate-limited source still walks its whole list** — after the
   quota dies the pool keeps going so cached titles still count, which
   is the point, but it does so with one cache lookup per remaining
@@ -205,6 +226,51 @@ worklist order; these are what is left.
   shell — one grep for `webpack-bundle-page-data` settles either.
 
 ## Done (formerly on this list)
+
+- **Are google_books' 503s the title or the load?** — measured
+  2026-08-01 and answered *load*, so the query normalization the entry
+  contemplated is rejected rather than postponed. No code shipped; the
+  measurement was the deliverable, and its result is that nothing needs
+  building. `specs/2026-07-31-harvest-failure-recording-design.md` is
+  the mechanism it was read from.
+  The entry pre-registered its own decision rule — same titles at a
+  rising count means query normalization, counts staying at 1 with the
+  titles changing means load — which is the only kind of rule that
+  cannot be rationalized afterwards. **It also made the reading that
+  fails it look like the obvious one.** Two runs, and 171 of the 428
+  distinct failing titles failed in both. That reads as deterministic
+  and is a selection artifact: a failed title is never cached, so it is
+  *guaranteed* to be at the head of the next run's worklist. Run 2 made
+  524 live attempts and every one of run 1's 361 failures was
+  necessarily among them, so a repeat costs no evidence at all — the
+  repeat count is measuring the queue, not Google.
+  The test the rule was reaching for is the **conditional** rate, which
+  needs `harvest_run`'s live-fetch counts as a denominator and cannot be
+  computed from `source_failure` alone. Re-attempted failures from run
+  1: 171 of 361, 47.4%. Titles reaching the live path for the first
+  time: 67 of 163, 41.1%. Roughly 1.3σ apart, which is nothing. And 190
+  of the 428 are now cached — they were answered on a later attempt, so
+  "Google cannot answer this title" is false for 44% of the set outright.
+  The shape hypothesis was wrong too, and worth recording because it was
+  *specific*: long titles with internal colons, `#`, `+` and volume
+  ranges. Against the titles google_books actually answered, failures
+  carry a colon 22.0% of the time versus 27.4%, run to a median 23
+  characters versus 24, and exceed 60 characters 2.8% versus 2.9%. The
+  lead suspect runs backwards. Only invisible characters separate at all
+  (1.6% versus 0.2%), on 7 titles — too few to build anything on, and
+  they appear in the answered set too. The subject grouping the original
+  entry noticed (supplements, comics, programming) was real and not
+  predictive: those categories have long titles, and so does everything
+  google_books successfully returns.
+  `source_failure` stays rather than being removed with its question.
+  It costs one row per failing title, `harvest --failures` reads it, and
+  the whole argument above is recomputable from it plus `harvest_run` —
+  which is the property that let a wrong answer be caught here rather
+  than shipped as a query normalizer. What would reopen this is narrow
+  and worth stating: a conditional re-attempt rate that pulls clear of
+  the first-attempt rate over several more runs, or a `failures` counter
+  reaching 4 or 5 on titles that never cache. A repeat count on its own
+  will not do it again.
 
 - **Thirteen buttons kept the browser's default styling** — fixed
   2026-08-01 (no spec; one CSS rule). `#sidebar-toggle`, the column
