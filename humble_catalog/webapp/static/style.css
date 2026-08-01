@@ -305,6 +305,22 @@ input.edit-url { width: 100%; box-sizing: border-box; margin: .2rem 0; }
    field reads as a field in both themes. */
 input, select, textarea { background: var(--surface-alt); color: var(--fg);
                           border: 1px solid var(--border-strong); border-radius: 3px; }
+/* Theming is the default for a <button>, and opting out is the exception.
+   The other way round is what this rule fixes: #theme-toggle,
+   .status-chip and .key-chip had each been hand-given this same recipe,
+   each with its own comment about the browser's grey default glaring in
+   dark mode, while thirteen buttons that never opted in kept it --
+   #sidebar-toggle, the column picker's two, the bulk bar's three,
+   .cand-btn, #url-fetch, the three dupe controls and #bundle-go.
+   --surface and not --surface-alt: this matches the three buttons above,
+   not the input fields, and a button should read as a button.
+   The link-style buttons (#export, .stat-jump and friends, .tag-x) are
+   every one of them class- or id-selected, so they outrank a bare
+   element selector and keep their background: none. Same for .armed. */
+button { background: var(--surface); color: var(--fg);
+         border: 1px solid var(--border-strong); border-radius: 4px;
+         cursor: pointer; }
+button:disabled { color: var(--muted); cursor: default; }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 /* Unclassed links (e.g. "inspect" in the review panel) otherwise take the
    browser's harsh default blue; the .tag-link/.src-link classes still win. */
