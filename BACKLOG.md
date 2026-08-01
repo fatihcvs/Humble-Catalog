@@ -12,6 +12,8 @@ Rules:
 
 ## Next
 
+- [ ] A1 (Medium, runtime, error handling): four viewer write routes skip the body validation and existence check their siblings all perform, so a wrong value is stored without complaint and a malformed body is a 500 rather than a 400. `/api/items/<id>/rating` (webapp/__init__.py:181) stores any JSON value as a rating and returns 200 for an item id that does not exist; `/type` (:221) and `/choose` (:529) index `request.get_json()` directly and raise KeyError; `/choose` also raises TypeError on a non-integer index (:533) and on an item with no enrichment row (:532); `/reopen` (:323) returns 200 for an unknown item. Sibling routes read-status, comment and user-tags already 400/404 exactly as required, so this is the project's own contract being missed at four sites. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/webapp-write-routes/probe.py` exits 0 with 12/12, and `grep -n "request.get_json()\[" humble_catalog/webapp/__init__.py` returns nothing.
+
 ## Later
 
 ## Proposed

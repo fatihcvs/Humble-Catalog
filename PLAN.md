@@ -16,7 +16,16 @@ Trust classes:
 - state-at-rest: the project writes it and reads it back. External corruption of it is out of envelope, Low at most.
 
 Surfaces (first audit fills this in, one line each):
-- <surface>: <trust class> - <one-line reason>
+- CLI arguments and subcommand flags (`python -m humble_catalog ...`): user-error - the project owner types them; argparse plus the explicit `parser.error` calls in `__main__.py` are the clear-failure contract.
+- Viewer HTTP API (Flask on 127.0.0.1, `humble_catalog/webapp/__init__.py`): user-error - reachable only from loopback, with the Host guard closing DNS rebinding and JSON content-type forcing a CORS preflight no cross-origin page gets past, so the callers are the viewer's own JS and the owner with curl. Not adversarial: no untrusted party can reach it.
+- HumbleBundle order/bundle JSON and bundle pages (`extract.py`, `humble_api.py`, `parse_order.py`, `bundle_preview.py`): adversarial - third-party content the project does not control, reached over the network and parsed.
+- External metadata API responses (`sources/*.py`, `url_import.py`): adversarial - third-party content, same reason; a compromised or merely changed upstream shape reaches the parsers.
+- Cover image bytes fetched over the network (`covers.py`): adversarial - third-party bytes written to disk under a derived filename.
+- Reference spreadsheets (`import-sheets`, .xlsx under `Reference spreadsheets/`): user-error - the owner hand-authors and hand-places them.
+- Steam/Heroic library files on disk (`import_games.py`): machine-generated - written by those launchers; their real output is the contract.
+- Environment variables (API keys, `HUMBLE_PORT`): user-error - the owner sets them.
+- `catalog.db`, the harvest cache, and `covers/` read back by the project: state-at-rest - the project writes them and reads them back.
+- Backup snapshots restored by `restore` (`backup.py`): state-at-rest - the project wrote them; a hand-mangled snapshot is out of envelope.
 
 Binding rules:
 - A finding exercised only by out-of-envelope input is Low at most, whatever its consequence.
@@ -35,12 +44,86 @@ Dimension scores claim only swept rows. A None on a dimension whose surface stil
 Convergence requires that this table lists no unswept row, and the Stop hook checks that mechanically. That is what makes the loop bounded: the surface is finite, sweeps only accumulate, and the remaining work is always the visible remainder of a written list rather than a hope that the next audit comes back empty. The run report states progress as rows swept of rows total.
 
 Rows (first audit fills this in, one line each):
-- [ ] <surface>: <scope>
+
+CLI and dispatch
+- [ ] cli-dispatch: `humble_catalog/__main__.py` - argparse wiring, `check_dependencies`, per-command routing and the `parser.error` validation paths.
+
+Viewer HTTP API (`humble_catalog/webapp/__init__.py`, split by route family: `grep -n "@app\." humble_catalog/webapp/__init__.py`)
+- [ ] webapp-host-guard: `host_is_loopback` and the `refuse_foreign_hosts` before_request hook.
+- [ ] webapp-read-routes: GET `/`, `/covers/<path>`, `/api/items`, `/api/stats`, `/api/keys`, `/api/review`, `/api/duplicates`, `/api/status`.
+- [x] webapp-write-routes: swept at 70adab5 - POST rating/type/read-status/comment/user-tags/edit/revert/override/reopen/apply/choose; battery `.jeffy/probes/webapp-write-routes/probe.py` exercises malformed body, wrong value type, and unknown item id against each. 2/12 known answers held; the 10 failures are filed as A1.
+- [ ] webapp-tag-vocab-routes: POST `/api/genres/{rename,delete}`, `/api/user-tags/{rename,delete,bulk}`.
+- [ ] webapp-merge-routes: POST `/api/merge`, `/api/dismiss_pair` and the type-mismatch refusal.
+- [ ] webapp-remote-routes: POST `/api/items/<id>/fetch_url`, `/api/bundle-preview` - the two routes that reach the network.
+- [ ] webapp-export-routes: `/api/export.csv`, `/api/export.xlsx`, GET and POST forms, `_export_request` body handling.
+
+Storage layer (`humble_catalog/db.py`, 683 lines, split by function family: `grep -n "^def " humble_catalog/db.py`)
+- [ ] db-schema: `connect`, schema creation and every migration step.
+- [ ] db-tags: `normalize_tags`, `tags_to_json`, `tags_from_json`, `rename_tag`, `delete_tag`, `bulk_user_tag`.
+- [ ] db-items: `fetch_items`, `apply_hand_edit`, `merge_items` and the pre_edit snapshot contract.
+
+Acquisition (HumbleBundle)
+- [ ] extract-humble: `humble_catalog/extract.py`, `humble_catalog/humble_api.py` - login, bundle fetch, cache write, `reparse`.
+- [ ] parse-order: `humble_catalog/parse_order.py` against `tests/fixtures/order_*.json`.
+- [ ] bundle-preview: `humble_catalog/bundle_preview.py` - tier maths, ownership counts, `fetch_bundle` parsing.
+
+Title and match logic
+- [x] matching-score: swept at 70adab5 - `matching.score`/`status_for`; battery `.jeffy/probes/pure-scoring/probe.py`, closed-form weights and both threshold boundaries, every parameter varied. 26/26 held.
+- [x] classify-type: swept at 70adab5 - `classify.classify`; same battery, all four documented parameters varied including the negative "bare audio substring" side. Held.
+- [ ] titles-clean: `titles.clean_title`, `clean_game_title`, `sequel_mismatch`, `sort_tokens`.
+- [ ] titles-series: `titles.series_key`, `parse_series` and the volume/range/collection regex family.
+- [x] series-report: swept at 70adab5 - `series.collapse` and `series.sort_key`; pure-scoring battery covers the docstring example, the gap case, unsorted and duplicate input, the empty case, and both ordering ranks. Held.
+- [ ] series-db: `series.owned_volumes`, `series.describe` against a seeded database.
+- [ ] editions-dedupe: `editions.edition_key`/`find_groups`, `dedupe.dedupe_key`/`find_groups`.
+- [ ] game-match: `game_match.prepare_pool`, `classify_game` and the GAME_OWNED/GAME_POSSIBLE thresholds.
+
+Enrichment and harvest
+- [ ] enrich-core: `enrich.run`, `enrich.reset`, `apply_candidate`, EDITABLE_FIELDS.
+- [ ] enrich-topups: `enrich.credits`, `enrich.fill_series`, `enrich.override_edited`.
+- [ ] harvest-run: `harvest.run` and its resume/parallelism behaviour.
+- [ ] harvest-reports: `harvest.report_runs`, `report_failures`, `forget_runs`, `humble_catalog/runs.py`.
+- [ ] quota-gate: `humble_catalog/quota.py` - `next_pacific_midnight`, `record`, `blocked`, `clear`, `hit_at`.
+- [ ] progress-failures: `humble_catalog/progress.py`, `humble_catalog/failures.py`.
+
+Metadata sources (`humble_catalog/sources/`)
+- [ ] sources-base: `sources/base.py` - the `candidate` shape and shared request/retry path.
+- [ ] sources-books: `google_books.py`, `open_library.py`, `hardcover.py` against their fixtures.
+- [ ] sources-media: `comicvine.py`, `oreilly.py`, `audible.py` against their fixtures.
+- [ ] url-import: `humble_catalog/url_import.py` - `normalize_url`, `host_of`, `resolve`, MetadataUnavailable.
+- [ ] covers-store: `humble_catalog/covers.py`, `humble_catalog/store.py`.
+- [ ] check-cmd: `humble_catalog/check.py` - the live per-source key test.
+
+Import, export, lifecycle
+- [ ] export-columns: `humble_catalog/export.py` - COLUMNS, `write_csv`, `write_xlsx`, the ids/columns subsetting.
+- [ ] import-sheets: `humble_catalog/import_sheets.py` - gap-fill rules and unmatched-row reporting.
+- [ ] import-games: `humble_catalog/import_games.py` against the Steam and Heroic fixtures.
+- [ ] keys-report: `humble_catalog/keys.py` - expiry handling, `--all`, `--hidden`, store scoping.
+- [ ] stats-report: `humble_catalog/stats.py` - `report` section counts.
+- [ ] backup-restore: `humble_catalog/backup.py` - snapshot naming, cover zip, restore confirmation.
+- [ ] reset-cmd: `humble_catalog/reset.py` - what it wipes and what it must preserve.
+
+Viewer front end (`humble_catalog/webapp/static/`, `ls humble_catalog/webapp/static`)
+- [ ] js-catalog-render: `catalog.js` table rendering, columns, editing widgets.
+- [ ] js-catalog-filter: `catalog.js` filtering, sorting and the flag/annotation predicates.
+- [ ] js-fuzzy: `fuzzy.js` - the client-side scorer, via `tests/js_harness.py`.
+- [ ] js-autocomplete: `autocomplete.js`.
+- [ ] js-panels: `bundles.js`, `keys.js`, `maintenance.js`.
+- [ ] js-shell: `shell.js`, `app.js` - section routing and bootstrap.
+- [ ] viewer-markup: `index.html`, `style.css` - the layout and a11y affordances.
+
+Scripts and gates (`ls scripts`)
+- [ ] privacy-gates: `scripts/leak_check.py`, `scripts/leak_check_history.py`, `scripts/check_no_data_tracked.py` - the standing order's enforcement.
+- [ ] demo-catalog: `scripts/demo_catalog.py` - the invented-title viewer used for screenshots.
+- [ ] favicon-fixtures: `scripts/make_favicon.py`, `scripts/capture_*_fixture.py`.
+- [ ] os-wrappers: `scripts/{windows,macos,linux}/*` - setup, serve, stop, test, verify, leak-check parity across the three.
+- [ ] packaging-ci: `pyproject.toml`, `.github/workflows/ci.yml`, `.gitattributes`.
 
 ## Verify command
 One runnable command that must exit 0 for this project to count as unbroken - the test suite, the build, or a validator script. The first audit fills this in; write none with a one-line reason only if the project genuinely has no runnable gate. It runs at the end of every iteration: a failure the previous checkpoint did not have means the iteration broke the project, and the iteration is reverted.
 
-Command: <first audit fills this in>
+Command: `.venv/Scripts/python.exe -m pytest -q && .venv/Scripts/python.exe scripts/check_no_data_tracked.py && .venv/Scripts/python.exe scripts/leak_check.py`
+
+That is exactly what `scripts/windows/verify.ps1` runs, spelled so bash can execute it on this host: the project's test suite, then the two privacy gates the owner's standing order requires. It is written as the three steps rather than as a call to the .ps1 wrapper because the wrapper needs PowerShell and reports failure through `Write-Error`, whose exit status depends on `$ErrorActionPreference`; `&&` between the three makes the failure status unambiguous. Takes roughly 90 seconds.
 
 ## Method
 Audit the project against every applicable dimension and score each by its highest finding severity: High, Medium, Low, or None. Skip dimensions that do not apply and record why. Every audit consults the Surface inventory first and sweeps unswept or stale rows before re-probing swept ones; an audit never wanders. When replenishing with a partial audit, target the dimensions least recently scored and the inventory rows least recently swept.
@@ -77,7 +160,13 @@ Audit discipline: the audit procedure is exactly what this Method prescribes. Ne
 ## Lessons
 Operational rules future iterations must obey, learned during runs. One line each: a build quirk, a command that must or must not be used, a mistake made twice. When a JOURNAL Learnings line states a rule future iterations need, copy it here as one line. The project owner can add lines here too, to steer every future run: fix the loop, not the run. Keep it brief; never write status reports, run narration, or task state here. A Lesson recording its second occurrence is marked `[recurred]`, and the run report proposes promoting it to a mechanism - a hook check or a Method rule - for the user to decide: a rule that had to be written twice is a rule this text is not enforcing.
 
+- The privacy standing order in CLAUDE.md outranks everything here: probes, fixtures, docs and commit messages use invented titles from docs/TEST-DATA.md, never real library items. `leak_check.py` is part of the Verify command, so a breach fails the gate.
+- Never pipe a test run or the Verify command through `Select-Object -Last N` in PowerShell: like `head`/`tail` in bash it reports the pipeline's status, not the suite's, so a red suite reads as green. Redirect to a file and check the exit status.
+- The `[~]` inventory marker means unreachable on this host and nothing else. A row that is only partly swept splits into two rows; it never gets `[~]`.
+- `.venv/Scripts/pip.exe` exits 1 silently in this project; use `.venv/Scripts/python.exe -m pip` instead.
+- `leak_check.py` matches SUBSTRINGS, so ordinary English prose in PLAN.md, BACKLOG.md or JOURNAL.md can trip it with no private data present. The Jeffy template's own Definition-of-done wording tripped it on one ordinary noun in iteration 1. Reword the prose; do not add a generic word to `ALLOWED`, which would blunt the gate for the whole repo. Do not quote the offending word in the Lesson either - that just moves the hit.
+
 ## Definition of done
-Convergence requires a full audit pass, executed in one iteration, that rescores every applicable dimension against the severity rubric and the Operating envelope with fresh evidence and finds zero High and zero Medium in-envelope findings, requires that the Surface inventory lists no unswept row - a converged project is one whose whole mapped surface has actually been examined, enforced mechanically by the Stop hook - and it leaves no open task behind: at convergence the Now, Next, and Later sections of BACKLOG.md are empty, because every filed finding, Low included, has been completed, moved to Declined with a genuine not-worth-fixing reason, or blocked with its reason recorded and named in the run report. A converged project is completely done, not done except the small stuff. A `- [~]` row - surface this host cannot reach, carrying its reason - is not an unswept row and does not block convergence, but the run report names every one of them. When the closing audit itself files new findings the run is not yet converged: execute them in the following iterations and declare convergence once the backlog is empty again, provided the only commits since that clean audit are the fixes for tasks it or the evaluator gate filed plus loop state edits and the Verify command exits 0 in the declaring iteration with its output recorded in the JOURNAL entry; if anything else changed, audit again. Proposed items never block convergence. Partial or replenishment audits never count toward convergence. Convergence also requires the adversarial evaluator gate: exactly one fresh-context sub-agent, spawned carrying none of the run's context, re-runs the Verify command and the closed tasks' acceptance checks, hunts for missed in-envelope High or Medium findings in the run's changes, and must return PASS, recorded in the JOURNAL entry of the iteration that ran it; a PASS that does not declare in the same iteration does not carry forward, and the declaring iteration re-invokes the gate so its closing entry records the verdict the Stop hook reads there; a REJECT files its evidenced reasons as ordinary tasks and the run continues, at most 2 evaluator invocations per run and 3 when the first landed before the midpoint of the budget, a second REJECT ends the run as a hard blocker, a cap reached without a PASS in the closing entry ends the run the same way because no invocation remains to produce the verdict declaring requires, and when sub-agent spawning is unavailable the run records Evaluator: unavailable with the reason and may converge under the remaining conditions. The gate is not only a closing ceremony: when the ledger first empties with a clean full audit already recorded this run and at least 3 iterations remaining, run it that iteration rather than at the declaration, because a REJECT files tasks and answering them needs budget the last iteration no longer has. The ratchet never invokes the evaluator. Severity is set by the rubric and the envelope alone: downgrading a finding to reach convergence is a violation, and Declined items must be genuinely not worth fixing, not deferred work. Pricing is how not worth fixing is judged: a Low whose class is not runtime and whose fix plus its regression test does not fit in one iteration goes to Declined with the reason `cost: exceeds one iteration`, named by ID in the run report - a Declined reason, never a lower severity. Every run ends with a run report to the user - converged, out of budget, or blocked - listing iterations used, tasks closed with severities, the run's diffstat, blocked and Proposed items, and the final Verify status. Record the closing scores and their evidence in JOURNAL.md, and, when the project is a git repository, append a line reading Converged: <full commit hash> - <date> under the ## Converged section of BACKLOG.md, before claiming convergence.
+Convergence requires a full audit pass, executed in one iteration, that rescores every applicable dimension against the severity rubric and the Operating envelope with fresh evidence and finds zero High and zero Medium in-envelope findings, requires that the Surface inventory lists no unswept row - a converged project is one whose whole mapped surface has actually been examined, enforced mechanically by the Stop hook - and it leaves no open task behind: at convergence the Now, Next, and Later sections of BACKLOG.md are empty, because every filed finding, Low included, has been completed, moved to Declined with a genuine not-worth-fixing reason, or blocked with its reason recorded and named in the run report. A converged project is completely done, not done except the small things. A `- [~]` row - surface this host cannot reach, carrying its reason - is not an unswept row and does not block convergence, but the run report names every one of them. When the closing audit itself files new findings the run is not yet converged: execute them in the following iterations and declare convergence once the backlog is empty again, provided the only commits since that clean audit are the fixes for tasks it or the evaluator gate filed plus loop state edits and the Verify command exits 0 in the declaring iteration with its output recorded in the JOURNAL entry; if anything else changed, audit again. Proposed items never block convergence. Partial or replenishment audits never count toward convergence. Convergence also requires the adversarial evaluator gate: exactly one fresh-context sub-agent, spawned carrying none of the run's context, re-runs the Verify command and the closed tasks' acceptance checks, hunts for missed in-envelope High or Medium findings in the run's changes, and must return PASS, recorded in the JOURNAL entry of the iteration that ran it; a PASS that does not declare in the same iteration does not carry forward, and the declaring iteration re-invokes the gate so its closing entry records the verdict the Stop hook reads there; a REJECT files its evidenced reasons as ordinary tasks and the run continues, at most 2 evaluator invocations per run and 3 when the first landed before the midpoint of the budget, a second REJECT ends the run as a hard blocker, a cap reached without a PASS in the closing entry ends the run the same way because no invocation remains to produce the verdict declaring requires, and when sub-agent spawning is unavailable the run records Evaluator: unavailable with the reason and may converge under the remaining conditions. The gate is not only a closing ceremony: when the ledger first empties with a clean full audit already recorded this run and at least 3 iterations remaining, run it that iteration rather than at the declaration, because a REJECT files tasks and answering them needs budget the last iteration no longer has. The ratchet never invokes the evaluator. Severity is set by the rubric and the envelope alone: downgrading a finding to reach convergence is a violation, and Declined items must be genuinely not worth fixing, not deferred work. Pricing is how not worth fixing is judged: a Low whose class is not runtime and whose fix plus its regression test does not fit in one iteration goes to Declined with the reason `cost: exceeds one iteration`, named by ID in the run report - a Declined reason, never a lower severity. Every run ends with a run report to the user - converged, out of budget, or blocked - listing iterations used, tasks closed with severities, the run's diffstat, blocked and Proposed items, and the final Verify status. Record the closing scores and their evidence in JOURNAL.md, and, when the project is a git repository, append a line reading Converged: <full commit hash> - <date> under the ## Converged section of BACKLOG.md, before claiming convergence.
 
 Convergence ratchet: when the latest Converged line in BACKLOG.md names a commit, no open task remains in Now, Next, or Later, the run carries no focus directive, and nothing but loop state has changed since that commit - every path in git status --porcelain and in git diff --name-only against that hash is one of PLAN.md, BACKLOG.md, JOURNAL.md, JOURNAL-archive.md, or a path under `.jeffy/`, which holds the probe batteries and is loop memory exactly as the ledger files are - verify exactly that and re-declare convergence immediately, without a fresh audit. A seeded backlog or a focus directive always gets a real audit or execution, never a ratchet. When code has changed, audit normally, but a finding in code unchanged since the convergence commit must be a reproduced in-envelope High or a regression traced to the new changes; anything else there is a Proposed item. In a project without git the ratchet degrades to the Settled classes rule alone. The iteration budget is the hard stop.
