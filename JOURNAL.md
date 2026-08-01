@@ -99,7 +99,7 @@ Task: Partial replenishing audit, reordered onto the adversarial rows. Iteration
 
 Changed: .jeffy/probes/url-import/probe.py (new), BACKLOG.md (B1, B2 filed), PLAN.md (row swept).
 
-Checkpoint: pending
+Checkpoint: de41baf. Not a stall: a probe battery was added under .jeffy/probes/, one inventory row changed state, and two backlog items were filed.
 
 Verification: 25 known-answer assertions, 23 held, 2 failed and are filed. The two failures are reproductions, not guesses.
   - The scheme gate is solid: javascript:, data:, file:, ftp:, vbscript:, jar: and gopher: are all refused, in either casing, and so are the whitespace and control-character obfuscations (`java\tscript:`, `java\nscript:`, a leading-space variant) - urlparse strips those before the check, so they normalize to a rejected scheme rather than a permitted one. The comment at url_import.py:45 explaining why the raw string is parsed BEFORE the https:// prefix is added is exactly right, and the probe confirms the attack it describes does not work.
