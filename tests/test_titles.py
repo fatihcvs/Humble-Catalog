@@ -1,4 +1,5 @@
 import pytest
+from humble_catalog import titles
 from humble_catalog.titles import (
     clean_game_title, clean_title, sequel_mismatch, sort_tokens)
 
@@ -68,3 +69,90 @@ def test_sort_tokens_moves_a_trailing_numeral_off_the_end():
 
 def test_sort_tokens_of_empty_is_empty():
     assert sort_tokens("") == ""
+
+
+def test_a_bare_volume_marker_parses_to_its_number():
+    found = titles.parse_series("Shadow Hound Vol. 22")
+    assert (found.display, found.number, found.kind) == ("Shadow Hound", 22, "volume")
+
+
+def test_every_volume_spelling_parses():
+    for raw in ("Shadow Hound Vol 3", "Shadow Hound Vol. 3",
+                "Shadow Hound Volume 3", "Shadow Hound Book 3"):
+        assert titles.parse_series(raw).number == 3, raw
+
+
+def test_a_range_is_a_collection_and_never_its_lower_bound():
+    # A bare-volume pattern reads this as volume 1, which would match an
+    # owned Vol. 1 and report the whole collection as already owned --
+    # discouraging the purchase of five books not held.
+    found = titles.parse_series("Shadow Hound Vol. 1-6")
+    assert found.kind == "collection"
+    assert found.number is None
+    assert found.span == (1, 6)
+    assert found.display == "Shadow Hound"
+
+
+def test_a_collection_word_is_a_collection_with_no_span():
+    # No title carries an omnibus's volume count, so there is no
+    # denominator to state and none is invented.
+    found = titles.parse_series("Shadow Hound Omnibus")
+    assert (found.kind, found.span, found.display) == ("collection", None, "Shadow Hound")
+
+
+def test_a_marker_followed_by_a_subtitle_still_parses():
+    # 113 of 679 volume markers in the catalog are followed by ": Subtitle".
+    # Anchoring to end-of-string alone would drop a sixth of them.
+    found = titles.parse_series("Shadow Hound Vol. 1: Origins")
+    assert (found.display, found.number) == ("Shadow Hound", 1)
+
+
+def test_the_series_key_ignores_punctuation_so_spellings_merge():
+    # Measured: one series was split three ways by a trailing period on an
+    # initialism, and another by a space where a sibling used a hyphen.
+    keys = {titles.parse_series(raw).key for raw in (
+        "S.H.A.D.O.W Vol. 1", "S.H.A.D.O.W. Vol. 2", "S.H.A.D.O.W.: Vol. 3",
+    )}
+    assert len(keys) == 1
+    assert titles.parse_series("Shadow-Hound Quest Vol. 1").key == \
+           titles.parse_series("Shadow-Hound-Quest Vol. 2").key
+
+
+def test_titles_differing_by_more_than_punctuation_stay_apart():
+    # The one near-identical pair the measurement did NOT merge. Its two
+    # halves hold identical volume sets, which is what says they are two
+    # series rather than one spelling drift.
+    assert titles.parse_series("Moonfall Vol. 1").key != \
+           titles.parse_series("Moonfalls Vol. 1").key
+
+
+def test_an_issue_range_in_parentheses_is_not_a_volume_range():
+    # The premise this whole entry was built on. clean_title strips the
+    # parenthetical first, so the issue range never reaches parse_series --
+    # Vol. 22 COLLECTS issues 127-132; it is one volume, not six.
+    cleaned, hint = titles.clean_title("Shadow Hound Vol. 22 (#127-132)")
+    found = titles.parse_series(cleaned, hint)
+    assert (found.kind, found.number, found.span) == ("volume", 22, None)
+
+
+def test_clean_titles_parenthesized_hint_is_accepted_not_rediscovered():
+    cleaned, hint = titles.clean_title("Wings of Autumn Dusk (Book 1)")
+    found = titles.parse_series(cleaned, hint)
+    assert (found.display, found.number, found.kind) == \
+           ("Wings of Autumn Dusk", 1, "volume")
+
+
+def test_a_title_with_no_marker_has_no_series():
+    assert titles.parse_series("Unrelated Book") == titles.NO_SERIES
+
+
+def test_a_marker_that_is_the_whole_title_names_no_series():
+    assert titles.parse_series("Omnibus") == titles.NO_SERIES
+
+
+def test_clean_title_hint_still_fires_only_on_the_parenthesized_spelling():
+    # Pins the deliberate NON-widening. enrich.py consumes this hint for
+    # matching, so teaching it the bare spelling would silently change
+    # enrichment across the catalog. That is its own backlog entry.
+    assert titles.clean_title("Wings of Autumn Dusk (Book 1)")[1] == 1.0
+    assert titles.clean_title("Shadow Hound Vol. 3")[1] is None
