@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 import requests
 
-from humble_catalog import bundle_preview, db, import_games, titles
+from humble_catalog import bundle_preview, db, import_games, series, titles
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -180,19 +180,19 @@ def _overlaps(tmp_path):
         conn.close()
 
 
-def test_an_omnibus_matching_an_owned_volume_becomes_an_overlap(tmp_path):
-    # The bundle sells Vol. 1-6, the catalog holds Vol 1. Neither owned
-    # nor new: there is no correct automatic answer, so it is reported as
-    # a suspicion instead of being counted.
+def test_an_omnibus_matching_an_owned_volume_becomes_a_series_line(tmp_path):
+    # Was an overlap scored 0.92 under "possibly already owned in part".
+    # It is now a series line, which says strictly more: which volumes are
+    # held, and -- because this spelling states its span -- out of how many.
     conn = _conn(tmp_path)
     try:
         report = bundle_preview.preview(conn, _bundle())
     finally:
         conn.close()
-    hit = next(o for o in report["overlaps"]
-               if o["offered"] == "Shadow Hound Vol. 1-6")
-    assert hit["item_name"] == "Shadow Hound Vol 1"
-    assert hit["score"] == 0.92
+    hit = next(h for h in report["series"]
+               if h["offered"] == "Shadow Hound Vol. 1-6")
+    assert hit["owned_display"] == "Vol. 1"
+    assert hit["span"] == [1, 6]
     # and it is still counted as new, because it is not owned. Read off the
     # same report: the two facts must hold together, and re-seeding the
     # same tmp_path database twice would violate items.machine_name.
@@ -202,10 +202,28 @@ def test_an_omnibus_matching_an_owned_volume_becomes_an_overlap(tmp_path):
 
 
 def test_overlaps_carry_the_item_id_so_the_viewer_can_link_to_the_row(tmp_path):
-    hit = next(o for o in _overlaps(tmp_path)
-               if o["offered"] == "Moonfall Vol. 1-3")
-    assert hit["item_id"] == 3            # MOONFALL, Vol. 1
-    assert hit["score"] == 0.91
+    # The fixture's two omnibus titles are series lines now, so this needs
+    # a genuine overlap with no volume marker anywhere. The edition-variant
+    # pair from docs/TEST-DATA.md scores 100 through clean_title.
+    conn = db.connect(tmp_path / "overlap.db")
+    conn.execute("INSERT INTO items (machine_name, name, type) "
+                 "VALUES ('widgetservices_examplepress', "
+                 "'Building Widget Services, 2nd Edition', 'ebook')")
+    conn.commit()
+    bundle = {
+        "basic_data": {"human_name": "The World of Examplia by Example Press"},
+        "tier_pricing_data": {"initial": {"price|money": {"amount": 5.0}}},
+        "tier_item_data": {"widgetservices_2e_examplepress": {
+            "human_name": "Building Widget Services 2e"}},
+        "tier_display_data": {"initial": {
+            "tier_item_machine_names": ["widgetservices_2e_examplepress"]}},
+    }
+    try:
+        overlaps = bundle_preview.preview(conn, bundle)["overlaps"]
+    finally:
+        conn.close()
+    assert overlaps[0]["item_id"] == 1
+    assert overlaps[0]["item_name"] == "Building Widget Services, 2nd Edition"
 
 
 def test_overlaps_are_sorted_by_score_descending(tmp_path):
@@ -287,8 +305,14 @@ def test_an_item_no_tier_sells_is_never_an_overlap(tmp_path):
     finally:
         conn.close()
     assert all("Bonus Art Pack" not in o["offered"] for o in report["overlaps"])
-    assert [o["offered"] for o in report["overlaps"]] == [
-        "Shadow Hound Vol. 1-6", "Moonfall Vol. 1-3"]
+    # It must not reach the series list either: a phantom is unbuyable
+    # whichever list would name it.
+    assert all("Bonus Art Pack" not in h["offered"] for h in report["series"])
+    # The two genuine hints still land, which is what stops an over-broad
+    # exclusion passing this test. They are series lines rather than
+    # overlaps now -- both name a range, so both state their own span.
+    assert [h["offered"] for h in report["series"]] == [
+        "Moonfall Vol. 1-3", "Shadow Hound Vol. 1-6"]
 
 
 def test_an_item_no_tier_sells_does_not_change_any_count(tmp_path):
@@ -421,10 +445,29 @@ def test_format_report_never_prints_a_price_per_new_item(tmp_path):
 
 
 def test_format_report_lists_the_overlaps_under_their_own_heading(tmp_path):
-    out = bundle_preview.format_report(_report(tmp_path))
-    assert "Possibly already owned in part (2):" in out
-    assert "Shadow Hound Vol. 1-6" in out
-    assert "Shadow Hound Vol 1" in out
+    # The fixture's two omnibus titles are series lines now, so the heading
+    # needs an overlap carrying no volume marker on either side. The
+    # edition-variant pair from docs/TEST-DATA.md scores 100 and does.
+    conn = db.connect(tmp_path / "overlap.db")
+    conn.execute("INSERT INTO items (machine_name, name, type) "
+                 "VALUES ('widgetservices_examplepress', "
+                 "'Building Widget Services, 2nd Edition', 'ebook')")
+    conn.commit()
+    bundle = {
+        "basic_data": {"human_name": "The World of Examplia by Example Press"},
+        "tier_pricing_data": {"initial": {"price|money": {"amount": 5.0}}},
+        "tier_item_data": {"widgetservices_2e_examplepress": {
+            "human_name": "Building Widget Services 2e"}},
+        "tier_display_data": {"initial": {
+            "tier_item_machine_names": ["widgetservices_2e_examplepress"]}},
+    }
+    try:
+        out = bundle_preview.format_report(bundle_preview.preview(conn, bundle))
+    finally:
+        conn.close()
+    assert "Possibly already owned in part (1):" in out
+    assert "Building Widget Services 2e" in out
+    assert "Building Widget Services, 2nd Edition" in out
 
 
 def test_format_report_omits_the_overlap_block_when_there_is_none(tmp_path):
@@ -868,3 +911,72 @@ def test_format_report_omits_the_keyed_block_when_nothing_is_keyed(tmp_path):
     finally:
         conn.close()
     assert "Humble key" not in text
+
+
+def _series(tmp_path):
+    conn = _conn(tmp_path)
+    try:
+        return bundle_preview.preview(conn, _bundle())["series"]
+    finally:
+        conn.close()
+
+
+def test_an_offered_range_reports_the_denominator_it_states(tmp_path):
+    # The bundle sells Vol. 1-6 and the catalog holds Vol 1. This is the
+    # one spelling that carries its own size, so it is the one case where
+    # "you own 1 of 6" is derivable rather than guessed.
+    hit = next(h for h in _series(tmp_path)
+               if h["offered"] == "Shadow Hound Vol. 1-6")
+    assert hit["kind"] == "collection"
+    assert hit["span"] == [1, 6]
+    assert hit["owned"] == [1]
+    assert hit["already_owned"] is False
+
+
+def test_a_series_hit_is_not_also_an_overlap(tmp_path):
+    # Reported once, and accurately. Leaving it in `overlaps` too would
+    # claim partial ownership under a heading beside a richer line saying
+    # the same thing better.
+    conn = _conn(tmp_path)
+    try:
+        report = bundle_preview.preview(conn, _bundle())
+    finally:
+        conn.close()
+    offered = {h["offered"] for h in report["series"]}
+    assert "Shadow Hound Vol. 1-6" in offered
+    assert all(o["offered"] not in offered for o in report["overlaps"])
+
+
+def test_a_series_the_catalog_does_not_hold_produces_no_line(tmp_path):
+    assert all(h["offered"] != "Unrelated Book" for h in _series(tmp_path))
+
+
+def test_series_lines_are_sorted_re_buys_first(tmp_path):
+    keys = [series.sort_key(h) for h in _series(tmp_path)]
+    assert keys == sorted(keys)
+
+
+def test_an_offered_volume_already_held_is_flagged_on_a_live_report(tmp_path):
+    # Seeded locally rather than through the shared fixture: this needs an
+    # offered volume that matches no machine_name but IS a held volume.
+    conn = db.connect(tmp_path / "rebuy.db")
+    conn.execute("INSERT INTO items (machine_name, name, type) "
+                 "VALUES ('shadowhound_vol1_examplecomics', "
+                 "'Shadow Hound Vol 1', 'comic')")
+    conn.commit()
+    bundle = {
+        "basic_data": {"human_name": "Humble Comics Bundle: Shadow Hound"},
+        "tier_pricing_data": {"initial": {"price|money": {"amount": 5.0}}},
+        "tier_item_data": {
+            "shadowhound_vol1_reissue_examplecomics": {
+                "human_name": "Shadow Hound Vol. 1"}},
+        "tier_display_data": {"initial": {
+            "tier_item_machine_names": ["shadowhound_vol1_reissue_examplecomics"]}},
+    }
+    try:
+        report = bundle_preview.preview(conn, bundle)
+    finally:
+        conn.close()
+    hit = report["series"][0]
+    assert hit["already_owned"] is True
+    assert hit["offered_volume"] == 1
