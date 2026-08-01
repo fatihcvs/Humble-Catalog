@@ -89,7 +89,7 @@ Metadata sources (`humble_catalog/sources/`)
 - [ ] sources-base: `sources/base.py` - the `candidate` shape and shared request/retry path.
 - [ ] sources-books: `google_books.py`, `open_library.py`, `hardcover.py` against their fixtures.
 - [ ] sources-media: `comicvine.py`, `oreilly.py`, `audible.py` against their fixtures.
-- [x] url-import: swept at de41baf - `normalize_url`, `host_of`, `resolve` routing and `_fetch_html`; battery `.jeffy/probes/url-import/probe.py` covers 9 rejected schemes in both casings plus whitespace/control obfuscations, lookalike-host routing, and a two-real-server redirect reproduction. 23/25 held; the 2 failures are filed as B1 (High) and B2 (Low).
+- [x] url-import: re-swept at 1648195 after the B1 fix changed this code - `normalize_url`, `host_of`, `resolve` routing, `_fetch_html`, `_publicly_routable`, `_check_redirect_target`; battery `.jeffy/probes/url-import/probe.py` covers 9 rejected schemes in both casings plus whitespace/control obfuscations, lookalike-host routing, a two-real-server redirect reproduction now refused, and the address predicate on both sides. 39/40 held; the one failure is B2, still open as a Low.
 - [ ] covers-store: `humble_catalog/covers.py`, `humble_catalog/store.py`.
 - [ ] check-cmd: `humble_catalog/check.py` - the live per-source key test.
 
