@@ -4,7 +4,7 @@ from humble_catalog import db
 from humble_catalog.matching import score, status_for
 from humble_catalog.progress import Progress
 from humble_catalog.sources.base import CacheMiss
-from humble_catalog.titles import clean_title
+from humble_catalog.titles import clean_title, parse_series
 
 SOURCE_ORDER = {
     "ebook": ["hardcover", "google_books", "oreilly", "open_library"],
@@ -60,6 +60,26 @@ def apply_candidate(conn, item_id, cand, confidence, status):
          cand.get("rating"), cand["source"] if cand.get("rating") is not None else None,
          confidence, status, cand.get("url"), item_id))
     conn.commit()
+
+def series_from_title(cleaned, num_hint=None):
+    """The series name and number an item's OWN title states, or (None, None).
+
+    Takes clean_title's two return values. The number is read by
+    parse_series, which understands the bare "Vol. 3" spelling that
+    covers 675 items -- clean_title's own hint understands only the
+    parenthesized "(Book 1)" one and fires on 3. Widening clean_title
+    instead was measured and rejected: it strips the marker from the
+    cleaned title, which is what feeds every source lookup and score, and
+    collapses 2,308 distinct enrichable titles to 1,894. See
+    docs/superpowers/specs/2026-08-01-series-number-fill-design.md.
+
+    Only a numbered volume answers. A collection word states no number,
+    so an omnibus gets (None, None) rather than an invented denominator.
+    """
+    found = parse_series(cleaned, num_hint)
+    if found.kind != "volume" or found.number is None:
+        return None, None
+    return found.display, float(found.number)
 
 _RESET_FIELDS = ("genre", "series", "series_number", "authors", "narrator",
                  "illustrator", "external_rating", "rating_source",
@@ -188,8 +208,15 @@ def run(db_path="catalog.db", sources=None, _conn=None, retry=False):
                 prog.count("errors")
             continue
         if best is not None and status in ("matched", "low_confidence"):
-            if best.get("series_number") is None and num_hint is not None:
-                best = {**best, "series_number": num_hint}
+            # The title's own series is the LAST resort, never an override:
+            # a source that named the series knows it better than a string
+            # split does. Both fields, symmetric with apply_candidate.
+            from_title, number = series_from_title(cleaned, num_hint)
+            if number is not None:
+                if best.get("series_number") is None:
+                    best = {**best, "series_number": number}
+                if best.get("series") is None:
+                    best = {**best, "series": from_title}
             if status == "matched":
                 apply_candidate(conn, item["id"], best, best_conf, status)
                 prog.count("matched")
@@ -264,3 +291,55 @@ def credits(db_path="catalog.db", comicvine=None, _conn=None):
     if _conn is None:
         conn.close()
     return updated
+
+def fill_series(db_path="catalog.db", _conn=None):
+    """Fill series/series_number from each item's own title, NULL cells only.
+
+    A top-up for rows already processed: enrich.run only visits pending
+    items and only writes on a match, so 562 of the 667 items whose title
+    states a volume number were already 'matched' when the fallback
+    landed and would never be revisited. Returns the number of rows
+    amended.
+
+    Deliberately not routed through apply_candidate, which rewrites
+    status, match_confidence, hand_edited and enrich_override and
+    snapshots pre_edit. This pass owns two columns and touches nothing
+    else about the row.
+
+    Every status is visited, including 'unmatched'. The value comes from
+    the item's own name, so a source having failed to match it says
+    nothing about whether its title states a volume.
+
+    Idempotent, which is load-bearing rather than tidy: both columns are
+    in _RESET_FIELDS, so a reset clears the fill and re-running this is
+    the recovery path.
+    """
+    conn = _conn or db.connect(db_path)
+    rows = conn.execute(
+        "SELECT e.item_id, i.name, e.series, e.series_number FROM enrichment e "
+        "JOIN items i ON i.id = e.item_id "
+        "WHERE e.series IS NULL OR e.series_number IS NULL").fetchall()
+    filled = 0
+    for row in rows:
+        name, number = series_from_title(*clean_title(row["name"]))
+        if number is None:
+            continue
+        if row["series"] is not None and row["series_number"] is not None:
+            continue          # nothing left to fill; COALESCE would no-op
+        # COALESCE and not a plain SET: it states the no-override rule in
+        # the one place that can enforce it, so a half-filled row keeps
+        # whichever cell it already had. The Python guard above is for the
+        # COUNT, not for correctness -- sqlite3's total_changes is
+        # cumulative over the connection and rowcount counts rows matched
+        # rather than rows altered, so neither can tell a real fill from a
+        # COALESCE that wrote a value back onto itself.
+        conn.execute(
+            "UPDATE enrichment SET series=COALESCE(series, ?), "
+            "series_number=COALESCE(series_number, ?) WHERE item_id=?",
+            (name, number, row["item_id"]))
+        filled += 1
+    conn.commit()
+    print(f"Filled the series on {filled} items from their own titles.")
+    if _conn is None:
+        conn.close()
+    return filled

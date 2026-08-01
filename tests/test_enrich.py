@@ -461,3 +461,166 @@ def test_run_counts_source_errors_once_per_item(tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.count("503 upstream") == 2          # logged per failing source
     assert "1 items hit source errors" in out      # but counted per item
+
+
+def test_series_from_title_reads_the_bare_volume_spelling():
+    assert enrich.series_from_title("Shadow Hound Vol. 2") == ("Shadow Hound", 2.0)
+
+
+def test_series_from_title_reads_a_marker_followed_by_a_subtitle():
+    # 113 of 679 volume markers in the catalog carry one.
+    assert enrich.series_from_title("Shadow Hound Vol. 1: Origins") == \
+           ("Shadow Hound", 1.0)
+
+
+def test_series_from_title_still_honours_the_parenthesized_hint():
+    # clean_title strips "(Book 1)" and hands the number over separately;
+    # that path is unchanged by this work.
+    assert enrich.series_from_title("Wings of Autumn Dusk", 1.0) == \
+           ("Wings of Autumn Dusk", 1.0)
+
+
+def test_series_from_title_answers_nothing_for_a_collection():
+    # An omnibus states no volume number, and inventing one would be the
+    # overclaim volume-aware overlaps removed.
+    assert enrich.series_from_title("Shadow Hound Omnibus") == (None, None)
+
+
+def test_series_from_title_answers_nothing_for_a_plain_title():
+    assert enrich.series_from_title("Unrelated Book") == (None, None)
+
+
+def test_enrich_fills_the_series_from_the_title_when_the_source_has_none(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed(conn, name="Shadow Hound Vol. 2", typ="comic")
+    bare = candidate(source="comicvine", title="Shadow Hound Vol. 2",
+                     url="https://comicvine.gamespot.com/shadow-hound")
+    enrich.run(db_path=tmp_path / "t.db",
+               sources={"comicvine": _source([bare])}, _conn=conn)
+    row = conn.execute("SELECT * FROM enrichment WHERE item_id=?",
+                       (item_id,)).fetchone()
+    assert row["status"] == "matched"
+    assert row["series"] == "Shadow Hound"
+    assert row["series_number"] == 2.0
+
+
+def test_enrich_prefers_the_source_series_over_the_title(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed(conn, name="Shadow Hound Vol. 2", typ="comic")
+    named = candidate(source="comicvine", title="Shadow Hound Vol. 2",
+                      series="Shadow Hound Chronicles", series_number=7.0,
+                      url="https://comicvine.gamespot.com/shadow-hound")
+    enrich.run(db_path=tmp_path / "t.db",
+               sources={"comicvine": _source([named])}, _conn=conn)
+    row = conn.execute("SELECT * FROM enrichment WHERE item_id=?",
+                       (item_id,)).fetchone()
+    assert row["series"] == "Shadow Hound Chronicles"
+    assert row["series_number"] == 7.0
+
+
+def _seed_columns(conn, name, typ="comic", **fields):
+    """An item plus an enrichment row with the given columns already set."""
+    item_id = _seed(conn, name=name, typ=typ)
+    if fields:
+        conn.execute(
+            "UPDATE enrichment SET " + ", ".join(f"{k}=?" for k in fields)
+            + " WHERE item_id=?", (*fields.values(), item_id))
+        conn.commit()
+    return item_id
+
+
+def _enrichment(conn, item_id):
+    return conn.execute("SELECT * FROM enrichment WHERE item_id=?",
+                        (item_id,)).fetchone()
+
+
+def test_fill_series_writes_both_fields_from_the_title(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2", status="matched")
+    assert enrich.fill_series(_conn=conn) == 1
+    row = _enrichment(conn, item_id)
+    assert row["series"] == "Shadow Hound"
+    assert row["series_number"] == 2.0
+
+
+def test_fill_series_keeps_a_source_supplied_name_while_adding_a_number(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2", status="matched",
+                             series="Shadow Hound Chronicles")
+    assert enrich.fill_series(_conn=conn) == 1
+    row = _enrichment(conn, item_id)
+    assert row["series"] == "Shadow Hound Chronicles"
+    assert row["series_number"] == 2.0
+
+
+def test_fill_series_never_overwrites_a_disagreeing_number(tmp_path):
+    # clean_title strips the issue range, so this parses as Vol. 22 -- but
+    # a stored 99 is somebody's answer and outranks the title's.
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 22 (#127-132)",
+                             status="matched", series="Shadow Hound",
+                             series_number=99.0)
+    assert enrich.fill_series(_conn=conn) == 0
+    assert _enrichment(conn, item_id)["series_number"] == 99.0
+
+
+def test_fill_series_leaves_a_hand_edited_row_alone(tmp_path):
+    # The apply_candidate trap: that function clears hand_edited and
+    # snapshots pre_edit. This pass must do neither.
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 5", status="matched",
+                             series="Shadow Hound Legends", series_number=5.0,
+                             hand_edited=1)
+    assert enrich.fill_series(_conn=conn) == 0
+    row = _enrichment(conn, item_id)
+    assert row["series"] == "Shadow Hound Legends"
+    assert row["hand_edited"] == 1
+    assert row["pre_edit"] is None
+
+
+def test_fill_series_fills_an_unmatched_row(tmp_path):
+    # Deliberate: the number comes from the item's own name, so "no source
+    # matched this" says nothing about whether the title states a volume.
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2", status="unmatched")
+    assert enrich.fill_series(_conn=conn) == 1
+    row = _enrichment(conn, item_id)
+    assert row["series_number"] == 2.0
+    assert row["status"] == "unmatched"
+
+
+def test_fill_series_leaves_status_and_confidence_alone(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    item_id = _seed_columns(conn, "Shadow Hound Vol. 2",
+                             status="low_confidence", match_confidence=0.62)
+    enrich.fill_series(_conn=conn)
+    row = _enrichment(conn, item_id)
+    assert row["status"] == "low_confidence"
+    assert row["match_confidence"] == 0.62
+    assert row["series_number"] == 2.0
+
+
+def test_fill_series_is_idempotent(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    _seed_columns(conn, "Shadow Hound Vol. 2", status="matched")
+    assert enrich.fill_series(_conn=conn) == 1
+    assert enrich.fill_series(_conn=conn) == 0
+
+
+def test_fill_series_ignores_collections_and_plain_titles(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    omnibus = _seed_columns(conn, "Shadow Hound Omnibus", status="matched")
+    plain = _seed_columns(conn, "Unrelated Book", typ="ebook", status="matched")
+    assert enrich.fill_series(_conn=conn) == 0
+    assert _enrichment(conn, omnibus)["series"] is None
+    assert _enrichment(conn, plain)["series"] is None
+
+
+def test_fill_series_is_reachable_from_the_cli(tmp_path, monkeypatch):
+    import humble_catalog.__main__ as cli
+    called = {}
+    monkeypatch.setattr(enrich, "fill_series",
+                        lambda *a, **k: called.setdefault("ran", True))
+    monkeypatch.setattr("sys.argv", ["humble_catalog", "enrich", "--series"])
+    cli.main()
+    assert called.get("ran")

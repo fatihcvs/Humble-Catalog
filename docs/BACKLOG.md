@@ -147,16 +147,6 @@ verdict; these are what is left.
 
 ### Other
 
-- **`clean_title`'s series-number hint understands the wrong spelling** —
-  it fires on 3 of 2,729 items because it matches only the parenthesized
-  `(Vol. 1)`, while the bare `Vol. 3` spelling covers 687. Measured
-  2026-08-01 while building volume-aware overlaps, which worked around it
-  by adding `parse_series` rather than widening it. Widening looks
-  obviously right and is not free: `enrich.py:156` consumes `num_hint`
-  for matching, so it would silently change enrichment across the whole
-  catalog, and that wants its own measurement of what changes.
-  `test_clean_title_hint_still_fires_only_on_the_parenthesized_spelling`
-  pins the current behaviour so the change cannot happen by accident.
 - **Standalone Android viewer app** — a read-only catalog viewer for
   phone use. Referenced as a "separately recorded gap" in
   `specs/2026-07-18-android-apk-items-design.md`; this entry is that
@@ -229,6 +219,61 @@ verdict; these are what is left.
   shell — one grep for `webpack-bundle-page-data` settles either.
 
 ## Done (formerly on this list)
+
+- **`clean_title`'s series-number hint understood the wrong spelling** —
+  `docs/superpowers/specs/2026-08-01-series-number-fill-design.md`.
+  Shipped as `enrich.series_from_title` plus an `enrich --series` top-up,
+  and `clean_title` was **not** widened.
+  **The entry named the wrong consumer, and the right one is worse.** It
+  said `enrich.py:156` consumes `num_hint` "for matching". It does not:
+  the hint is read once, at line 191, on a candidate that has already
+  won, after `status_for` has already decided. It cannot change a match.
+  What widening would really have changed is the *cleaned title* — the
+  marker gets stripped, and `cleaned` is what feeds `src.lookup`, `score`
+  and `build_worklist`. Measured: 557 items change title, 2,308 distinct
+  enrichable titles collapse to 1,894, and one series' 44 volumes land on
+  a single query, so enrichment would ask one question for 44 books and
+  score them identically — against 468 currently-matched rows.
+  **The goal survived the mechanism**, the same way volume-aware overlaps
+  did. `parse_series` already reads the bare spelling and takes
+  `clean_title`'s *output*, so the number is obtainable with `cleaned`
+  byte-identical: no cache churn, no worklist change, no matching change
+  at all.
+  675 items parse as a numbered volume and 667 had no stored number. The
+  8 that did **agree with `parse_series` on all 8, zero disagreements**,
+  which is the evidence the derived value is safe to write rather than a
+  hope that it is — and none of the 667 is hand-edited.
+  The series *name* came along by necessity, not scope creep. The viewer
+  renders name and number in one cell, so a number on a nameless row
+  prints a bare `#3`; 118 of the 667 had no name. The 549 that did keep
+  it, including all 78 that disagree with the title-derived base — 74 of
+  those are spelling drift where the source's prose is better, and the 4
+  with nothing in common are too few to build a rule on.
+  Two write paths because one could not reach the population: `enrich.run`
+  covers everything from here on, but it only visits `pending` items and
+  only writes on a match, and 562 of the 667 were already `matched`. The
+  top-up is a flag on `enrich` following the `--credits` precedent, and it
+  refuses to route through `apply_candidate` — that would clear
+  `hand_edited` and snapshot `pre_edit` on rows it exists to leave alone.
+  `COALESCE` carries the no-override rule rather than a read-then-write.
+  Idempotence is load-bearing rather than tidy: both columns are in
+  `_RESET_FIELDS`, so a reset clears the fill and re-running is the
+  recovery path.
+  **The live run amended 668 rows, not 667, and the extra one is the
+  design's own argument arriving as data.** 667 gained a number and 119
+  gained a name; the counts differ because one row already carried a
+  number with no name beside it — exactly the bare `#3` the name fill
+  exists to prevent, and it predated this work. It is also why "8 rows
+  already have a number" and "7 rows need nothing" are both true. Every
+  planned figure otherwise landed exactly: `series_number` 330 → 997,
+  `series` 1,257 → 1,376, no `pre_edit` written, and a second run
+  reporting 0. Rows carrying a number with no name: now zero.
+  One bug, and it was in the tests rather than the feature.
+  `tests/test_enrich.py` already had a `_seed_enriched(conn, name,
+  status)`; a second definition appended at the bottom silently rebound
+  it, so four reset tests began passing `"matched"` as an item *type*.
+  Python rebinds at module level without a word, and the four failures
+  surfaced far from the new code. The new helper is `_seed_columns`.
 
 - **Volume-range resolution, which became volume-aware overlaps** —
   `docs/superpowers/specs/2026-08-01-volume-aware-overlaps-design.md`.
