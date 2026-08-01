@@ -176,16 +176,33 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         conn().commit()
         return jsonify({"ok": True})
 
-    @app.post("/api/items/<int:item_id>/rating")
-    def set_rating(item_id):
-        conn().execute("UPDATE items SET my_rating=? WHERE id=?",
-                       (request.get_json()["rating"], item_id))
-        conn().commit()
-        return jsonify({"ok": True})
-
     def _item_exists(item_id):
         return conn().execute("SELECT 1 FROM items WHERE id=?",
                               (item_id,)).fetchone() is not None
+
+    @app.post("/api/items/<int:item_id>/rating")
+    def set_rating(item_id):
+        # The star widget renders 1..5 and sends null to clear (catalog.js
+        # `stars`), so that is the entire domain. A value outside it is
+        # refused rather than clamped: storing something the user did not
+        # choose is worse than saying no. Validation and the existence
+        # check follow read-status, which is the pattern for every
+        # user-owned field.
+        data = request.get_json(silent=True) or {}
+        if "rating" not in data:
+            return jsonify({"error": "rating required"}), 400
+        rating = data["rating"]
+        # bool before int: True is an int in Python and would store as 1.
+        if rating is not None and (isinstance(rating, bool)
+                                   or not isinstance(rating, int)
+                                   or not 1 <= rating <= 5):
+            return jsonify({"error": "rating must be null or 1-5"}), 400
+        if not _item_exists(item_id):
+            return jsonify({"error": "no such item"}), 404
+        conn().execute("UPDATE items SET my_rating=? WHERE id=?",
+                       (rating, item_id))
+        conn().commit()
+        return jsonify({"ok": True})
 
     # User-owned fields. These deliberately follow the /rating pattern and
     # never reach apply_hand_edit, so writing them leaves pre_edit NULL and
@@ -218,9 +235,11 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/type")
     def set_type(item_id):
-        new_type = request.get_json()["type"]
+        new_type = (request.get_json(silent=True) or {}).get("type")
         if new_type not in ("ebook", "audiobook", "comic", "music"):
             return jsonify({"error": "bad type"}), 400
+        if not _item_exists(item_id):
+            return jsonify({"error": "no such item"}), 404
         conn().execute("UPDATE items SET type=?, type_overridden=1 WHERE id=?",
                        (new_type, item_id))
         conn().commit()
@@ -320,6 +339,10 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/reopen")
     def reopen(item_id):
+        # No body is read at all -- reopen takes none, and tests post it
+        # bare -- so the only thing to check is that the item is real.
+        if not _item_exists(item_id):
+            return jsonify({"error": "no such item"}), 404
         conn().execute(
             "UPDATE enrichment SET status='low_confidence' "
             "WHERE item_id=? AND status != 'pending'", (item_id,))
@@ -526,9 +549,19 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/choose")
     def choose(item_id):
-        idx = request.get_json()["candidate"]
+        # The index is compared against the candidate list below, so it has
+        # to be an int before that comparison, not after it: a string index
+        # raised TypeError here rather than answering 400. bool is excluded
+        # for the reason /rating excludes it.
+        idx = (request.get_json(silent=True) or {}).get("candidate")
+        if not isinstance(idx, int) or isinstance(idx, bool):
+            return jsonify({"error": "candidate index required"}), 400
         row = conn().execute("SELECT candidates FROM enrichment WHERE item_id=?",
                              (item_id,)).fetchone()
+        # An item with no enrichment row has nothing to choose from. That
+        # is a missing target, not a bad index.
+        if row is None:
+            return jsonify({"error": "no such item"}), 404
         cands = _sorted_candidates(row["candidates"])
         if not (0 <= idx < len(cands)):
             return jsonify({"error": "bad candidate index"}), 400

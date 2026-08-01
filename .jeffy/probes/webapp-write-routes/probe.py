@@ -63,6 +63,18 @@ def main():
         # 4xx, never a 5xx and never a silent 200. Sibling routes
         # (read-status, comment, user-tags) already answer exactly this
         # way, so these are the project's own contract. ---
+        # null clears a rating: catalog.js sends it when you click the star
+        # already showing, so this is a real client action, not an edge
+        # case. It must survive the validation added for the cases below.
+        check("rating null clears -> 200",
+              client.post(f"/api/items/{item_id}/rating",
+                          json={"rating": None}).status_code, 200)
+        check("rating null actually cleared the value",
+              client.get("/api/items").get_json()["items"][0]["my_rating"], None)
+        check("rating 1 (low end of the star domain) -> 200",
+              client.post(f"/api/items/{item_id}/rating",
+                          json={"rating": 1}).status_code, 200)
+
         check("rating on unknown item -> 404",
               client.post("/api/items/99999/rating",
                           json={"rating": 3}).status_code, 404)
@@ -72,9 +84,19 @@ def main():
         check("rating with a non-numeric value -> 400",
               client.post(f"/api/items/{item_id}/rating",
                           json={"rating": "five"}).status_code, 400)
-        check("rating out of the 0-5 range -> 400",
+        # The widget renders stars 1..5 and clears with null, so 0 and 6 are
+        # both outside the domain. Refused rather than clamped: silently
+        # altering a value the user sent is the failure mode this task is
+        # removing, not a nicety to preserve.
+        check("rating above the star domain -> 400",
               client.post(f"/api/items/{item_id}/rating",
                           json={"rating": 99}).status_code, 400)
+        check("rating below the star domain -> 400",
+              client.post(f"/api/items/{item_id}/rating",
+                          json={"rating": 0}).status_code, 400)
+        check("rating as a bool (True is an int in Python) -> 400",
+              client.post(f"/api/items/{item_id}/rating",
+                          json={"rating": True}).status_code, 400)
 
         check("type with no 'type' key -> 400",
               client.post(f"/api/items/{item_id}/type",
@@ -96,6 +118,10 @@ def main():
         check("reopen on unknown item -> 404",
               client.post("/api/items/99999/reopen",
                           json={}).status_code, 404)
+        # tests/test_webapp.py:329 posts /reopen with NO body at all. The
+        # existence check must not turn that into a 400.
+        check("reopen with no body at all -> 200",
+              client.post(f"/api/items/{item_id}/reopen").status_code, 200)
 
     width = max(len(n) for _, n, _, _ in results)
     failed = 0

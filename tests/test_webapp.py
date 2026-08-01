@@ -276,6 +276,87 @@ def test_type_override_and_status(tmp_path):
     assert client.get("/api/items").get_json()["items"][0]["type"] == "comic"
     assert client.get("/api/status").get_json() == {"runs": []}
 
+
+# The write routes below answer a malformed body or an unknown item the way
+# read-status already did. They are grouped because they were one defect:
+# each indexed the JSON body directly, or skipped the existence check, so a
+# typo answered 500 and a write to a deleted id answered 200 having stored
+# nothing. The star widget's own values (1..5, and null to clear) are the
+# rating domain, so the boundary cases are 0 and 6, not 0 and 100.
+
+def test_rating_null_clears_the_rating(tmp_path):
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post(f"/api/items/{item_id}/rating",
+                       json={"rating": 4}).status_code == 200
+    # catalog.js sends null when you click the star already showing
+    assert client.post(f"/api/items/{item_id}/rating",
+                       json={"rating": None}).status_code == 200
+    assert client.get("/api/items").get_json()["items"][0]["my_rating"] is None
+
+
+def test_rating_rejects_values_outside_the_star_domain(tmp_path):
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    for bad in (0, 6, "five", True, [5]):
+        assert client.post(f"/api/items/{item_id}/rating",
+                           json={"rating": bad}).status_code == 400, bad
+    # a missing key is a malformed body, not a clear
+    assert client.post(f"/api/items/{item_id}/rating", json={}).status_code == 400
+    # and nothing was stored by any of them
+    assert client.get("/api/items").get_json()["items"][0]["my_rating"] is None
+
+
+def test_rating_404s_for_a_missing_item(tmp_path):
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post("/api/items/99999/rating",
+                       json={"rating": 3}).status_code == 404
+
+
+def test_type_rejects_a_malformed_body_and_a_missing_item(tmp_path):
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post(f"/api/items/{item_id}/type", json={}).status_code == 400
+    assert client.post("/api/items/99999/type",
+                       json={"type": "comic"}).status_code == 404
+
+
+def test_choose_404s_when_the_item_has_no_enrichment_row(tmp_path):
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    conn = db.connect(dbp)
+    cur = conn.execute("INSERT INTO items (machine_name, name, type) "
+                       "VALUES ('ub','Unrelated Book','ebook')")
+    bare_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post(f"/api/items/{bare_id}/choose",
+                       json={"candidate": 0}).status_code == 404
+
+
+def test_choose_rejects_a_non_integer_index(tmp_path):
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    # "0" is compared against len(candidates); it has to be refused before
+    # that comparison, not raise TypeError inside it
+    assert client.post(f"/api/items/{item_id}/choose",
+                       json={"candidate": "0"}).status_code == 400
+    assert client.post(f"/api/items/{item_id}/choose", json={}).status_code == 400
+
+
+def test_reopen_404s_for_a_missing_item(tmp_path):
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post("/api/items/99999/reopen").status_code == 404
+
 def test_review_sorted_by_confidence_with_covers(tmp_path):
     dbp = tmp_path / "t.db"
     conn = db.connect(dbp)
