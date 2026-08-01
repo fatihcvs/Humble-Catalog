@@ -614,3 +614,13 @@ def test_fill_series_ignores_collections_and_plain_titles(tmp_path):
     assert enrich.fill_series(_conn=conn) == 0
     assert _enrichment(conn, omnibus)["series"] is None
     assert _enrichment(conn, plain)["series"] is None
+
+
+def test_fill_series_is_reachable_from_the_cli(tmp_path, monkeypatch):
+    import humble_catalog.__main__ as cli
+    called = {}
+    monkeypatch.setattr(enrich, "fill_series",
+                        lambda *a, **k: called.setdefault("ran", True))
+    monkeypatch.setattr("sys.argv", ["humble_catalog", "enrich", "--series"])
+    cli.main()
+    assert called.get("ran")

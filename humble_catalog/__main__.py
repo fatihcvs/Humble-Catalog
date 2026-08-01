@@ -123,6 +123,10 @@ def main():
     p_enrich.add_argument("--credits", action="store_true",
                           help="Fill writer/illustrator for matched comics "
                                "(Comic Vine top-up; resumable)")
+    p_enrich.add_argument("--series", action="store_true",
+                          help="Fill series name and number from each item's "
+                               "own title where no source supplied them "
+                               "(local, instant, safe to repeat)")
     sub.add_parser("reset", help="Wipe the derived catalog for a clean "
                                  "rebuild (keeps downloads, covers, harvest "
                                  "history, and your ratings/tags/comments)")
@@ -241,6 +245,8 @@ def main():
                          "edits the override exists to carry through)")
         if args.reset or args.reset_reviews:
             enrich.reset(reviews_only=not args.reset)
+        elif args.series:
+            enrich.fill_series()
         elif args.credits:
             enrich.credits()
         elif args.override_edited:

@@ -194,6 +194,11 @@ matching stays cheap:
 - `python -m humble_catalog enrich --credits` - fill
   writer/illustrator for matched comics from Comic Vine (a second per-comic
   request, so slower). Resumable.
+- `python -m humble_catalog enrich --series` - fill the series name and
+  number for items whose own title states a volume ("Shadow Hound Vol. 2"),
+  where no source supplied them. Local and instant. Never overwrites a
+  value you or a source already set, so it is safe to repeat - and you
+  will want to after `enrich --reset`, which clears both fields.
 
 ### Diagnosing enrichment
 
