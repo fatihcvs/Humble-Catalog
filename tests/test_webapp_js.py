@@ -1410,3 +1410,151 @@ def test_the_table_offers_hide_and_unhide():
     assert ">hide</button>" in html
     assert ">unhide</button>" in html
     assert "2026-07-31" in html
+
+
+# A bulk write is followed by load(), which drives every panel loader.
+# Answering them all matters: loadDupes() reading the wrong shape leaves
+# dupeGroups undefined, and load()'s badge arithmetic afterwards is NOT
+# inside its try/catch, so the whole call throws somewhere unrelated to
+# what the test is asking about.
+_STUB_FETCH = """
+             app.setFetch((url, opts) => {
+               if (url === "/api/user-tags/bulk") {
+                 posted = JSON.parse(opts.body);
+                 return Promise.resolve(
+                   {ok: true, json: () => Promise.resolve({ids: %s})});
+               }
+               return Promise.resolve({ok: true, json: () => Promise.resolve(
+                 url === "/api/items"      ? {items: []} :
+                 url === "/api/review"     ? {items: []} :
+                 url === "/api/duplicates" ? {groups: []} :
+                 url === "/api/stats"      ? {total: 0, sections: []} : {})});
+             });
+"""
+
+
+def _run_bulk(action, changed_ids, tag="lent out", n_items=2):
+    """Drive runBulk to completion and report the state it leaves.
+
+    Two calls because armOrFire arms on the first click and fires on the
+    second; the fired promise is what makes the second call awaitable.
+    """
+    catalog = json.dumps([_item(id=i, name=f"Item {i}")
+                          for i in range(1, n_items + 1)])
+    return eval_js(
+        """(async () => {
+             let posted = null;
+             app.setItems(%s);
+             for (const f of Object.values(app.chipFilters)) {
+               f.chips = []; f.text = "";
+             }
+             app.setLastTagOp(null);
+             document.querySelector("#bulk-tag").value = %s;
+             %s
+             const btn = document.querySelector("#bulk-add");
+             await app.runBulk(btn, %s);
+             await app.runBulk(btn, %s);
+             return app.getLastTagOp();
+           })()""" % (catalog, json.dumps(tag),
+                      _STUB_FETCH % json.dumps(changed_ids),
+                      json.dumps(action), json.dumps(action)))
+
+
+def test_a_bulk_add_leaves_an_undo_that_removes():
+    # the slot stores the INVERSE verb, ready to post
+    op = _run_bulk("add", [1, 2])
+    assert op == {"ids": [1, 2], "tag": "lent out", "action": "remove"}
+
+
+def test_a_bulk_remove_leaves_an_undo_that_adds():
+    op = _run_bulk("remove", [1])
+    assert op == {"ids": [1], "tag": "lent out", "action": "add"}
+
+
+def test_an_operation_that_changed_nothing_leaves_no_undo():
+    # every row already had the tag: there is nothing to offer to undo,
+    # and the route rejects an empty id list anyway
+    assert _run_bulk("add", []) is None
+
+
+def test_a_later_operation_replaces_the_undo():
+    op = eval_js(
+        """(async () => {
+             let posted = null;
+             app.setLastTagOp({ids: [9], tag: "to reread", action: "add"});
+             app.setItems([%s]);
+             for (const f of Object.values(app.chipFilters)) {
+               f.chips = []; f.text = "";
+             }
+             document.querySelector("#bulk-tag").value = "lent out";
+             %s
+             const btn = document.querySelector("#bulk-add");
+             await app.runBulk(btn, "add");
+             await app.runBulk(btn, "add");
+             return app.getLastTagOp();
+           })()""" % (json.dumps(_item(id=1, name="Item 1")),
+                      _STUB_FETCH % "[1]"))
+    assert op == {"ids": [1], "tag": "lent out", "action": "remove"}
+
+
+def test_undo_posts_the_inverse_and_clears_the_slot():
+    sent = eval_js(
+        """(async () => {
+             let posted = null;
+             app.setItems([]);
+             app.setLastTagOp({ids: [1, 2], tag: "lent out", action: "add"});
+             %s
+             await app.undoBulk();
+             return {posted, after: app.getLastTagOp()};
+           })()""" % (_STUB_FETCH % "[1, 2]"))
+    assert sent["posted"] == {"ids": [1, 2], "tag": "lent out", "action": "add"}
+    # single level: no redo, and no second undo of the same operation
+    assert sent["after"] is None
+
+
+def test_the_undo_button_names_the_tag_and_the_count():
+    labels = eval_js(
+        """(() => {
+             app.setItems([]);
+             const out = {};
+             app.setLastTagOp({ids: [1, 2], tag: "lent out", action: "add"});
+             app.renderBulkBar();
+             out.afterRemove = dom.writes["#bulk-undo:text"];
+             app.setLastTagOp({ids: [1], tag: "to reread", action: "remove"});
+             app.renderBulkBar();
+             out.afterAdd = dom.writes["#bulk-undo:text"];
+             out.hiddenWithSlot = document.querySelector("#bulk-undo").hidden;
+             app.setLastTagOp(null);
+             app.renderBulkBar();
+             out.hiddenWithoutSlot = document.querySelector("#bulk-undo").hidden;
+             return out;
+           })()""")
+    assert labels["afterRemove"] == 'Undo: restore "lent out" to 2 items'
+    assert labels["afterAdd"] == 'Undo: remove "to reread" from 1 items'
+    assert labels["hiddenWithSlot"] is False
+    assert labels["hiddenWithoutSlot"] is True
+
+
+def test_undo_is_offered_while_remove_is_gated_off():
+    # The gate exists so "remove from all N" is never one click. Undo acts
+    # on a recorded id list, not on the current view, so it is available
+    # precisely when Remove is not -- which is the whole point after an
+    # unfiltered bulk add.
+    state = eval_js(
+        """(() => {
+             app.setItems(%s);
+             for (const f of Object.values(app.chipFilters)) {
+               f.chips = []; f.text = "";
+             }
+             document.querySelector("#bulk-tag").value = "lent out";
+             app.setLastTagOp({ids: [1], tag: "lent out", action: "remove"});
+             app.renderBulkBar();
+             return {
+               removeDisabled: document.querySelector("#bulk-remove").disabled,
+               undoHidden: document.querySelector("#bulk-undo").hidden,
+               filtered: app.shownRows().filtered,
+             };
+           })()""" % json.dumps([_item(id=1, name="Item 1")]))
+    assert state["filtered"] is False
+    assert state["removeDisabled"] is True
+    assert state["undoHidden"] is False

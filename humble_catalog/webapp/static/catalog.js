@@ -274,6 +274,19 @@ function shownRows() {
           filtered: rows.length < items.length};
 }
 
+// Single-level undo for the two bulk tag operations. `user_tags` sits
+// outside pre_edit by design, so neither has a revert to reach for.
+//
+// Browser memory deliberately, and not a table: this exists to correct a
+// mistake while its result is still on screen. A persisted undo answers a
+// different question -- "undo something from last Tuesday" -- and answers
+// it badly, since the catalog moves underneath a stored operation. One
+// that visibly disappears on reload never promises what it cannot keep.
+//
+// `action` is already the INVERSE verb, stored ready to post, so firing
+// the undo has no branching left to get wrong.
+let lastTagOp = null;   // null | {ids, tag, action}
+
 function renderBulkBar() {
   const {count, filtered} = shownRows();
   const tag = $("#bulk-tag").value.trim();
@@ -286,6 +299,14 @@ function renderBulkBar() {
   removeBtn.disabled = !tag || count === 0 || !filtered;
   $("#bulk-note").textContent =
     !filtered && tag ? "Narrow the view to remove." : "";
+  // No stored label: the text is derived here, so it cannot disagree with
+  // the operation the click will actually perform.
+  const undoBtn = $("#bulk-undo");
+  undoBtn.hidden = !lastTagOp;
+  if (lastTagOp)
+    undoBtn.textContent = lastTagOp.action === "add"
+      ? `Undo: restore "${lastTagOp.tag}" to ${lastTagOp.ids.length} items`
+      : `Undo: remove "${lastTagOp.tag}" from ${lastTagOp.ids.length} items`;
 }
 
 // The exporter's columns, mirrored here to render the picker. Duplicated
@@ -420,18 +441,48 @@ async function runBulk(el, action) {
   const {ids} = shownRows();
   const tag = $("#bulk-tag").value.trim();
   if (!tag || !ids.length) return;
-  armOrFire(el, async () => {
+  return armOrFire(el, async () => {
     const resp = await post("/api/user-tags/bulk", {ids, tag, action});
     if (!resp.ok) {
       alert((await resp.json()).error || "Could not apply the tag.");
       return;
     }
     const {ids: changedIds} = await resp.json();
+    // Only the rows that actually changed, and only when there are any:
+    // undoing over the ids we SENT would strip the tag from rows that
+    // carried it beforehand, and an empty list is nothing to offer.
+    lastTagOp = changedIds.length
+      ? {ids: changedIds, tag,
+         action: action === "add" ? "remove" : "add"}
+      : null;
     const verb = action === "add" ? "Added to" : "Removed from";
     await load();
     $("#bulk-note").textContent =
       `${verb} ${changedIds.length} of ${ids.length} items.`;
+    renderBulkBar();
   });
+}
+
+// No armOrFire. The other two buttons arm-then-confirm because they are
+// the destructive direction; this is the recovering one, and two clicks
+// to recover from a mistake is friction pointing the wrong way.
+async function undoBulk() {
+  if (!lastTagOp) return;
+  const {ids, tag, action} = lastTagOp;
+  const resp = await post("/api/user-tags/bulk", {ids, tag, action});
+  if (!resp.ok) {
+    alert((await resp.json()).error || "Could not undo.");
+    return;
+  }
+  const {ids: changedIds} = await resp.json();
+  // Cleared whether or not every row came back: single level, no redo.
+  // The original operation is one click away in this same bar.
+  lastTagOp = null;
+  await load();
+  const verb = action === "add" ? "Restored" : "Removed";
+  $("#bulk-note").textContent =
+    `${verb} "${tag}" on ${changedIds.length} of ${ids.length} items.`;
+  renderBulkBar();
 }
 
 // Every filter currently narrowing the table, summarised in the main
@@ -876,6 +927,8 @@ document.addEventListener("click", async (ev) => {
     await runBulk(el, "add");
   } else if (el.id === "bulk-remove") {
     await runBulk(el, "remove");
+  } else if (el.id === "bulk-undo") {
+    await undoBulk();
   } else if (el.closest("#catalog th[data-sort]")) {
     const th = el.closest("#catalog th[data-sort]");
     relevanceSort = false;              // an explicit sort beats relevance

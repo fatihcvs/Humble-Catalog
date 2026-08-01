@@ -1112,6 +1112,14 @@ def test_bulk_bar_is_present():
     assert '<input id="bulk-tag"' in html
     assert '<button id="bulk-add">' in html
     assert '<button id="bulk-remove">' in html
+    assert '<button id="bulk-undo" hidden>' in html
+
+def test_undo_does_not_arm_before_firing():
+    # armOrFire is for the destructive direction. Requiring two clicks to
+    # recover from a mistake points the friction the wrong way.
+    js = _viewer_js()
+    body = js[js.index("async function undoBulk()"):]
+    assert "armOrFire" not in body[:body.index("\n}")]
 
 def test_bulk_remove_is_gated_on_an_active_filter():
     # user_tags has no pre_edit snapshot, so a bulk remove cannot be undone
