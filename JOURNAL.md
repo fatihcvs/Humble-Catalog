@@ -788,7 +788,7 @@ Task: Last sweeping iteration. Swept viewer-markup, which is also the first row 
 
 Changed: .jeffy/probes/viewer-markup/probe.py (new, 40 cases), BACKLOG.md (J1 filed), PLAN.md (one row swept).
 
-Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/, one inventory row changed state, and J1 was filed.
+Checkpoint: 36b884c. Not a stall: a probe battery was added under .jeffy/probes/, one inventory row changed state, and J1 was filed.
 
 Verification: 40 known-answer assertions, 39 held and 1 failed as a finding.
   - The cases that earn this row are CROSS-FILE, and they are the reason it was worth sweeping at all rather than eyeballing the markup. The scripts write into selectors the HTML must provide, and a selector that does not exist fails in the quietest way available: querySelector answers null, the write goes nowhere, and every test that checks the scripts in isolation still passes.
