@@ -427,7 +427,7 @@ Task: D2 (Medium, runtime, correctness) - the O'Reilly rating scale, which infer
 
 Changed: humble_catalog/sources/oreilly.py (`_rating`, RATING_MAX and RATING_SCALE named, the inline heuristic removed), tests/test_sources_oreilly.py (+20 known-answer cases, the assertion that could not fail replaced), PLAN.md (sources-media re-swept, one Lesson), BACKLOG.md (D2 deleted).
 
-Checkpoint: <pending>
+Checkpoint: 331077b. Not a stall: runtime code and tests changed, and D2 moved from open to closed.
 
 Verification: The filed reproduction was re-run first, before any edit, and still stood at 5 SCALE failures.
   - Acceptance check. `.jeffy/probes/sources-media/probe.py` exits 0 at 82/82, up from 77/82. That is the whole row green for the first time.
