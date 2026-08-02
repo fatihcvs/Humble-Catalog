@@ -415,7 +415,7 @@ Task: G1 (Low, runtime, code quality) - the unreachable guard in `fill_series` a
 
 Changed: humble_catalog/enrich.py (the guard deleted, the comment rewritten), BACKLOG.md (G1 deleted), PLAN.md (enrich-topups re-swept).
 
-Checkpoint: <pending>
+Checkpoint: b88a9cd. Not a stall: runtime code changed and G1 moved from open to closed.
 
 Verification: Deleting code that cannot run should change nothing, and the evidence has to show that rather than assume it.
   - Acceptance check. The guard is gone - `grep -c 'nothing left to fill' humble_catalog/enrich.py` returns 0 - and both enrich batteries were re-run and hold at exactly their previous counts: enrich-topups 36/36, including its fully-filled-row case, and enrich-core 64/64.
