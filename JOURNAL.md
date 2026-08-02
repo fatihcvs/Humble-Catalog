@@ -584,3 +584,34 @@ Verification: 58 known-answer assertions, 58 held. No findings.
 Learnings: A stub's default must sit on the LIVE side of any freshness check it feeds. A stub source defaulting to a fixed past reset time made the quota assertions test nothing, because the code correctly declines to believe an expired record - the case looked like a code defect and was a fixture that had aged out. Defaults in a fixture are relative to now, or they expire.
 
 Next: backup-restore is the last of the four the user chose, and its failure mode is the worst in the project - a restore that loses data. Iteration 13 sweeps it. After that the chosen work is done, and the remaining iterations should go to a WRAPUP handoff rather than to the low-risk remainder.
+
+## iter 13/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Last of the four rows the user chose. Swept backup-restore, whose failure mode is the worst in the project: every other defect found this run produced a wrong answer, while a defect here destroys the only copy of data the owner cannot re-derive.
+
+Changed: .jeffy/probes/backup-restore/probe.py (new, 73 cases), PLAN.md (one row swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 73 known-answer assertions, 73 held on the first run. No findings.
+  - The cases are deliberately weighted towards what must NOT happen, because that is where the cost is. Every refusal path reads the live catalog's BYTES before and after and asserts they are identical - a missing snapshot, an unreadable snapshot, and eight wrong answers at the confirmation prompt.
+  - The confirmation is the only thing between a stray command and the catalog, so it is driven with everything that is not the word: empty, lowercase, title case, `y`, `yes`, the word with a suffix, and a padded near-miss. Only the exact word after stripping is accepted, and the lowercase case is called out separately as the likeliest near-miss. Ctrl-D at the prompt is asserted to abort cleanly rather than propagate.
+  - The ordering guarantee is asserted the strong way: for a bad snapshot path the confirmation function RAISES if it is called at all, so the case proves validation happens before the owner is even asked, not merely before the swap.
+  - The WAL case is the one that justifies the module's central design choice, and it is exercised rather than assumed: a row is committed through a live `db.connect` connection, leaving it in catalog.db-wal, and the snapshot is asserted to contain it. A plain file copy would silently produce a database missing that row.
+  - Sidecar removal is pinned for the same reason it exists: stale `-wal`/`-shm` files left beside a restored database can be replayed over it, silently undoing the restore. Asserted as their absence after a restore.
+  - The safety copy is asserted to hold the REPLACED rows rather than the restored ones - the direction that makes it a safety copy at all - and exactly one is taken.
+  - The damaged-catalog path is asserted on both halves of its documented promise: a catalog SQLite cannot open still yields a raw byte copy whose contents equal the damaged file verbatim, and the restore is NOT blocked by it. That is the case the whole fallback exists for, since an unopenable catalog is the likeliest reason to be restoring.
+  - Traversal is checked on the extract side as an outcome rather than a mechanism: an archive carrying `../../escaped.jpg` puts every entry inside covers/ under its bare name, and the file does not appear outside the directory.
+  - Scores, claiming ONLY the row swept this iteration; 16 rows remain unswept:
+  - correctness: None on the swept row, on 73 known answers.
+  - error handling: None on the swept row. The damaged, missing, unreadable and refused paths each have a documented response and each was asserted.
+  - security: None on the swept row - the zip traversal case lands every entry inside covers/.
+  - architecture: None. The `_input=` and `_now=` seams are what let the confirmation and the timestamped naming be driven exactly.
+  - documentation, testing: None on the swept row.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 16 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 264 files.
+
+Learnings: For a destructive operation, assert the bytes rather than the return value. Every refusal case here compares the live catalog's contents before and after, which is a stronger claim than "it returned False" - a function can report refusal and still have written, and on this surface that difference is the whole point of the row.
+
+Next: The four rows the user chose are done, three iterations sooner than the budget allowed, and all four came back clean. Seven iterations remain. Their steer was about priority rather than about stopping, so iterations 14 onward continue down the same ranking - the mid-tier rows with real logic, led by keys-report, import-sheets, import-games and cli-dispatch - with the final iteration reserved for a WRAPUP handoff.
