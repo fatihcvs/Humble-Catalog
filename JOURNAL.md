@@ -288,7 +288,7 @@ Task: F1 (Medium, runtime, correctness) - a digit and a roman numeral naming the
 
 Changed: humble_catalog/titles.py (`_numeral_value`, `sequel_mismatch` compares by value, both docstrings), tests/test_game_match.py (+11), .jeffy/probes/titles/probe.py (the NUM case now holds), PLAN.md (titles-clean re-swept), BACKLOG.md (F1 deleted).
 
-Checkpoint: <pending>
+Checkpoint: b3d8ad7. Not a stall: runtime code and tests changed, and F1 moved from open to closed.
 
 Verification: The filed reproduction was re-run first, before any edit, and still stood at 83/84 with the one NUM failure.
   - Acceptance check, both halves. `.jeffy/probes/titles/probe.py` exits 0 at 84/84, and the end-to-end half holds: with `Widget Quest 2` in the pool an offered `Widget Quest II` now classifies as `possible` rather than `new`, and `Final Chapter IV` against `Final Chapter 4` likewise.
