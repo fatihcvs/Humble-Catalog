@@ -454,3 +454,33 @@ Handoff for the next run.
   - The Proposed item on `leak_check.py` is unresolved and cost this run three more rewordings, on ordinary English prose and on two Python identifiers whose spelling cannot be changed. It needs a user decision; it is not something a run should decide for itself.
 
 Next: Nothing. This is the final iteration; the run ends here with the report to the user.
+
+## iter 1/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Opening audit of a new run. The ledger was empty and 31 of 57 inventory rows were unswept, so this iteration probed the two rows the previous run's handoff named as highest value - bundle-preview-tiers and webapp-remote-routes, both of which parse content the project does not control - breadth-first rather than building one battery, so the worst defect would appear in the first filing.
+
+Changed: BACKLOG.md (H1 filed in Now, H2 in Later, the resolved Proposed item deleted), PLAN.md (three Lessons corrected, one added), JOURNAL.md (this entry). No project code was touched this iteration.
+
+Checkpoint: recorded below. Not a stall: two BACKLOG items were filed and the Proposed item changed state, though only ledger files changed - which is what an audit iteration is.
+
+Verification: Every finding below was reproduced before it was filed; none is from reading alone.
+  - H1, the one that matters, is a wrong ANSWER rather than a crash, which is why a liveness probe would have certified this row clean. `preview()` walks `tier_item_machine_names` with a bare `for name in names`, so a tier whose list arrives as a string is iterated character by character. Reproduced: a tier selling one item, `widget_svc`, reports `total: 10`, `new: 10`, and lists `_`, `c`, `d`, `e`, `g`, `i`, `s`, `t`, `v`, `w` under `adds`. The report exists to answer how much of a bundle the owner already holds, so it is a purchase decision resting on invented numbers.
+  - The same absence of a type check raises `AttributeError` at four further sites, each reproduced against the real module: a blob that is not an object at `fetch_bundle` line 75; a non-empty list for `basic_data` at line 246; the same for `tier_display_data` at line 265; and a non-mapping pricing entry at line 308. Through `/api/bundle-preview` each is a 500.
+  - Empty off-shape values do NOT reproduce it, and the first pass wrongly read as clean because of that: `[] or {}` is `{}`, so an empty list falls back to the default and only a NON-empty one reaches the attribute access. Recorded because the same trap will be in the battery.
+  - Filed as one structural task, not five. Third-party JSON read without a type check is an idiom this project has settled twice already, both times at one boundary rather than per site, and `humble_catalog/shapes.py` is that boundary. The three-strike rule makes instance patching the wrong remedy here even though the sites are few.
+  - H2 was reproduced the same way, through Flask's test client: a JSON array body, a JSON string body, and `{"url": 5}` each raise rather than answering 400, on both remote routes. Malformed JSON is fine - Werkzeug answers 400 before the handler runs.
+  - H2 is Low and stays Low. The viewer API is user-error in the envelope, where a wrong value earns a clear failure message and exotic malformed shapes are Low at most. `{"url": 5}` is the one that is not exotic - a wrong value rather than a wrong shape - and it is the reason the task exists at all.
+  - Checked before filing that H2 is not inside settled class A1: that class was enumerated with `grep -n "request.get_json()\[" `, which lists direct-index reads only, and these two routes read with `.get`. Neither writes to the catalog, which is why the inventory splits them from webapp-write-routes.
+  - Scores, claiming ONLY the two rows probed this iteration; 31 of 57 rows remain unswept and neither row probed here is flipped, because a reproduction is not a battery and the module H1 changes would stale it anyway:
+  - correctness: HIGH, on H1's reproduced wrong report.
+  - error handling: MEDIUM on the bundle-preview path, folded into H1 as the same root cause; LOW on the viewer routes per the envelope.
+  - security: None on what was probed. `fetch_bundle`'s host gate and the outbound guard are separate rows, already swept.
+  - architecture: None. The network seam this module documents is real and is what made the pure half reproducible with no network at all.
+  - documentation, testing, performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit and never counts toward convergence; closeout is NOT entered, which requires a full audit scoring zero High and zero Medium.
+  - Housekeeping, recorded because it changed the gate every iteration runs: the Proposed item asking whether `leak_check.py` should match word boundaries was resolved by the owner before this run began, in commit 570d5f4, which is on `main` and is the parent of this run's first checkpoint. Matching is now whole-word, 11 ALLOWED entries that existed only to excuse embedded collisions were removed, and 234 lines of tests pin it. The item is deleted from Proposed rather than carried, and three Lessons that described substring matching were corrected in PLAN.md - a stale Lesson steers every future run wrongly.
+  - Verify command: recorded with the checkpoint below.
+
+Learnings: A defect that returns a wrong number outranks one that raises, and the two can share a root cause - here both come from the same missing type check, but only the silent one changes what the owner is told. When a sweep meets an unguarded read of third-party data, probe what a wrong SHAPE makes the code compute, not only what makes it raise: iterating a string instead of a list is the case that produces a confident wrong answer instead of a stack trace.
+
+Next: Iteration 2 executes H1, the only item in Now. Its acceptance check is the bundle-preview-tiers battery, so that iteration both fixes the class and takes most of an unswept row with it; the row flips only if the battery covers the tier walk's known answers and not merely the off-shape cases.

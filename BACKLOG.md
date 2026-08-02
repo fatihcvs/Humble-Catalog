@@ -10,15 +10,17 @@ Rules:
 
 ## Now
 
+- [ ] H1 (High, runtime, correctness): `bundle_preview` reads the bundle page blob with no type check, and the worst outcome is a wrong report rather than a crash - a tier whose `tier_item_machine_names` arrives as a bare string is iterated character by character, so `preview()` reports a 1-item tier as 10 items and lists single letters under `adds`, which is a purchase decision resting on invented numbers. The same absence raises `AttributeError` at four more sites: `fetch_bundle` line 75 when the blob is not an object, and `preview` lines 246, 265 and 308 when `basic_data`, `tier_display_data` or a pricing entry arrives off-shape, each surfacing as a 500 from `/api/bundle-preview`. Third instance of an idiom already settled twice at the `humble_catalog/shapes.py` boundary, so the fix routes this module's reads through that boundary rather than patching sites. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/bundle-preview-tiers/probe.py` exits 0, with known-answer tier-walk cases plus the off-shape cases above, and scores strictly worse against the unfixed module.
+
 ## Next
 
 ## Later
 
+- [ ] H2 (Low, runtime, error handling): `/api/bundle-preview` and `/api/items/<id>/fetch_url` answer 500 rather than 400 when the JSON body is not an object (`[1,2,3]`, `"hello"`) or when `url` is not a string (`{"url": 5}`); both read `(request.get_json() or {}).get("url")` and then `.strip()`. Low by the envelope: the viewer API is user-error, where a wrong value earns a clear message and exotic shapes are Low at most. Settled class A1 does not cover it - its enumerating check lists direct-index reads (`request.get_json()[`) and these two routes read with `.get`, and neither writes to the catalog. Acceptance: both routes answer 400 with a JSON error body for all three shapes, pinned by tests in tests/test_webapp.py that fail against the current code.
+
 ## Proposed
 
 Items needing a user decision before any work, one plain line each, never a checkbox task: envelope changes, audit escalations, challenges to a settled class. Never worked without explicit user approval and never counted against convergence.
-
-- `leak_check.py` matches case-insensitive substrings, and has now blocked a commit over a STANDARD LIBRARY class name whose spelling cannot be changed - a `unittest.mock` symbol containing a private-library term. Six trips this run and the last one, every one on the loop's own prose or on Python vocabulary, none on real data. Worth deciding: match on word boundaries, or skip Python identifiers and import lines, either of which keeps the gate's real power while ending the false positives. Adding the word to ALLOWED is the one option to avoid - it would blind the gate to every genuine title containing it. Workaround in place meanwhile: `tests/test_extract.py` uses an explicit response double instead of that class, which is better test code anyway. It has now blocked a BUILTIN exception class name as well, in prose merely naming the error a defect would raise, so the pattern is not confined to one library symbol: any Python identifier a document has to name can trip it, and rewording is the only remedy left once the spelling belongs to the language. That is the second distinct symbol class, which is the argument for deciding this rather than continuing to reword.
 
 ## Settled classes
 
