@@ -714,3 +714,37 @@ Verification: 104 known-answer assertions across two rows, 104 held. No findings
 Learnings: A probe that drives a CLI must never invoke a subcommand whose SUCCESS writes. The refusal cases in this battery were safe by construction, because they exit before touching the database; the one case written to prove the happy path wrote 600 KB of the owner's catalog into the repo, untracked, one checkpoint away from being committed. Neither `check_no_data_tracked` nor `leak_check` would have caught it beforehand: the first filters paths of already-tracked files, and the second scans content only once something is staged. Assert a happy path in-process, or against `--help`, or not at all.
 
 Next: 11 rows remain with 4 iterations, the last reserved for the WRAPUP handoff. Iteration 17 takes harvest-reports and privacy-gates, the last two Python rows with real logic; the remaining nine are five front-end and four scripts and packaging rows, which the handoff will name.
+
+## iter 17/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Swept the last two Python rows with real logic - harvest-reports and privacy-gates. The second was chosen deliberately after iteration 16's near-miss: the gates are what the standing order rests on, and nothing had ever probed what they refuse to look at.
+
+Changed: .jeffy/probes/harvest-reports/probe.py (new, 28 cases), .jeffy/probes/privacy-gates/probe.py (new, 59 cases), PLAN.md (two rows swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 87 known-answer assertions across two rows, 87 held. No findings.
+  - harvest-reports, 28/28. The trim is the case worth having: it is counted in RUNS, not rows, because a run is one started_at spread over up to six sources and trimming rows would behead a run mid-way, leaving a partial record that reads as a complete one. Asserted with four runs of three sources at keep=2: exactly the two newest survive, and each survives WHOLE at six rows rather than some truncated count.
+  - `forget` is asserted to count runs rather than rows for the same reason, and the singular/plural forms of its message are both pinned.
+  - The failure rate's missing denominator is pinned on both sides, which is the documented distinction: a cache-only source that made no live requests prints a dash, never 0%, because 0% would claim it never fails when it never tried.
+  - The PRIVACY contract stated in `report_runs`' own docstring is asserted directly: the runs report holds source names, counts and timestamps and never a title, which is what makes that output safe to paste into an issue. The case seeds a failure row carrying a real-shaped title and asserts it does NOT appear in the runs output while the source name does, so a column added later that leaked one would fail here rather than in a paste.
+  - privacy-gates, 59/59, and the framing matters: a defect in these is silent by construction, because a gate that scans too little reports `clean` exactly as loudly as one that scans everything. So the cases are mostly about COVERAGE - what each gate refuses to look at.
+  - `should_scan`'s exclusions are pinned on both sides: the nine excluded directories are skipped at any depth, but a directory whose NAME merely contains an excluded word is still scanned, because the exclusion is by path part and not by substring.
+  - The sidecar rule is pinned as the comment explains it: `catalog.db-wal` has suffix ".db-wal", so a `Path.suffix == ".db"` test misses it, and under WAL that sidecar can hold thousands of items the main file does not yet have. Matched against the whole filename, all four database shapes plus .bak and .xlsx.
+  - That `leak_check.py` is not scanned by either scanner is pinned, since it quotes every ALLOWED entry verbatim and its old blobs quote entries since removed - scanning either would report the allowlist as a leak.
+  - The two scanners are asserted to SHARE their matcher and their `should_scan`, on `__module__` rather than identity, because this battery loads the module by path while the history script imports it by name.
+  - `check_no_data_tracked`'s pattern list is exercised on fourteen data shapes and on eight ordinary repo files that must not trip, including the two committed images. The CLI export names are pinned as a direct consequence of iteration 16: `catalog.csv` is forbidden, and an unrelated csv fixture is not, because the list names exact export filenames rather than `*.csv`.
+  - This battery deliberately does NOT repeat the matcher's word-boundary cases; tests/test_leak_check.py holds 27 of those from 570d5f4, and duplicating them would be coverage that grows without protecting anything new.
+  - Scores, claiming ONLY the two rows swept this iteration; 9 rows remain unswept:
+  - correctness: None on the swept rows.
+  - security: None on the swept rows, and this is the entry's strongest claim - the gates' coverage rules hold on both sides, and the runs report carries no title.
+  - error handling: None on the swept rows; the empty-history and no-attempts paths are the ones that would have shown it.
+  - architecture: None. The two scanners sharing one matcher and one `should_scan` is what makes them impossible to drift apart, and it is asserted rather than assumed.
+  - documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 9 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 271 files.
+
+Learnings: A checker's own coverage rules deserve a battery more than its matching rules do. The matching was already pinned by 27 tests; what nothing had ever exercised was which files the gate declines to read - and a gate that quietly skips a directory reports `clean` in exactly the same words as one that read everything. Probe the exclusions, on both sides, or the check is trusted rather than verified.
+
+Next: 9 rows remain - five front-end and four scripts and packaging - with 3 iterations, the last reserved for the WRAPUP handoff. Iteration 18 takes js-shell and js-panels, iteration 19 viewer-markup and js-autocomplete if they fit, and iteration 20 writes the handoff naming whatever is left.
