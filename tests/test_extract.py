@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import Mock
 import pytest
@@ -169,3 +170,91 @@ def test_an_oversized_cover_is_refused_and_nothing_is_written(tmp_path, monkeypa
     conn = db.connect(dbp)
     assert conn.execute("SELECT cover_path FROM items").fetchone()["cover_path"] is None
     assert list(covers_dir.iterdir()) == []
+
+# --- the connection is closed on the exception path (E2) -------------
+# The failure this guards against needs an exception raised while a write
+# is still UNCOMMITTED: a client that fails before touching the database
+# leaves no transaction open and so never reproduced it. A malformed
+# order reaching store_order is the real case.
+
+class _TwoOrderClient:
+    """Explicit double: one order that parses, one that does not."""
+
+    GOOD = {"gamekey": "good1", "product": {"human_name": "Bundle One"},
+            "subproducts": []}
+    BAD = {"gamekey": "bad1", "product": "not-an-object"}
+
+    def __init__(self, keys):
+        self.http = None
+        self.orders = {"good1": self.GOOD, "bad1": self.BAD}
+        self.keys = keys
+
+    def list_order_keys(self):
+        return list(self.keys)
+
+    def get_order(self, key):
+        return self.orders[key]
+
+
+def test_a_second_run_succeeds_after_one_raised_mid_write(tmp_path):
+    db_path = tmp_path / "catalog.db"
+    with pytest.raises(Exception):
+        extract.run(db_path=db_path, covers_dir=tmp_path / "c1",
+                    client=_TwoOrderClient(["good1", "bad1"]))
+    # Without the try/finally this raises OperationalError: database is
+    # locked on Windows, because the failed run still holds the handle.
+    extract.run(db_path=db_path, covers_dir=tmp_path / "c2",
+                client=_TwoOrderClient(["good1"]))
+    conn = db.connect(db_path)
+    try:
+        cached = [r["gamekey"] for r in conn.execute(
+            "SELECT gamekey FROM raw_orders ORDER BY gamekey")]
+    finally:
+        conn.close()
+    # The order that parsed is kept; the one that raised is rolled back by
+    # the close, which is what should happen to a write whose order could
+    # not be parsed.
+    assert cached == ["good1"]
+
+
+def test_reparse_closes_its_connection_when_it_raises(tmp_path, monkeypatch):
+    # Asserting the CLOSE directly, not "a second open still works".
+    # reparse's failure path holds no pending write, so nothing locks the
+    # file and the weaker assertion passed against the unfixed code - it
+    # could not fail on the defect it was written for.
+    db_path = tmp_path / "catalog.db"
+    opened = []
+    real_connect = db.connect
+
+    def recording_connect(path, *a, **kw):
+        conn = real_connect(path, *a, **kw)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr("humble_catalog.db.connect", recording_connect)
+    monkeypatch.setattr("humble_catalog.covers.relink",
+                        Mock(side_effect=RuntimeError("probe: relink failed")))
+    with pytest.raises(RuntimeError):
+        extract.reparse(db_path=db_path, covers_dir=tmp_path / "covers")
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
+
+
+def test_run_closes_its_connection_when_it_raises(tmp_path, monkeypatch):
+    db_path = tmp_path / "catalog.db"
+    opened = []
+    real_connect = db.connect
+
+    def recording_connect(path, *a, **kw):
+        conn = real_connect(path, *a, **kw)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr("humble_catalog.db.connect", recording_connect)
+    with pytest.raises(Exception):
+        extract.run(db_path=db_path, covers_dir=tmp_path / "c",
+                    client=_TwoOrderClient(["good1", "bad1"]))
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")

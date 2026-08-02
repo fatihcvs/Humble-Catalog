@@ -496,3 +496,24 @@ Verification: The filed reproduction was re-run first, before any edit, and stil
 Learnings: A backlog line's severity is a hypothesis about consequence, and reading the target module can refute it. Here the module documented that refusing malformed input was deliberate, with a second module citing the same rule, so the "crash" half of a High was the designed contract and only the opacity of the message was a defect. Record the correction in the closing entry rather than either inflating the work or silently downgrading it. Separately, `.get(key, {})` is not a shape guard: the default applies only when the key is absent, so a key present with the wrong type flows straight through it.
 
 Next: E2 (Low) is the only item left - the connection leaked on the exception path in extract.run and reparse. After that the ledger is empty again with 8 iterations left, and the evaluator gate still will not apply, because every audit this run has been partial with rows unswept.
+
+## iter 7/15 | affcbaff-100429 | 2026-08-02 | E2 | done
+
+Task: E2 (Low, runtime, error handling) - the database connection left open when extract.run or extract.reparse raises.
+
+Changed: humble_catalog/extract.py (try/finally around both function bodies), tests/test_extract.py (+3), BACKLOG.md (E2 deleted, the D1 settled-class line corrected), PLAN.md (one Lesson).
+
+Checkpoint: <pending>
+
+Verification: The filed reproduction was run first, and the first attempt at it FAILED to reproduce, which changed what the fix had to be.
+  - A client raising before any write leaves no transaction open, so nothing locks the file and the second run succeeded. The defect needs an exception raised while a write is still uncommitted - a malformed order reaching store_order - and with that the second run fails with `OperationalError: database is locked`, as filed. The backlog line said "any exception in between", which was broader than the truth; the narrower condition is what the fix and its tests are built on.
+  - Acceptance check, both halves. A second `run` in one process now succeeds after the first raised, and the connection object itself raises `sqlite3.ProgrammingError` on reuse after both `run` and `reparse` raise. Against the unfixed extract.py, restored from HEAD, all 3 new tests fail; 8 of the file's other tests pass on both sides, which is the control.
+  - One of those tests could not fail when first written, and was replaced rather than kept. `test_reparse_closes_its_connection_when_it_raises` originally asserted that a second open still works - and it PASSED against the unfixed code, because reparse's failure path holds no pending write, so no lock is taken. That is the absence-of-badness shape the Method warns about, and it was found by running the differential rather than by reading the test. It now records the connection at db.connect and asserts that reusing it raises, which fails against the unfixed code as it must.
+  - The rollback is the right outcome, not an accident of closing: the write that gets discarded is the INSERT of an order whose parse then failed, and the order that did parse stays cached. Asserted directly - after the failed run the cache holds exactly the good gamekey.
+  - Contract preserved. No signature, return value or success-path behaviour changes; the only difference is on the exception path, where the connection is now closed before the exception continues to propagate unchanged. The extract-humble battery was re-run at 39/39.
+  - The D1 settled-class line was corrected in the same commit: it still located the accessors in sources/base.py, which E1's move made untrue. Its two enumerating checks still read as written, which is why the move did not invalidate the settlement.
+  - Verify command: pytest 1115 passed (exit 0), up from 1112; check_no_data_tracked exit 0; leak_check exit 0.
+
+Learnings: Assert a close directly - the connection object must raise on reuse - never "a second open still works". The weaker form only fails when a write was still pending, so on any path that holds no lock it passes against the very defect it was written for, and only the differential run exposes that. Separately, a reproduction that does not reproduce is information: the narrower condition it forces you to find is usually the true statement of the defect.
+
+Next: The ledger is empty with 8 iterations left. The evaluator gate still does not apply - it requires a clean FULL audit recorded this run, and all three audits so far have been partial with rows unswept. Iteration 8 is therefore another replenishing audit; 38 rows remain, and the untouched clusters with the most surface behind them are the viewer routes, the storage layer and the title/match logic.

@@ -13,31 +13,41 @@ from humble_catalog.store import store_order
 MAX_COVER_BYTES = 8 * 1024 * 1024
 
 def run(db_path="catalog.db", covers_dir="covers", client=None, refetch=False):
+    # try/finally, not a bare close at the end: an exception raised while a
+    # write is still uncommitted - a malformed order reaching store_order is
+    # the real case - otherwise leaves the connection open with that
+    # transaction pending, and on Windows the next open of the same file
+    # fails with "database is locked". A CLI run never sees it because the
+    # process exits; the suite and any in-process caller do. Closing rolls
+    # the pending transaction back, which is what should happen to a write
+    # whose order could not be parsed.
     conn = db.connect(db_path)
-    # Backfill first: parser improvements auto-apply to already-fetched
-    # bundles (local JSON re-parse, no network, idempotent).
-    _reparse_cached(conn)
-    if client is None:
-        client = humble_api.ensure_login()
-    keys = client.list_order_keys()
-    known = {r["gamekey"] for r in conn.execute("SELECT gamekey FROM raw_orders")}
-    new = list(keys) if refetch else [k for k in keys if k not in known]
-    prog = Progress(conn, "extract", total=len(new), phase="Bundle")
-    for key in new:
-        raw = client.get_order(key)
-        conn.execute("INSERT OR REPLACE INTO raw_orders (gamekey, fetched_at, json) "
-                     "VALUES (?,?,?)",
-                     (key, datetime.now(timezone.utc).isoformat(), json.dumps(raw)))
-        store_order(conn, raw)
-        prog.step(as_mapping(raw.get("product")).get("human_name") or key)
-    prog.detach()  # the cover phase paints its own block below this one
-    # Not `covers`: that is the module imported above, and binding it here
-    # would make the name local to this whole function, so any later use of
-    # covers.relink above this line would fail at runtime.
-    downloaded = _download_covers(conn, client, covers_dir)
-    prog.finish(f"Fetched {len(new)} new bundles ({len(keys) - len(new)} already "
-                f"cached). Covers downloaded: {downloaded}.")
-    conn.close()
+    try:
+        # Backfill first: parser improvements auto-apply to already-fetched
+        # bundles (local JSON re-parse, no network, idempotent).
+        _reparse_cached(conn)
+        if client is None:
+            client = humble_api.ensure_login()
+        keys = client.list_order_keys()
+        known = {r["gamekey"] for r in conn.execute("SELECT gamekey FROM raw_orders")}
+        new = list(keys) if refetch else [k for k in keys if k not in known]
+        prog = Progress(conn, "extract", total=len(new), phase="Bundle")
+        for key in new:
+            raw = client.get_order(key)
+            conn.execute("INSERT OR REPLACE INTO raw_orders (gamekey, fetched_at, json) "
+                         "VALUES (?,?,?)",
+                         (key, datetime.now(timezone.utc).isoformat(), json.dumps(raw)))
+            store_order(conn, raw)
+            prog.step(as_mapping(raw.get("product")).get("human_name") or key)
+        prog.detach()  # the cover phase paints its own block below this one
+        # Not `covers`: that is the module imported above, and binding it here
+        # would make the name local to this whole function, so any later use of
+        # covers.relink above this line would fail at runtime.
+        downloaded = _download_covers(conn, client, covers_dir)
+        prog.finish(f"Fetched {len(new)} new bundles ({len(keys) - len(new)} already "
+                    f"cached). Covers downloaded: {downloaded}.")
+    finally:
+        conn.close()
 
 def reparse(db_path="catalog.db", covers_dir="covers"):
     """Re-run parsing/classification over the local raw-order cache.
@@ -46,9 +56,11 @@ def reparse(db_path="catalog.db", covers_dir="covers"):
     store_order's usual rules. Also re-links any cover files already on
     disk, so a post-reset reparse recovers covers without downloading."""
     conn = db.connect(db_path)
-    _reparse_cached(conn)
-    covers.relink(conn, covers_dir)
-    conn.close()
+    try:
+        _reparse_cached(conn)
+        covers.relink(conn, covers_dir)
+    finally:
+        conn.close()
 
 def _reparse_cached(conn):
     rows = conn.execute("SELECT gamekey, json FROM raw_orders").fetchall()
