@@ -654,7 +654,7 @@ Task: Continuing the ranking. Swept import-games and import-sheets, the two rows
 
 Changed: .jeffy/probes/import-games/probe.py (new, 35 cases), .jeffy/probes/import-sheets/probe.py (new, 62 cases), PLAN.md (two rows swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: 6ecca3f. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 97 known-answer assertions across two rows, 97 held on the first run of each. No findings.
   - import-games, 35/35. This module's most important behaviour is a pair of REFUSALS, and both exist because one shape - an empty list - is written by two different NORMAL states: a logged-out Heroic store and a private Steam profile. Acting on it would delete a good library, and the next bundle preview would then report a whole bundle as new.
