@@ -461,7 +461,7 @@ Task: Opening audit of a new run. The ledger was empty and 31 of 57 inventory ro
 
 Changed: BACKLOG.md (H1 filed in Now, H2 in Later, the resolved Proposed item deleted), PLAN.md (three Lessons corrected, one added), JOURNAL.md (this entry). No project code was touched this iteration.
 
-Checkpoint: recorded below. Not a stall: two BACKLOG items were filed and the Proposed item changed state, though only ledger files changed - which is what an audit iteration is.
+Checkpoint: 0710965. Not a stall: two BACKLOG items were filed and the Proposed item changed state, though only ledger files changed - which is what an audit iteration is.
 
 Verification: Every finding below was reproduced before it was filed; none is from reading alone.
   - H1, the one that matters, is a wrong ANSWER rather than a crash, which is why a liveness probe would have certified this row clean. `preview()` walks `tier_item_machine_names` with a bare `for name in names`, so a tier whose list arrives as a string is iterated character by character. Reproduced: a tier selling one item, `widget_svc`, reports `total: 10`, `new: 10`, and lists `_`, `c`, `d`, `e`, `g`, `i`, `s`, `t`, `v`, `w` under `adds`. The report exists to answer how much of a bundle the owner already holds, so it is a purchase decision resting on invented numbers.
@@ -479,7 +479,7 @@ Verification: Every finding below was reproduced before it was filed; none is fr
   - documentation, testing, performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
   This is a partial audit and never counts toward convergence; closeout is NOT entered, which requires a full audit scoring zero High and zero Medium.
   - Housekeeping, recorded because it changed the gate every iteration runs: the Proposed item asking whether `leak_check.py` should match word boundaries was resolved by the owner before this run began, in commit 570d5f4, which is on `main` and is the parent of this run's first checkpoint. Matching is now whole-word, 11 ALLOWED entries that existed only to excuse embedded collisions were removed, and 234 lines of tests pin it. The item is deleted from Proposed rather than carried, and three Lessons that described substring matching were corrected in PLAN.md - a stale Lesson steers every future run wrongly.
-  - Verify command: recorded with the checkpoint below.
+  - Verify command: pytest 1153 passed (exit 0), up from 1126 with the 27 leak-gate tests that landed in 570d5f4; check_no_data_tracked exit 0; leak_check exit 0 over 5251 terms and 249 files. Chain exit status checked directly, never through a pipe.
 
 Learnings: A defect that returns a wrong number outranks one that raises, and the two can share a root cause - here both come from the same missing type check, but only the silent one changes what the owner is told. When a sweep meets an unguarded read of third-party data, probe what a wrong SHAPE makes the code compute, not only what makes it raise: iterating a string instead of a list is the case that produces a confident wrong answer instead of a stack trace.
 
