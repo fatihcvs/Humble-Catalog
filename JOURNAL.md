@@ -361,7 +361,7 @@ Task: Replenishing audit, the ledger still empty. This iteration swept enrich-co
 
 Changed: .jeffy/probes/enrich-core/probe.py (new, 64 cases), PLAN.md (one row swept, one row's scope note corrected).
 
-Checkpoint: <pending>
+Checkpoint: 2359d10. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 64 known-answer assertions, 64 held. No findings.
   - The value-protection rules are asymmetric and are the ones worth stating as properties rather than shapes, so each is asserted directly. An overridden row that finds no confident match keeps its status, its typed value AND its hand-edited flag, while the override flag clears anyway because it is one-shot; an overridden row that DOES find a confident match is overwritten but snapshotted first, so Revert still returns the typed values; an overridden music row is disarmed rather than downgraded to skipped.
