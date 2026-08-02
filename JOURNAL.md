@@ -309,7 +309,7 @@ Task: Replenishing audit. The ledger emptied when F1 closed, so this iteration s
 
 Changed: .jeffy/probes/db-schema/probe.py (new, 50 cases), .jeffy/probes/editions-dedupe/probe.py (new, 54 cases), PLAN.md (two rows swept).
 
-Checkpoint: <pending>
+Checkpoint: d474518. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 104 known-answer assertions across the two rows, 104 held. No findings, and the sweeps were built so that a clean result means something.
   - db-schema, 50/50. A fresh database takes every migration as a no-op, so opening an empty file would have exercised almost none of this code and reported a clean row on no evidence. Every case therefore BUILDS a legacy database by hand - the old schema, comma-joined tag columns, external_keys keyed on human_name, no user_version - and drives it forward. The added columns land, the tag arrays and genre casing are rewritten correctly, authors are NOT titleized while genres are, hand_edited is derived from pre_edit exactly once, the external_keys re-key preserves the row's data, and three consecutive opens stay at version 12.
