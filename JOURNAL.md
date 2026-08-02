@@ -253,7 +253,7 @@ Task: H1 (High, runtime, correctness) - the bundle page blob read with no type c
 
 Changed: humble_catalog/bundle_preview.py (14 payload reads routed through `humble_catalog/shapes.py`; docstrings of `fetch_bundle` and `delivery_stores` updated to state the new contract), .jeffy/probes/bundle-preview-tiers/probe.py (new, 57 cases), BACKLOG.md (H1 deleted, the class recorded under Settled classes), PLAN.md (bundle-preview-tiers swept, bundle-preview-parts re-swept).
 
-Checkpoint: recorded below. Not a stall: runtime code changed and H1 moved from open to closed.
+Checkpoint: e662825. Not a stall: runtime code changed and H1 moved from open to closed.
 
 Verification: The filed reproduction was re-run first, before any edit, and still stood - the string case still reported a 1-item tier as 10 items.
   - Acceptance check. `.venv/Scripts/python.exe .jeffy/probes/bundle-preview-tiers/probe.py` exits 0 at 57/57.
