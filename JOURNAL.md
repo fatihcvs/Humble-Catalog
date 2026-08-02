@@ -523,7 +523,7 @@ Task: Replenishing audit, ledger empty. The user was asked mid-run whether the r
 
 Changed: .jeffy/probes/webapp-remote-routes/probe.py (new, 40 cases), .jeffy/probes/check-cmd/probe.py (new, 34 cases), PLAN.md (two rows swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: c3e734f. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 74 known-answer assertions across two rows, 74 held. No findings.
   - The steer is recorded here rather than in PLAN.md, which the template reserves for operational rules: the remaining rows are being chosen by expected defect yield, not by what would complete the table. Order is webapp-remote-routes and check-cmd (this iteration), then harvest-run, then backup-restore.
