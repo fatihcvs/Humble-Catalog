@@ -615,3 +615,35 @@ Verification: 73 known-answer assertions, 73 held on the first run. No findings.
 Learnings: For a destructive operation, assert the bytes rather than the return value. Every refusal case here compares the live catalog's contents before and after, which is a stronger claim than "it returned False" - a function can report refusal and still have written, and on this surface that difference is the whole point of the row.
 
 Next: The four rows the user chose are done, three iterations sooner than the budget allowed, and all four came back clean. Seven iterations remain. Their steer was about priority rather than about stopping, so iterations 14 onward continue down the same ranking - the mid-tier rows with real logic, led by keys-report, import-sheets, import-games and cli-dispatch - with the final iteration reserved for a WRAPUP handoff.
+
+## iter 14/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Continuing down the user's ranking now that their four chosen rows are done. Swept keys-report, the largest of the mid-tier rows and the one with the most decision logic left: the four-state machine, the expiry arithmetic, and the three-group ordering.
+
+Changed: .jeffy/probes/keys-report/probe.py (new, 60 cases), PLAN.md (one row swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 60 known-answer assertions, 60 held. No findings.
+  - `report(conn, now=...)` takes an injectable clock, so every expiry answer is fixed arithmetic against 2026-08-02T12:00Z rather than something that drifts with the wall clock. That is the trap iteration 12 fell into with a stub reset time, avoided here by construction.
+  - The ordering is the case this row is worth sweeping for, and it is written out in full. The rows are NOT one ascending column: dated rows split AROUND the undated ones, because plain ascending sorts already-dead keys above the ones the owner can still act on. Five keys - two live, one undated, two expired - are asserted to come back as live-soonest, live-later, undated, expired-most-recent, expired-oldest.
+  - The tie rule is pinned for the reason the code gives: purchase date then name, so the order is a pure function of the data rather than of the query plan.
+  - The state machine is exercised on all four states and on the two boundaries that decide them: a store with no importer is uncheckable rather than unredeemed, and a store WITH an importer but no games rows still classifies its keys as unredeemed - the documented case where `pools` has no entry and `EMPTY` is passed instead.
+  - `matched` is asserted to be counted but never listed, and the partition is checked as an invariant: the four counts sum to `total`, and `reported` equals `total` minus `matched`. A state machine that lost a row would break the sum rather than merely looking plausible.
+  - `expiring` is asserted to exclude BOTH hidden and already-expired rows, which is what makes it the tab badge's sibling: a hide that leaves the badge lit has not stopped the row reappearing.
+  - `stale_hides` is pinned on the case that justifies its separate query: a hide on a key that has since become `matched` is NOT stale, and the cheap derivation - hides minus hidden rows shown - would count it, because matched rows are not in `rows` at all.
+  - A key whose stored blob is not JSON is asserted to still report, with no expiry from the unreadable blob rather than a failed query.
+  - `show_all` and `hidden` are each exercised at both values and each changes the output.
+  - Two cases failed first, both mine, and the second correction is the more interesting. The MAX_NAME case first asserted a bound on the widest line, which was wrong because the long row is legitimately long. The second attempt asserted the short row was UNCHANGED by a long neighbour, which was also wrong: the column does pad to the widest name. The real contract is that it pads to the widest name CAPPED at MAX_NAME, so the assertion now measures the name column and checks it widens only to the cap and never to the full 92.
+  - Scores, claiming ONLY the row swept this iteration; 15 rows remain unswept:
+  - correctness: None on the swept row, on 60 known answers including the full ordering.
+  - error handling: None on the swept row; the unparseable expiry and unreadable blob paths are the ones that would have shown it.
+  - architecture: None. The injectable clock is what made the expiry arithmetic assertable at all.
+  - documentation, testing, UX: None on the swept row.
+  - security, performance, dependency hygiene, observability, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 15 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 265 files.
+
+Learnings: When a first assertion fails, check whether the SECOND one is testing the same misunderstanding. Both attempts at the MAX_NAME case encoded a wrong model - once as a width bound, once as an invariance claim - and only reading the actual rendered rows settled what the cap does. A failing assertion is evidence about the model, not only about the value.
+
+Next: 15 rows remain with 6 iterations. Iteration 15 continues with import-games and import-sheets, both of which parse files the project did not write. The final iteration is reserved for a WRAPUP handoff, so realistically 4 more sweeping iterations remain.
