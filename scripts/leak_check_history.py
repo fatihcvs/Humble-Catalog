@@ -29,7 +29,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from leak_check import NOTHING_TO_CHECK, ROOT, build_terms  # noqa: E402
+from leak_check import (NOTHING_TO_CHECK, ROOT, build_terms,  # noqa: E402
+                        make_matcher, should_scan)
 
 # Binary or data blobs: never meaningful to grep, and a committed xlsx
 # would trip on every term it contains rather than telling us anything
@@ -87,7 +88,7 @@ def scan_commit_messages(ref, match, hits):
             continue
         sha, body = record.split("\x00", 1)
         count += 1
-        for term in match(body.lower()):
+        for term in match(body):
             hits.setdefault(term, set()).add(f"commit-message {sha.strip()[:10]}")
     return count
 
@@ -117,11 +118,18 @@ def scan_blobs(match, hits, paths):
         proc.stdout.read(1)                     # trailing newline
         if objtype != "blob":
             continue
-        if path and path.lower().endswith(SKIP_EXT):
+        # should_scan is the working-tree scanner's own rule, reused so the
+        # two cannot disagree about what a file is worth reading. It matters
+        # most for leak_check.py: every ALLOWED entry appears in it verbatim,
+        # so its OLD blobs quote terms that have since been removed from the
+        # list, and scanning them reports the allowlist's own history as a
+        # leak. SKIP_EXT stays on top of it for the binary formats the
+        # working-tree scanner never meets.
+        if path and (not should_scan(path) or path.lower().endswith(SKIP_EXT)):
             continue
         count += 1
         where = path or "no path"
-        for term in match(data.decode("utf-8", "ignore").lower()):
+        for term in match(data.decode("utf-8", "ignore")):
             hits.setdefault(term, set()).add(f"blob {sha[:10]} ({where})")
     proc.stdin.close()
     proc.wait()
@@ -135,14 +143,13 @@ def main():
         print(NOTHING_TO_CHECK)
         return 0
 
-    # Plain substring tests, as in leak_check. A single regex alternation
-    # over every term looks like the faster option but is far slower: re
-    # backtracks through each alternative at every position, while `in`
-    # uses CPython's optimised substring search.
-    lowered = [(t.lower(), t) for t in terms]
-
-    def match(text):
-        return {original for low, original in lowered if low in text}
+    # The matcher itself comes from leak_check, so the two scanners cannot
+    # disagree about what counts as a match. It keeps the substring test as
+    # its fast path - a single regex alternation over every term looks
+    # faster and is far slower, because re backtracks through each
+    # alternative at every position while `in` uses CPython's optimised
+    # search - and confirms each hit against a word boundary.
+    match = make_matcher(terms)
 
     hits = {}
     ncommits = scan_commit_messages(ref, match, hits)

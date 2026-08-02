@@ -15,6 +15,7 @@ exit, or importing this file would run a second scan as a side effect.
 """
 import json
 import pathlib
+import re
 import sqlite3
 import subprocess
 import sys
@@ -23,12 +24,19 @@ import openpyxl
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-# Known-benign matches, reviewed 2026-07-18. Three kinds:
+# Known-benign matches, reviewed 2026-07-18. Two kinds:
 # - the deliberate public house example (All Systems Red & co.);
 # - generic vocabulary that legitimately appears in code/docs
-#   (genres, major publishers, platform names, common words);
-# - common-word titles that only match as substrings of prose.
+#   (genres, major publishers, platform names, common words).
 # Compare case-insensitively. Anything NOT here fails the check.
+#
+# There used to be a third kind - titles that collided only INSIDE longer
+# words - and 11 entries were removed on 2026-08-02 when matching moved to
+# word boundaries. Each of those had blinded the gate to a real title
+# containing that word, which is the cost this list always carries: an
+# entry earns its place only if the term appears in the repo as a whole
+# word. Measured before removal, by scanning the repo for each entry under
+# both rules; the ones that still hit as whole words stayed.
 ALLOWED = {t.lower() for t in [
     "All Systems Red", "Martha Wells", "Kevin R. Free", "Murderbot Diaries",
     "Artificial Condition", "Exit Strategy", "Fugitive Telemetry",
@@ -39,19 +47,13 @@ ALLOWED = {t.lower() for t in [
     "O'Reilly", "Packt", "Pearson", "Wiley", "Manning Publications",
     "No Starch Press", "GraphicAudio",
     "Humble Bundle", "Humble Music Bundle",
-    "Book M", "Changes", "Count", "Eden", "Emote", "Flight", "None",
-    "Reads",
-    # Added 2026-07-25. Ordinary English (and one hyphen accident) that
-    # only ever matches inside unrelated prose or code, never a reference
-    # to the library: "Rebuild" is used throughout the README and source,
-    # "Framed as a working surface", "a bug in the prune logic", and
-    # "R-TYPE" matches inside "over-typed" and "filter-type-0".
-    "Rebuild", "Framed", "Prune", "R-TYPE",
-    # Added 2026-07-26 after the history scan. Both are locking vocabulary
-    # this codebase uses constantly — the enrichment lock, hand-edited rows
-    # being "unlocked" for re-enrichment — so they match inside ordinary
-    # sentences ("the migration block in connect()") and never as titles.
-    "Lock In", "Unlocked",
+    "Changes", "Count", "Flight", "None", "Reads",
+    # Added 2026-07-25. Ordinary English used as itself throughout the
+    # README and source - "Rebuild the catalog", "Framed as a working
+    # surface", "a bug in the prune logic" - never as a reference to the
+    # library. A fourth entry here matched only inside "over-typed" and
+    # was removed with the move to word boundaries.
+    "Rebuild", "Framed", "Prune",
 
     # Added 2026-07-26 (second pass). A large harvest/enrich grew the
     # catalog by roughly 1800 terms, and these are the ones that newly
@@ -64,15 +66,14 @@ ALLOWED = {t.lower() for t in [
     "Adventure", "Comics", "Cooking", "Discipline", "Dystopian",
     "Economics", "Engineering", "Games", "History", "Music", "Mystery",
     "Personal Finance", "Political Science", "Reference", "Robot",
-    "Social Science",
     #
-    # Ordinary vocabulary. Some match plain prose ("unknown", "rules",
-    # "days", "adventure"), the rest only ever appear inside a longer
-    # word: "asymmetry", "restore", "omnibus", "avoid", "the scorer",
-    # "standalone", and — since the Steam setup notes landed — the
-    # ISteamUser endpoint name.
-    "Alone", "Days", "Muse", "Omni", "Rest", "Rules", "Seven", "Symmetry",
-    "The Score", "Unknown", "Void", "Wings",
+    # Ordinary vocabulary, every one of which appears in the repo as a
+    # whole word - "unknown", "rules", "days", "alone", "rest", "omni",
+    # "seven", "symmetry", "wings", "the score" - in prose, in identifiers
+    # or in headings. Re-measured 2026-08-02 under word-boundary matching;
+    # the entries that survived only as substrings were removed then.
+    "Alone", "Days", "Omni", "Rest", "Rules", "Seven", "Symmetry",
+    "The Score", "Unknown", "Wings",
     #
     # Added 2026-07-26 (third pass). A timezone name, not a title: the
     # harvest quota design has to say when Google's daily quota resets,
@@ -81,15 +82,22 @@ ALLOWED = {t.lower() for t in [
     "Pacific",
     #
     # Added 2026-07-31 after the history scan run before the hidden-keys
-    # merge. All three matched inside commit messages, and every hit is a
-    # substring of ordinary prose or of an identifier -- none is a
-    # reference to the library:
-    #   "Blek"        inside visi-BLEK-eys, i.e. the helper visibleKeys()
-    #   "The Outside" inside "what THE OUTSIDE world said"
-    #   "ustwo"       inside "untr-USTWO-rthy"
-    # History cannot be edited, so these have to be allowed rather than
-    # reworded; each is common enough that it would collide again.
+    # merge. All three appear in commit messages, and history cannot be
+    # edited, so they have to be allowed rather than reworded. "The
+    # Outside" matches as the whole phrase in ordinary prose ("what the
+    # outside world said"); the other two are quoted verbatim by the
+    # commit that added them to this list, which is a whole-word match no
+    # boundary rule can remove.
     "Blek", "The Outside", "ustwo",
+    #
+    # Added 2026-08-02. Ordinary English in the loop template's own prose
+    # -- "not done except the small stuff" -- committed by the salvage
+    # that captured the bootstrapped PLAN.md before the first audit
+    # reworded it. Present only in that one historical blob; the working
+    # tree has said something else since. A pre-existing history hit, not
+    # something the boundary change introduced: a substring rule matched
+    # it too.
+    "STUFF",
     #
     # House examples. "The Murderbot Diaries" is the article-carrying
     # variant of an entry already here, which the catalog stores in full.
@@ -198,19 +206,78 @@ def should_scan(rel):
     return parts[-1] != "leak_check.py" and not parts[-1].endswith(DATA_FILES)
 
 
+# A term matches only where it is not buried inside a longer word.
+#
+# Plain substring matching blocked commits on `UnboundLocalError` and on a
+# `unittest.mock` class name, neither of which mentions the library: a term
+# happened to spell part of a longer identifier. Every such trip cost a
+# reword, and the rewords that were impossible - a name that belongs to the
+# language - had to go into ALLOWED instead, which blinds the gate to every
+# genuine title containing that word. Word boundaries end that trade.
+#
+# "Word character" here is alphanumeric but NOT underscore, which is the
+# one place this deliberately differs from `\w`. machine_names join words
+# with underscores, so treating `_` as part of a word would stop the gate
+# seeing a title inside `moonfall_comic` - exactly the shape a leak takes
+# in this project. Hyphens and dots are boundaries for the same reason.
+WORDISH = r"[^\W_]"
+_PATTERNS = {}
+
+
+def boundary_pattern(term):
+    """A compiled, case-insensitive pattern for `term` as a whole word.
+
+    The assertions are added per side rather than using `\\b`, because a
+    term may begin or end with punctuation - "O'Reilly", "R-TYPE", a title
+    ending in "!" - and `\\b` there asserts the opposite of what is meant.
+    Cached: the callers ask for the same terms thousands of times.
+    """
+    pattern = _PATTERNS.get(term)
+    if pattern is None:
+        body = re.escape(term)
+        if re.match(WORDISH, term):
+            body = f"(?<!{WORDISH})" + body
+        if re.match(WORDISH, term[-1]):
+            body = body + f"(?!{WORDISH})"
+        pattern = _PATTERNS[term] = re.compile(body, re.IGNORECASE)
+    return pattern
+
+
+def make_matcher(terms):
+    """A callable: text -> the set of terms occurring in it as whole words.
+
+    Shared by the worktree scan and by leak_check_history, so the two can
+    never disagree about what counts as a match.
+
+    The cheap substring test runs first and rejects almost everything; the
+    pattern only runs for a term already known to be present, so the regex
+    cost is paid on hits rather than on every term of every file. That
+    ordering is also why this cannot be blinder than the old matcher: the
+    filter is the old rule exactly, and the pattern only ever removes a
+    hit that the old rule would have reported.
+    """
+    prepared = [(t, t.lower()) for t in terms]
+
+    def match(text):
+        lowered = text.lower()
+        return {t for t, low in prepared
+                if low in lowered and boundary_pattern(t).search(text)}
+
+    return match
+
+
 def scan(sources, terms):
     """({term: [label, ...]}, files_scanned) over (label, text) pairs.
 
     `sources` may be a generator, so the full sweep never holds the whole
     repo in memory at once.
     """
+    match = make_matcher(terms)
     hits, nfiles = {}, 0
     for label, text in sources:
         nfiles += 1
-        lowered = text.lower()
-        for t in terms:
-            if t.lower() in lowered:
-                hits.setdefault(t, []).append(label)
+        for t in match(text):
+            hits.setdefault(t, []).append(label)
     return hits, nfiles
 
 

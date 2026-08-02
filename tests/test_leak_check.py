@@ -68,11 +68,14 @@ def test_scan_finds_a_term_case_insensitively():
     assert hits == {"the gilded mycelium": ["a.md"]}
 
 
-def test_scan_matches_substrings_which_is_why_prose_trips_it():
-    # Documented behaviour, not an accident: it is what catches a title
-    # buried mid-sentence, and also what makes ordinary words collide.
+def test_scan_matches_a_term_buried_mid_sentence():
+    # A title does not have to be on a line of its own to be a leak, so
+    # the match is not anchored. What it IS bounded by is the word: see
+    # the word-boundary section at the end of this file, which replaced
+    # the older rule of matching any substring anywhere.
     hits, _ = lc.scan([("a.md", "a monkey wrench")], {"monkey"})
     assert hits == {"monkey": ["a.md"]}
+    assert lc.scan([("a.md", "the monkeyshine")], {"monkey"}) == ({}, 1)
 
 
 def test_scan_reports_every_file_a_term_appears_in():
@@ -155,3 +158,109 @@ def test_staged_sources_tolerates_binary_content(repo):
     (repo / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe binary")
     _git(repo, "add", "pic.png")
     assert "pic.png" in dict(lc.staged_sources(repo))
+
+
+# --- word-boundary matching -------------------------------------------
+# A term matches only where it is not buried inside a longer word. Plain
+# substring matching blocked commits over ordinary code vocabulary - a
+# builtin exception name, a unittest.mock class - because a catalog term
+# happened to spell part of a longer identifier. The trips that could not
+# be reworded had to go into ALLOWED instead, which blinds the gate to
+# every genuine title containing that word.
+#
+# Every term below is invented, from docs/TEST-DATA.md. The real terms
+# these cases were first written with are library items, and writing them
+# here would be the exact leak this file tests for - which is how they
+# were caught.
+
+def _hits(term, text):
+    return lc.make_matcher([term])(text)
+
+
+@pytest.mark.parametrize("term,text,why", [
+    ("Compass", "the survey encompasses it", "embedded at the front"),
+    ("Nightjar Post", "a Nightjar Poster on the wall", "embedded at the end"),
+    ("Twin Lantern", "Twin Lanterns on the shelf", "a longer plural"),
+    ("Moonfall", "Moonfallen Vol. 1", "a longer word sharing the stem"),
+    ("Pixel Harbor", "the Pixel Harbormaster", "a compound"),
+    ("Cinder Vale", "Cinder Valence readings", "a longer word after"),
+    ("Amber Hollow", "the Chamber Hollow door", "leading letters before it"),
+    ("Shadow-Hound Quest", "the Shadow-Hound Quests list", "a hyphenated term"),
+])
+def test_a_term_buried_in_a_longer_word_is_not_a_hit(term, text, why):
+    assert _hits(term, text) == set(), why
+
+
+@pytest.mark.parametrize("text,why", [
+    ("I own Moonfall already", "plain prose"),
+    ("the moonfall_comic row", "a machine_name joins words with underscores"),
+    ("covers/moonfall-abc123.jpg", "a cover filename"),
+    ("MOONFALL", "a different casing"),
+    ('"Moonfall",', "inside quotes and a comma"),
+    ("- Moonfall", "a markdown bullet"),
+    ("(Moonfall)", "inside parentheses"),
+    ("Moonfall.", "ending a sentence"),
+    ("x=Moonfall", "after an operator"),
+    ("Moonfall\nnext line", "at end of line"),
+])
+def test_a_real_leak_is_still_caught(text, why):
+    # The direction that matters: the rule must not have got weaker.
+    assert _hits("Moonfall", text) == {"Moonfall"}, why
+
+
+def test_underscore_is_a_boundary_and_not_part_of_a_word():
+    # The one deliberate difference from \w. machine_names are built by
+    # joining words with underscores, so treating _ as a word character
+    # would hide a title inside exactly the shape a leak takes here.
+    assert _hits("Moonfall", "moonfall_comic") == {"Moonfall"}
+    assert _hits("Moonfall", "moonfallcomic") == set()
+
+
+@pytest.mark.parametrize("term,text", [
+    ("Innkeeper's Ledger", "my Innkeeper's Ledger copy"),      # apostrophe
+    ("S.H.A.D.O.W", "the S.H.A.D.O.W set"),                    # dots inside
+    ("Learn C++", "Learn C++ today"),                          # ends in punctuation
+    ("Café of Broken Clocks", "my Café of Broken Clocks copy"),  # an accent
+])
+def test_terms_carrying_punctuation_still_match(term, text):
+    # The assertions are added per side rather than using \b, which would
+    # assert the opposite of what is meant next to punctuation.
+    assert _hits(term, text) == {term}
+
+
+def test_a_whole_word_collision_is_still_a_hit():
+    # Honest limit: word boundaries fix the EMBEDDED collisions, not the
+    # ones where an ordinary English word is also a title. Those still
+    # need a reword or an ALLOWED entry.
+    assert _hits("Compass", "the compass of the survey") == {"Compass"}
+
+
+def test_the_matcher_is_the_one_the_history_scanner_uses():
+    # Same rule in both scanners, by construction rather than by copy: a
+    # divergence would mean a term the working-tree check refuses could
+    # pass the history check, or the reverse.
+    #
+    # Asserted on __module__ rather than on identity, because this file
+    # loads leak_check by PATH while the history script imports it by
+    # name - two module objects, so two function objects, from one source.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "leak_check_history", ROOT / "scripts" / "leak_check_history.py")
+    history = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(history)
+    assert history.make_matcher.__module__ == "leak_check"
+    assert history.make_matcher(["Moonfall"])("moonfall_comic") == {"Moonfall"}
+    assert history.make_matcher(["Moonfall"])("Moonfallen") == set()
+
+
+def test_scan_reports_the_file_a_hit_came_from():
+    sources = [("docs/a.md", "nothing here"),
+               ("docs/b.md", "I own Moonfall")]
+    hits, nfiles = lc.scan(sources, ["Moonfall"])
+    assert nfiles == 2
+    assert hits == {"Moonfall": ["docs/b.md"]}
+
+
+def test_scan_counts_every_file_even_when_nothing_hits():
+    hits, nfiles = lc.scan([("a", "x"), ("b", "y")], ["Moonfall"])
+    assert (hits, nfiles) == ({}, 2)
