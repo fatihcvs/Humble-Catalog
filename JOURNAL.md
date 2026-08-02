@@ -755,7 +755,7 @@ Task: Swept js-shell and js-panels. This iteration also made a small change to s
 
 Changed: tests/js/harness.mjs (the element stub now RECORDS attributes), .jeffy/probes/js-shell/probe.py (new, 27 cases), .jeffy/probes/js-panels/probe.py (new, 26 cases), PLAN.md (two rows swept, three re-swept).
 
-Checkpoint: recorded below. Not a stall: two probe batteries were added, test infrastructure changed, and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: a5098e5. Not a stall: two probe batteries were added, test infrastructure changed, and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 53 known-answer assertions across two rows, 53 held. No findings.
   - A HARNESS CHANGE, and why it was made rather than worked around. Four cases failed first because the DOM stub's `getAttribute` returned null unconditionally and `setAttribute` discarded its argument, so `showSection`'s aria-current marking was unobservable - and that is the only signal a screen reader gets about which section is showing. A battery that skipped it would have left half of `showSection` uncertified while flipping the row.
