@@ -14,6 +14,8 @@ Rules:
 
 ## Later
 
+- [ ] I1 (Low, runtime, error handling): the same `or` used as a type check, one level down - on a FIELD value rather than on the body. `(data.get("old") or "").strip()` answers 500 when the field is not a string, because a number survives `or ""` and has no `.strip`. Reproduced with `{"old": 5}` and friends against `/api/genres/{rename,delete}`, `/api/user-tags/{rename,delete,bulk}`: all 6 sites raise. `grep -nE '\.get\("[a-z_]+"\) or ""' humble_catalog/webapp/__init__.py` lists them, at lines 438, 439, 450, 463, 464, 474 and 486. Second half of the same task: `/api/items/<id>/user-tags` accepts `{"tags": [None, {"a": 1}]}` with 200 and stores tags spelled `None` and `{'a': 1}`, because `db.normalize_tags` coerces every entry with `str()`. Third finding sharing the root cause of H2 and H3, so the three-strike rule applies: one shared text-field reader at the viewer boundary, never a guard per site, and NOT a change to `db.normalize_tags`, whose coercion serves the import paths and whose row is already swept. Acceptance: a test drives every documented text field of those routes with a non-string value and asserts 400 with a JSON error, and posts a non-string tag entry and asserts it is refused rather than stored; it fails against the current code.
+
 ## Proposed
 
 Items needing a user decision before any work, one plain line each, never a checkbox task: envelope changes, audit escalations, challenges to a settled class. Never worked without explicit user approval and never counted against convergence.

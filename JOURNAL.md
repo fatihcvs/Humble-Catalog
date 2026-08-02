@@ -365,3 +365,37 @@ Verification: The filed reproduction was re-run first, and it understated the de
 Learnings: `[recurred]` A count of affected sites written from reading rather than from running the enumeration was wrong twice in two iterations, both times UNDER-counting, and the second time the miss was caused by a safe-LOOKING spelling: `get_json(silent=True) or {}` reads as guarded and is not. Enumerate by driving the real registry - `app.url_map` here - not by grepping for a pattern a variant can dodge.
 
 Next: The ledger is empty and 27 rows are unswept, with 15 iterations left. Iteration 6 is an audit; the evaluator gate does not apply yet, since no FULL audit has been recorded this run and it cannot be until the inventory is complete. The largest untouched clusters are the four harvest and progress rows, the seven front-end rows needing tests/js_harness.py, and the five scripts and packaging rows.
+
+## iter 6/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit, the ledger having emptied when H3 closed. This iteration swept two viewer route families that the pending work will not touch - webapp-merge-routes and webapp-export-routes - and probed a third, webapp-tag-vocab-routes, which is left unswept because the finding it produced will change that code.
+
+Changed: .jeffy/probes/webapp-merge-routes/probe.py (new, 44 cases), .jeffy/probes/webapp-export-routes/probe.py (new, 30 cases), BACKLOG.md (I1 filed), PLAN.md (two rows swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/, two inventory rows changed state, and I1 was filed.
+
+Verification: 74 known-answer assertions across the two swept rows, 74 held, and one finding from the third row that was reproduced before being filed.
+  - webapp-merge-routes, 44/44. These routes DESTROY a row, so the cases that carry the weight assert what must NOT happen. Every refusal - the same id twice, a missing id, a string id, a bool id, a float id, an unknown id, a type mismatch - is followed by reading the database back and asserting both rows survive and `merges` is empty. A route that answered 400 while deleting anyway would pass a status-code check and fail these.
+  - The bool case is the one worth naming: bool is a subclass of int in Python, so `isinstance(x, int)` accepts True, and `{"keep_id": true, "drop_id": false}` would merge row 1 into itself. It is refused.
+  - The dismissal rules are asserted as properties: a dismissal keeps both rows where a merge deletes one, dismissing the same pair in both directions stores one row rather than two, and end to end a dismissed pair stops being offered by `/api/duplicates`.
+  - One case failed first on a WRONG FIXTURE and was corrected rather than filed: `Building Widget Services` and its `2e` variant are an EDITION pair, not a duplicate pair, because `dedupe` groups on an exact key after normalization and an edition suffix belongs to `editions.edition_key`. The case now uses the case-only pair, and the comment records the distinction so the next reader does not re-derive it.
+  - webapp-export-routes, 30/30. These hand the owner their own catalog, so the cases assert CONTENT rather than status: which rows, in which order, under which columns. The order case matters most - the filter predicate lives in the browser, so the row order has to arrive from there, and a route that re-sorted would silently discard the sort the owner is looking at. `columns` is exercised at two values that change the header, and the documented asymmetry holds: an unknown column NAME is dropped because stored browser state outlives a schema rename, while a non-list is a 400.
+  - The csv/xlsx pair is asserted to AGREE on the rows rather than each being checked alone, and both are asserted to refuse a malformed body identically, since `_export_request` is shared precisely so they cannot drift.
+  - Eight cases failed first, all on the same wrong assumption of mine - that column names are capitalized. They are lowercase. The helper that read the title column had a fallback index, so it silently read the neighbouring `type` column and reported `ebook` as a title; it now asserts the column is present instead of falling back, so a renamed column fails loudly rather than reading whatever sits beside it.
+  - I1, filed, reproduced route by route. `(data.get("old") or "").strip()` answers 500 whenever the field is not a string, at 6 sites in the tag-vocabulary family. This is the same defect as H2 and H3 one level down: `or` used as a type check on a FIELD rather than on the body.
+  - The second half of I1 is a silent write rather than a crash, which is why it is filed with the first: `{"tags": [None, {"a": 1}]}` is accepted with 200 and stores tags spelled `None` and `{'a': 1}`, because `db.normalize_tags` coerces every entry with `str()`. Checked before filing that the remedy belongs at the viewer boundary and not in `normalize_tags`, whose coercion serves the import paths and whose row is already swept.
+  - Third finding on one root cause, so the three-strike rule applies and the task is written as one shared text-field reader rather than six guards.
+  - webapp-tag-vocab-routes is deliberately NOT flipped. It was probed enough to find I1, and the fix will change that code, so a sweep now would be stale by the next checkpoint; the iteration that fixes I1 sweeps it, as H1 did with bundle-preview-tiers.
+  - Scores, claiming ONLY the two rows swept this iteration; 25 rows remain unswept:
+  - correctness: None on the swept rows. The order, content and agreement invariants are what would have shown it.
+  - error handling: LOW on the tag-vocabulary row, I1 - not on the two swept rows, whose refusals all hold and delete nothing.
+  - security: None on the swept rows; the destructive routes refuse every malformed id shape without touching the database.
+  - architecture: None. `_export_request` being shared by both formats is what made the identical-refusal assertion writable at all.
+  - documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 25 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1161 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 255 files.
+
+Learnings: A probe helper that FALLS BACK when it cannot find what it is looking for will read a neighbouring field and assert against it. The title lookup here defaulted to column index 1 when the name was absent, so eight cases compared titles against `ebook` and the failures pointed at the routes rather than at the probe. A locator in a battery should assert its target exists, because the alternative is a case that reports on the wrong data with full confidence.
+
+Next: Iteration 7 executes I1, which is one shared text-field reader plus the tags-entry check, and sweeps webapp-tag-vocab-routes in the same iteration since that code is what changes. That leaves 24 rows with 13 iterations after it; the four harvest and progress rows are the largest remaining Python cluster, and the seven front-end rows need tests/js_harness.py rather than a Python battery.
