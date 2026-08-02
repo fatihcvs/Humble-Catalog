@@ -31,8 +31,12 @@ def test_index_has_autocomplete_filters():
             / "static" / "index.html").read_text(encoding="utf-8")
     assert '<input id="f-genre"' in html      # selects replaced by
     assert '<input id="f-bundle"' in html     # autocomplete inputs
-    assert '<select id="f-type">' in html     # small closed lists stay selects
-    assert '<select id="f-flag">' in html
+    # Open-ended, like the two above: the claim is that these stay
+    # SELECTS, not that they carry no attributes. Pinning the closing
+    # bracket made the assertion depend on f-type having none, and J1
+    # gave both of them an aria-label.
+    assert '<select id="f-type"' in html      # small closed lists stay selects
+    assert '<select id="f-flag"' in html
 
 def test_index_offers_the_annotation_flags():
     html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"

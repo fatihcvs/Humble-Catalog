@@ -37,7 +37,7 @@
   <div id="library-layout">
   <aside id="filters" aria-label="Filters">
   <div id="controls">
-    <select id="f-type"><option value="">All types</option>
+    <select id="f-type" aria-label="Filter by type"><option value="">All types</option>
       <option value="ebook">E-books</option><option value="audiobook">Audiobooks</option>
       <option value="comic">Comics</option><option value="music">Music/Soundtracks</option>
       <option value="android">Android apps</option></select>
@@ -46,15 +46,15 @@
       <option value="5">★5</option><option value="4">★4</option>
       <option value="3">★3</option><option value="2">★2</option>
       <option value="1">★1</option></select>
-    <span class="chip-filter ac-wrap" data-field="genre"><input id="f-genre" placeholder="Genre..." size="14"></span>
-    <span class="chip-filter ac-wrap" data-field="series"><input id="f-series" placeholder="Series..." size="14"></span>
-    <span class="chip-filter ac-wrap" data-field="authors"><input id="f-authors" placeholder="Author..." size="16"></span>
-    <span class="chip-filter ac-wrap" data-field="narrator"><input id="f-narrator" placeholder="Narrator/Artist..." size="16"></span>
-    <span class="chip-filter ac-wrap" data-field="publisher"><input id="f-publisher" placeholder="Publisher..." size="16"></span>
-    <span class="chip-filter ac-wrap" data-field="bundle"><input id="f-bundle" placeholder="Bundle..." size="18"></span>
-    <span class="chip-filter ac-wrap" data-field="user_tags"><input id="f-user-tags" placeholder="My tags..." size="14"></span>
-    <span class="chip-filter ac-wrap" data-field="user_comment"><input id="f-notes" placeholder="Notes..." size="16"></span>
-    <select id="f-flag"><option value="">No flag filter</option>
+    <span class="chip-filter ac-wrap" data-field="genre"><input id="f-genre" aria-label="Filter by genre" placeholder="Genre..." size="14"></span>
+    <span class="chip-filter ac-wrap" data-field="series"><input id="f-series" aria-label="Filter by series" placeholder="Series..." size="14"></span>
+    <span class="chip-filter ac-wrap" data-field="authors"><input id="f-authors" aria-label="Filter by author" placeholder="Author..." size="16"></span>
+    <span class="chip-filter ac-wrap" data-field="narrator"><input id="f-narrator" aria-label="Filter by narrator or artist" placeholder="Narrator/Artist..." size="16"></span>
+    <span class="chip-filter ac-wrap" data-field="publisher"><input id="f-publisher" aria-label="Filter by publisher" placeholder="Publisher..." size="16"></span>
+    <span class="chip-filter ac-wrap" data-field="bundle"><input id="f-bundle" aria-label="Filter by bundle" placeholder="Bundle..." size="18"></span>
+    <span class="chip-filter ac-wrap" data-field="user_tags"><input id="f-user-tags" aria-label="Filter by my tags" placeholder="My tags..." size="14"></span>
+    <span class="chip-filter ac-wrap" data-field="user_comment"><input id="f-notes" aria-label="Filter by notes" placeholder="Notes..." size="16"></span>
+    <select id="f-flag" aria-label="Filter by flag"><option value="">No flag filter</option>
       <option value="multi">In multiple bundles</option>
       <option value="review">Needs review</option>
       <option value="matched">Matched</option>
@@ -135,7 +135,7 @@
   </section>
   <section id="section-bundles" hidden>
     <div id="bundle-form">
-      <input id="bundle-url" type="url" size="60"
+      <input id="bundle-url" aria-label="Humble bundle URL to preview" type="url" size="60"
              placeholder="Paste a HumbleBundle page URL to see what you already own">
       <button id="bundle-go">Check bundle</button>
     </div>
