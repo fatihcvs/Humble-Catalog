@@ -80,8 +80,8 @@ Title and match logic
 - [ ] game-match: `game_match.prepare_pool`, `classify_game` and the GAME_OWNED/GAME_POSSIBLE thresholds.
 
 Enrichment and harvest
-- [ ] enrich-core: `enrich.run`, `enrich.reset`, `apply_candidate`, EDITABLE_FIELDS.
-- [ ] enrich-topups: `enrich.credits`, `enrich.fill_series`, `enrich.override_edited`.
+- [x] enrich-core: swept at <pending12> - `enrich.run`, `enrich.reset`, `apply_candidate`, `series_from_title`, `_winning_candidate` and the EDITABLE_FIELDS contract; battery `.jeffy/probes/enrich-core/probe.py`, 64 cases driven with stub sources so the decision logic rather than the network decides the outcome. The rules that protect the owner's typed values are asserted as the properties they claim: an overridden row that finds no confident match keeps its status, its value and its hand-edited flag while the override flag clears anyway; a confident match overwrites but snapshots first; `reset` at both `reviews_only` values, sparing hand-edited rows at one and not the other, and never touching the items table so a rating and a type override survive; and the snapshot's keys are asserted to BE EDITABLE_FIELDS, so a field added to the UPDATE without being added to that list would fail rather than silently stop being revertible. 64/64 held, no findings.
+- [ ] enrich-topups: `enrich.credits`, `enrich.fill_series`, `enrich.override_edited`. Deliberately NOT credited to the enrich-core sweep, which incidentally covered three of `override_edited`'s refusal paths (no hand-edited rows, a wrong confirmation word, nothing queued) but neither `credits` nor `fill_series` at all. A partly covered row is unswept.
 - [ ] harvest-run: `harvest.run` and its resume/parallelism behaviour.
 - [ ] harvest-reports: `harvest.report_runs`, `report_failures`, `forget_runs`, `humble_catalog/runs.py`.
 - [ ] quota-gate: `humble_catalog/quota.py` - `next_pacific_midnight`, `record`, `blocked`, `clear`, `hit_at`.

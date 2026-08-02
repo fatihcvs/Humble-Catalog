@@ -354,3 +354,30 @@ Verification: 46 known-answer assertions against the real app through Flask's te
 Learnings: Assert the property, not the status code. A traversal case written as "the status is 400, 403 or 404" reported a finding against a 308 that redirects to a path which then 404s - safe behaviour, failed by an allow-list that encoded one expected mechanism instead of the outcome that matters. The assertion that survives is "the file outside the directory is never served", with redirects followed.
 
 Next: Iteration 12 audits again; the ledger is still empty and 33 rows remain. The enrichment family is the largest untouched cluster with real computation behind it, and the seven front-end rows need `tests/js_harness.py` rather than a Python battery, which is worth noting for the handoff since they are a third of what is left.
+
+## iter 12/15 | affcbaff-100429 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit, the ledger still empty. This iteration swept enrich-core, the module that decides what the catalog SAYS about a book and the one that carries the rules protecting the owner's typed values.
+
+Changed: .jeffy/probes/enrich-core/probe.py (new, 64 cases), PLAN.md (one row swept, one row's scope note corrected).
+
+Checkpoint: <pending>
+
+Verification: 64 known-answer assertions, 64 held. No findings.
+  - The value-protection rules are asymmetric and are the ones worth stating as properties rather than shapes, so each is asserted directly. An overridden row that finds no confident match keeps its status, its typed value AND its hand-edited flag, while the override flag clears anyway because it is one-shot; an overridden row that DOES find a confident match is overwritten but snapshotted first, so Revert still returns the typed values; an overridden music row is disarmed rather than downgraded to skipped.
+  - `reset` was exercised at both `reviews_only` values on one fixture, and the parameter changes the answer: 3 rows swept at one value, 1 at the other, with the hand-edited review choice spared and the re-enriched one swept. It never touches the items table, asserted by reading back a rating and a type override after the wipe.
+  - The strongest single assertion is that the pre_edit snapshot's keys ARE EDITABLE_FIELDS. Those two live in different modules and are joined only by convention: a field added to apply_candidate's UPDATE without being added to the list would silently stop being revertible, and nothing else in the suite would notice. It holds.
+  - `run` was driven with stub sources rather than real ones, so the decision logic decides the outcome instead of the network: an exact match applies automatically, a poor match is left unmatched with its fields empty, `retry` at both values decides whether an unmatched row is revisited at all, a matched row is never revisited, every source is asked with no early break, and one source raising does not stop the others.
+  - enrich-topups was NOT credited to this sweep, though three of `override_edited`'s refusal paths were incidentally covered. `credits` and `fill_series` were not touched, and a partly covered row is unswept - the same rule that split humble-login out in iteration 5. Its scope line now says so.
+  - Scores, claiming ONLY the 25 swept rows of 57 - the other 32 are unswept:
+  - correctness: None on the swept rows, on 64 known answers including the override and snapshot properties.
+  - error handling: None on the swept rows; the raising-source case is the one that would have shown it.
+  - architecture, documentation: None. The asymmetries here are documented at the point of decision, which is what made them straightforward to assert.
+  - testing: None on the swept rows.
+  - security, performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 32 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  Verify command: pytest 1126 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+
+Learnings: Where two modules hold halves of one contract - a list of fields in one and the UPDATE that writes them in another - assert that they are equal rather than testing each side. The pairing is what rots, and neither side's own tests can see it.
+
+Next: Three iterations left, and iteration 15 should be a WRAPUP rather than a task that cannot finish. Iterations 13 and 14 audit; the best remaining targets are enrich-topups and harvest-run, both of which carry real decision logic, and the seven front-end rows are worth naming in the handoff as a different kind of work needing tests/js_harness.py.
