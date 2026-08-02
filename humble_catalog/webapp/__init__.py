@@ -49,24 +49,36 @@ def _sorted_candidates(raw):
     cands.sort(key=lambda c: c.get("confidence", 0), reverse=True)
     return cands
 
+def _json_object():
+    """The request's JSON body when it is an object, else an empty dict.
+
+    The single place this app reads a request body, so no route can
+    disagree with another about what a usable one is. `grep -n "get_json"`
+    over this file returns exactly one site, which is the line below.
+
+    `or {}` was the idiom here and is NOT a type check: it substitutes the
+    default only for a FALSY body, so `{}` and `null` were handled while a
+    non-empty JSON array or string sailed through and then had no `.get`.
+    Nineteen of the twenty-four POST routes answered 500 that way. Every
+    route already validates the FIELD it reads, so handing them an empty
+    dict turns each of those into that route's own 400.
+
+    `silent=True` folds malformed JSON in as well, so a bad body earns the
+    same JSON error object as every other refusal rather than Werkzeug's
+    HTML 400 page, which the viewer's JS cannot parse.
+    """
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else {}
+
+
 def _url_from_body():
     """The `url` field of the request's JSON body, or None.
 
-    Shared by the two routes that take a URL, so they cannot disagree
-    about what a usable body is. Three shapes answer None and therefore
-    400, where reading the body directly raised and answered 500:
-    a body that is not an object (a JSON array or a bare string has no
-    `.get`), a `url` that is not a string (a number has no `.strip`),
-    and a blank one.
-
-    `silent=True` folds malformed JSON in here too, so a bad body earns
-    the same JSON error object as every other refusal rather than
-    Werkzeug's HTML 400 page, which the viewer's JS cannot parse.
+    Shared by the two routes that take a URL. A `url` that is not a string
+    is a wrong value rather than a wrong shape, and answers None so the
+    caller returns 400 instead of failing on `.strip`.
     """
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return None
-    url = body.get("url")
+    url = _json_object().get("url")
     return url.strip() if isinstance(url, str) else None
 
 def create_app(db_path="catalog.db", covers_dir="covers"):
@@ -153,7 +165,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         query strings reach access logs and browser history. Same reason
         filter-aware export posts its id list rather than passing it.
         """
-        data = request.get_json(silent=True) or {}
+        data = _json_object()
         gamekey, machine_name = data.get("gamekey"), data.get("machine_name")
         if not isinstance(gamekey, str) or not gamekey \
                 or not isinstance(machine_name, str) or not machine_name:
@@ -208,7 +220,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         # choose is worse than saying no. Validation and the existence
         # check follow read-status, which is the pattern for every
         # user-owned field.
-        data = request.get_json(silent=True) or {}
+        data = _json_object()
         if "rating" not in data:
             return jsonify({"error": "rating required"}), 400
         rating = data["rating"]
@@ -229,7 +241,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
     # the row stays open to re-enrichment.
     @app.post("/api/items/<int:item_id>/user-tags")
     def set_user_tags(item_id):
-        tags = (request.get_json() or {}).get("tags")
+        tags = _json_object().get("tags")
         if not isinstance(tags, list):
             return jsonify({"error": "tags must be a list"}), 400
         if not _item_exists(item_id):
@@ -242,7 +254,16 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/comment")
     def set_comment(item_id):
-        comment = (request.get_json() or {}).get("comment")
+        # The key must be PRESENT, the same rule /rating states and for a
+        # sharper reason: an absent comment used to mean "clear it", so a
+        # body carrying no fields at all performed a destructive write.
+        # Once a malformed body reads as an empty object rather than
+        # raising, that turns a client bug into silent data loss. Clearing
+        # is still done the documented way, by sending a blank string.
+        body = _json_object()
+        if "comment" not in body:
+            return jsonify({"error": "comment required"}), 400
+        comment = body["comment"]
         if comment is not None and not isinstance(comment, str):
             return jsonify({"error": "comment must be a string"}), 400
         if not _item_exists(item_id):
@@ -255,7 +276,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/type")
     def set_type(item_id):
-        new_type = (request.get_json(silent=True) or {}).get("type")
+        new_type = _json_object().get("type")
         if new_type not in ("ebook", "audiobook", "comic", "music"):
             return jsonify({"error": "bad type"}), 400
         if not _item_exists(item_id):
@@ -271,7 +292,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/read-status")
     def set_read_status(item_id):
-        status = (request.get_json() or {}).get("status")
+        status = _json_object().get("status")
         if status not in READ_STATUSES:
             return jsonify({"error": "bad status"}), 400
         if not _item_exists(item_id):
@@ -321,7 +342,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/merge")
     def merge():
-        data = request.get_json() or {}
+        data = _json_object()
         keep_id, drop_id = data.get("keep_id"), data.get("drop_id")
         if not isinstance(keep_id, int) or not isinstance(drop_id, int) \
                 or keep_id == drop_id:
@@ -342,7 +363,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/dismiss_pair")
     def dismiss_pair():
-        data = request.get_json() or {}
+        data = _json_object()
         id_a, id_b = data.get("id_a"), data.get("id_b")
         if not isinstance(id_a, int) or not isinstance(id_b, int) or id_a == id_b:
             return jsonify({"error": "two distinct item ids required"}), 400
@@ -371,7 +392,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/apply")
     def apply_arbitrary(item_id):
-        cand = (request.get_json() or {}).get("candidate")
+        cand = _json_object().get("candidate")
         if not isinstance(cand, dict) or not cand.get("source") or not cand.get("title"):
             return jsonify({"error": "candidate with source and title required"}), 400
         apply_candidate(conn(), item_id, cand, cand.get("confidence", 1.0),
@@ -380,7 +401,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/edit")
     def edit(item_id):
-        fields = (request.get_json() or {}).get("fields")
+        fields = _json_object().get("fields")
         if not isinstance(fields, dict) or not fields:
             return jsonify({"error": "fields required"}), 400
         clean = {}
@@ -413,7 +434,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/genres/rename")
     def rename_genre():
-        data = request.get_json() or {}
+        data = _json_object()
         old = (data.get("old") or "").strip()
         new = (data.get("new") or "").strip()
         if not old or not new:
@@ -425,7 +446,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/genres/delete")
     def delete_genre():
-        data = request.get_json() or {}
+        data = _json_object()
         tag = (data.get("tag") or "").strip()
         if not tag:
             return jsonify({"error": "tag required"}), 400
@@ -438,7 +459,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
     # the /api/genres routes, one TagColumn argument apart.
     @app.post("/api/user-tags/rename")
     def rename_user_tag():
-        data = request.get_json() or {}
+        data = _json_object()
         old = (data.get("old") or "").strip()
         new = (data.get("new") or "").strip()
         if not old or not new:
@@ -450,7 +471,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/user-tags/delete")
     def delete_user_tag():
-        tag = (request.get_json() or {}).get("tag") or ""
+        tag = _json_object().get("tag") or ""
         if not tag.strip():
             return jsonify({"error": "tag required"}), 400
         changed = db.delete_tag(conn(), db.USER_TAGS, tag.strip())
@@ -460,7 +481,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/user-tags/bulk")
     def bulk_user_tags():
-        data = request.get_json() or {}
+        data = _json_object()
         ids = data.get("ids")
         tag = (data.get("tag") or "").strip()
         action = data.get("action")
@@ -510,7 +531,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         One-shot: the next enrich run consumes the flag. Nothing changes
         until that run, so this is safe to toggle freely.
         """
-        want = (request.get_json() or {}).get("override")
+        want = _json_object().get("override")
         if not isinstance(want, bool):
             return jsonify({"error": "override must be a boolean"}), 400
         row = conn().execute("SELECT hand_edited FROM enrichment WHERE item_id=?",
@@ -573,7 +594,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         # to be an int before that comparison, not after it: a string index
         # raised TypeError here rather than answering 400. bool is excluded
         # for the reason /rating excludes it.
-        idx = (request.get_json(silent=True) or {}).get("candidate")
+        idx = _json_object().get("candidate")
         if not isinstance(idx, int) or isinstance(idx, bool):
             return jsonify({"error": "candidate index required"}), 400
         row = conn().execute("SELECT candidates FROM enrichment WHERE item_id=?",
@@ -608,7 +629,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         # it, because stored browser state outlives a schema rename.
         if request.method != "POST":
             return None, None, None
-        body = request.get_json(silent=True) or {}
+        body = _json_object()
         ids = body.get("ids")
         if not isinstance(ids, list):
             return None, None, (jsonify({"error": "ids must be a list"}), 400)

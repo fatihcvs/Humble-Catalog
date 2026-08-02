@@ -530,6 +530,86 @@ def test_a_refused_body_never_reaches_the_network(tmp_path, monkeypatch):
         assert _post_raw(client, "/api/bundle-preview", body).status_code == 400
 
 
+def _every_post_route(app, item_id):
+    """Every POST rule the app actually registers, as concrete paths.
+
+    Enumerated from `app.url_map` rather than from a hand-kept list, so a
+    route added later is covered by the assertions below without anyone
+    remembering to add it. That is the point: the defect these pin was a
+    whole class, and a list of names would go stale the first time a
+    route was added.
+    """
+    paths = []
+    for rule in app.url_map.iter_rules():
+        if "POST" not in (rule.methods or set()):
+            continue
+        path = str(rule).replace("<int:item_id>", str(item_id))
+        if "<" in path:                     # no POST rule needs another arg
+            continue
+        paths.append(path)
+    return sorted(paths)
+
+
+def test_no_post_route_answers_5xx_for_a_body_that_is_not_an_object(tmp_path):
+    # The class check. Every POST route is driven with each non-object
+    # body; none may answer 5xx, and each must answer a 4xx carrying a
+    # JSON error object rather than an HTML error page.
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    app = create_app(db_path=str(dbp))
+    client = app.test_client()
+    routes = _every_post_route(app, item_id)
+    assert len(routes) >= 20, routes        # the enumeration found the routes
+    # `/reopen` is the one route that legitimately answers 2xx here: it
+    # takes a bare body by documented contract and reads no field, so a
+    # body it never looks at cannot make it fail. Every other route reads
+    # something and must refuse.
+    for path in routes:
+        for label, body in BAD_BODIES:
+            resp = client.post(path, data=body,
+                               content_type="application/json")
+            assert resp.status_code < 500, (path, label, resp.status_code)
+            if path.endswith("/reopen"):
+                continue
+            assert 400 <= resp.status_code < 500, (path, label,
+                                                   resp.status_code)
+            # a JSON error object, not Werkzeug's HTML error page
+            assert resp.get_json() is not None, (path, label)
+
+
+def test_comment_requires_the_key_so_a_bad_body_cannot_clear_it(tmp_path):
+    # An absent `comment` used to mean "clear it", so once a malformed
+    # body reads as an empty object a client bug would silently erase the
+    # note. The key is now required; clearing is still done the
+    # documented way, with a blank string.
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    client.post(f"/api/items/{item_id}/comment", json={"comment": "A note."})
+
+    for body in [{}, [1, 2, 3], "hello"]:
+        resp = client.post(f"/api/items/{item_id}/comment", json=body)
+        assert resp.status_code == 400, body
+    assert client.get("/api/items").get_json()["items"][0]["user_comment"] \
+        == "A note."
+
+    resp = client.post(f"/api/items/{item_id}/comment", json={"comment": "  "})
+    assert resp.status_code == 200
+    assert client.get("/api/items").get_json()["items"][0]["user_comment"] is None
+
+
+def test_no_post_route_answers_5xx_for_an_absent_body(tmp_path):
+    # The neighbouring shape: no body at all, which reaches the same
+    # reader and must also become each route's own refusal.
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    app = create_app(db_path=str(dbp))
+    client = app.test_client()
+    for path in _every_post_route(app, item_id):
+        resp = client.post(path)
+        assert resp.status_code < 500, (path, resp.status_code)
+
+
 def test_index_has_the_stats_panel():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")
