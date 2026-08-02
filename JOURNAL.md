@@ -335,7 +335,7 @@ Task: Replenishing audit, the ledger still being empty after iteration 10 filed 
 
 Changed: .jeffy/probes/webapp-read-routes/probe.py (new, 46 cases), PLAN.md (one row swept).
 
-Checkpoint: <pending>
+Checkpoint: bbb46e2. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 46 known-answer assertions against the real app through Flask's test client, 46 held. No findings.
   - The strongest cases are the two reshape-only routes. `/api/stats` and `/api/keys` each document that the panel and the CLI must not be able to disagree, which is an invariant rather than a shape, so the battery asserts the route's payload equals `stats.report` and `keys.report` field for field - section keys, labels, and every row's label and count in order. A route that recounted instead of reshaping would pass a shape check and fail this one.
