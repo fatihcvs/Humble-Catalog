@@ -375,7 +375,7 @@ Task: Replenishing audit. The ledger emptied when C3 closed, so this iteration s
 
 Changed: .jeffy/probes/sources-books/probe.py (new, 61 cases), .jeffy/probes/sources-media/probe.py (new, 82 cases), PLAN.md (both rows swept, one Lesson), BACKLOG.md (D1 High, D2 Medium filed).
 
-Checkpoint: <pending>
+Checkpoint: f0a257d. Not a stall: two probe batteries were added under .jeffy/probes/, two inventory rows changed state, and two BACKLOG items were filed.
 
 Verification: 143 known-answer assertions across the two rows, 123 held. The 20 failures are the two findings, and both were reproduced before either was filed.
   - sources-books, 54/61. Every contract case holds: the url fallback chain at three values, the api key and the token at two values each, featured_series winning over series_names and each falling back independently, and the GraphQL error payload raising before anything is cached. The 7 failures are D1.
