@@ -324,7 +324,7 @@ Task: H2 (Low, runtime, error handling) - the two viewer routes that take a URL 
 
 Changed: humble_catalog/webapp/__init__.py (`_url_from_body` added as one shared reader; both routes now call it), tests/test_webapp.py (+5), BACKLOG.md (H2 deleted, H3 filed), PLAN.md (three webapp rows re-swept).
 
-Checkpoint: recorded below. Not a stall: runtime code and tests changed, H2 closed and H3 opened.
+Checkpoint: 5c54d77. Not a stall: runtime code and tests changed, H2 closed and H3 opened.
 
 Verification: The filed reproduction was re-run first and still stood - both routes raised AttributeError on an array body, a bare-string body and `{"url": 5}`.
   - Acceptance check. 5 new tests in tests/test_webapp.py pass, and the suite is 1158 passed against 1153 at the last checkpoint, which is exactly the 5 added and no existing test moved.
