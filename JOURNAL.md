@@ -406,7 +406,7 @@ Task: I1 (Low, runtime, error handling) - a named text field read without checki
 
 Changed: humble_catalog/webapp/__init__.py (`_text_field` added; 7 field sites routed through it; `/api/items/<id>/user-tags` now type-checks its entries), tests/test_webapp.py (+3), .jeffy/probes/webapp-tag-vocab-routes/probe.py (new, 99 cases), BACKLOG.md (I1 deleted, the class recorded), PLAN.md (webapp-tag-vocab-routes swept, five webapp rows re-swept).
 
-Checkpoint: recorded below. Not a stall: runtime code, tests and a battery changed, and I1 moved from open to closed.
+Checkpoint: 78783eb. Not a stall: runtime code, tests and a battery changed, and I1 moved from open to closed.
 
 Verification: The filed reproduction was re-run first and still stood - 5 routes answering 500 for a non-string field, and `{"tags": [null]}` stored as a tag spelled None.
   - Acceptance check. `.venv/Scripts/python.exe .jeffy/probes/webapp-tag-vocab-routes/probe.py` exits 0 at 99/99, and it doubles as this row's sweep.
