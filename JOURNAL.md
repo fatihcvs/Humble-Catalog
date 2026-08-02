@@ -334,3 +334,37 @@ Verification: Acceptance check run after the fix, against a real server serving 
 Learnings: A probe's own fixtures must not read anything the unfixed code lacks. A helper that raises makes the request fail for the wrong reason, the case goes green against broken code, and the differential run - the one step meant to prove the check can fail - reports success while measuring nothing. Hold such values as literals and assert them against the shipped constant in a separate case. Also: prefer an explicit test double to a mock for a response object. The mock silently invents every attribute the code reaches for, so it hides which parts of the interface are actually depended on, and it cannot fail when a new one appears.
 
 Next: C3 (Low) is the only item left on the ledger. After it the ledger is empty with 6 iterations remaining, which is the point the evaluator gate should run early rather than at the declaration - but a full fresh-evidence audit has not happened this run, and 40 of 55 rows are unswept, so convergence is not in reach and the budget is better spent sweeping adversarial rows.
+
+## iter 1/15 | affcbaff-100429 | 2026-08-02 | SALVAGE | salvage
+
+Task: The working tree was dirty at the start of this run. The previous session (84948f5f) ended between its iteration 3 bookkeeping commit and its next re-feed, leaving one uncommitted edit and an orphaned loop state file naming that session at iteration 4.
+
+Changed: humble_catalog/extract.py - the in-flight C3 edit, committed as found, nothing reset or discarded.
+
+Checkpoint: e234d26.
+
+Verification: The orphan state file recorded last_head 585656a, which matched HEAD exactly, so no checkpoint from that session was lost - only the uncommitted edit, now preserved. The state file was removed and a fresh one written for this session after the user confirmed no other session was running here. `git status --porcelain` was empty after the commit, so this iteration starts from a clean tree and its checkpoint diff carries only its own work.
+
+Learnings: A crashed session leaves its loop state file behind because the hook deletes it only on reaching the budget or the promise. The file is inert - the hook compares session ids before re-feeding - so it blocks the next launch's pre-flight rather than capturing it, which is the intended tripwire.
+
+Next: The salvaged edit is the fix for C3, the only item on the ledger, so this iteration executes and verifies it.
+
+## iter 1/15 | affcbaff-100429 | 2026-08-02 | C3 | done
+
+Task: C3 (Low, runtime, code quality) - a function-local binding shadowing a module imported in the same file.
+
+Changed: humble_catalog/extract.py (salvaged in this iteration's SALVAGE commit: the download count is now bound to `downloaded`, with a comment recording why the module name must stay free), .jeffy/probes/module-shadowing/probe.py (new, the enumerating check), BACKLOG.md (C3 deleted, one Settled classes line added).
+
+Checkpoint: <pending>
+
+Verification: The filed acceptance check was run first, on both sides, before anything else.
+  - The filed check, `grep -n "^ *covers = " humble_catalog/extract.py`, returns nothing at HEAD and returns `33: covers = _download_covers(...)` against 585656a, the commit before the fix. Differential, so it can fail.
+  - That check is an instance check, and the finding is an instance of an idiom, so it was replaced by an enumeration of the class. `.jeffy/probes/module-shadowing/probe.py` walks every function in the package with an AST pass and reports any name it binds that the same file imports at module level. It counts every binding form, not just assignment: augmented and annotated assignment, for and with targets, `except ... as`, walrus, comprehension targets, imports written inside a function, and parameters, which are reported separately so the hazard count stays honest. Nested defs and lambdas are skipped, because they open their own scope and are visited in their own right.
+  - The enumeration is differential too, which is what distinguishes it from the check the earlier settled class got wrong: 0 hazards across the package at HEAD, exit 0; exactly 1 against the pre-fix file, `extract.py:33 run binds covers`, exit 1. It reports the idiom, so it would have found any sibling site; it found none, so the class had exactly one member and closing this instance closes the class.
+  - The hazard is a scoping one rather than a naming one, which is why the fix matters at all for a Low. The assignment anywhere in the body makes the name local for the whole body at compile time, so a `covers.relink` call placed above line 33 would raise the interpreter's reference-before-assignment error rather than fall through to the module. `_download_covers` rebinds `covers_dir` in its first line and is not an instance: that name is a parameter, not an import.
+  - Contract preserved. The change is a local rename inside `run` plus the same value interpolated into the same message; no signature, no return value, and no observable behavior changes, so no documentation and no inventory row is affected. The `outbound-guard` row stays swept at 0a5816b: its scope names `humble_catalog/outbound.py`, which this iteration did not touch.
+  - Verify command: pytest 1026 passed (exit 0), unchanged from the previous checkpoint; check_no_data_tracked exit 0; leak_check exit 0, clean on the first run this time. Output was redirected to a file and the exit status checked, never piped.
+
+Learnings: An instance check and a class check are different instruments, and a Low is where that difference is cheapest to install. The filed grep would have certified this fix while a second site elsewhere in the package stayed broken; the AST pass costs one iteration once and answers the question for every future audit, including binding forms a grep cannot see at all.
+
+Next: The ledger is now empty, with 14 iterations left and 40 of 55 inventory rows unswept, so iteration 2 is a partial audit that sweeps unswept rows. The evaluator gate does not apply: it runs on an empty ledger only when a full fresh-evidence audit has already been recorded in the same run, and this run has recorded none.
