@@ -428,7 +428,7 @@ Task: Replenishing audit, the ledger having emptied when I1 closed. This iterati
 
 Changed: .jeffy/probes/js-fuzzy/probe.py (new, 28 cases), .jeffy/probes/progress-failures/probe.py (new, 49 cases), PLAN.md (two rows swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: a4462c9. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 77 known-answer assertions across two rows, 77 held. No findings.
   - js-fuzzy, 28/28, and the instrument question is settled: node v24.18.0 is on this host, `tests/js_harness.py` runs the viewer's real scripts in a stubbed DOM, and `Fuzzy` is reachable from it. The remaining six front-end rows are therefore ordinary work rather than blocked, and none of them needs a `[~]`.
