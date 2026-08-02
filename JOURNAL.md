@@ -450,7 +450,7 @@ Task: Replenishing audit. The ledger emptied when D2 closed, so this iteration s
 
 Changed: .jeffy/probes/extract-humble/probe.py (new, 33 cases), .jeffy/probes/sources-accessors/probe.py (new, 75 cases), PLAN.md (two rows swept, one row split out), BACKLOG.md (E1 High, E2 Low filed).
 
-Checkpoint: <pending>
+Checkpoint: 3ea3704. Not a stall: two probe batteries were added under .jeffy/probes/, two inventory rows changed state, one row was split out, and two BACKLOG items were filed.
 
 Verification: 108 known-answer assertions across the two rows, 104 held. The 4 failures are one root cause, reproduced before filing.
   - sources-accessors, 75/75. The boundary holds, including the two things nothing else reached: `text_list`'s `key` parameter at a second value, which changes the answer and so is not inert, and `as_number`'s `allow_text` at both values on the same input. The property the whole boundary exists for is asserted directly - 133 calls over 19 shapes and 7 functions raise nothing.
