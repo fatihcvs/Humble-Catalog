@@ -91,3 +91,53 @@ def test_match_reports_the_display_title_not_the_scoring_key():
 
 def test_an_empty_pool_makes_everything_new():
     assert classify_game("Widget Quest", prepare_pool([])) == ("new", None)
+
+
+# --- digit and roman numerals are one number, not a sequel pair (F1) ---
+# sequel_mismatch compared the trailing numeral as TEXT, so a library
+# holding "Widget Quest 2" reported an offered "Widget Quest II" as new -
+# a confident wrong answer to the only question a purchase decision asks.
+# Both notations are real: storefronts pick either one.
+
+NUMBERED_LIBRARY = [
+    ("widget quest 2", "Widget Quest 2"),
+    ("final chapter 4", "Final Chapter 4"),
+]
+
+
+@pytest.mark.parametrize("offered", ["Widget Quest II", "Final Chapter IV"])
+def test_a_roman_spelling_of_an_owned_number_is_not_reported_as_new(offered):
+    pool = prepare_pool(NUMBERED_LIBRARY)
+    verdict, match = classify_game(clean_game_title(offered), pool)
+    # "possible" rather than "owned" is the honest answer: the titles still
+    # differ as text, so the score lands in the band where the report asks
+    # the user to check. What it must never do is claim they do not own it.
+    assert verdict != "new"
+    assert match["owned_title"] in ("Widget Quest 2", "Final Chapter 4")
+
+
+def test_a_genuine_sequel_is_still_reported_as_new():
+    # The rule must not be blunted by the fix: 3 is not 2.
+    pool = prepare_pool(NUMBERED_LIBRARY)
+    assert classify_game(clean_game_title("Widget Quest III"), pool) == \
+        ("new", None)
+    assert classify_game(clean_game_title("Widget Quest 3"), pool) == \
+        ("new", None)
+
+
+def test_a_base_title_against_an_owned_sequel_is_still_new():
+    pool = prepare_pool(NUMBERED_LIBRARY)
+    assert classify_game(clean_game_title("Widget Quest"), pool) == ("new", None)
+
+
+@pytest.mark.parametrize("a,b,want", [
+    ("widget quest 2", "widget quest ii", False),   # one number, two notations
+    ("widget quest 4", "widget quest iv", False),
+    ("widget quest 9", "widget quest ix", False),   # subtractive form
+    ("widget quest 14", "widget quest xiv", False),
+    ("widget quest 2", "widget quest iii", True),   # genuinely different
+    ("widget quest", "widget quest ii", True),      # base against sequel
+    ("widget quest ii", "widget quest 3", True),
+])
+def test_sequel_mismatch_compares_numerals_by_value(a, b, want):
+    assert sequel_mismatch(a, b) is want

@@ -54,6 +54,35 @@ def clean_game_title(raw):
     t = _NON_WORD.sub(" ", t)
     return _SPACES.sub(" ", t).strip().lower()
 
+_ROMAN = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+
+def _numeral_value(token):
+    """The integer a trailing numeral token denotes.
+
+    Only ever called on a token _NUMERAL has already matched, so it is
+    either all digits or all roman letters.
+
+    Compared as TEXT, "2" and "ii" differ, and the two spellings of one
+    sequel number then read as a sequel PAIR -- so a library holding
+    *Widget Quest 2* reported an offered *Widget Quest II* as new, which
+    is the wrong answer to the only question a purchase decision asks.
+    Both notations are real: storefronts pick either one.
+
+    The roman reading is the ordinary subtractive rule and is deliberately
+    not restricted to canonical spellings. It does not need to be: an
+    ordinary word spelled from these letters ("mix") simply reads as some
+    number, and a number that differs from the other side's is exactly the
+    verdict that keeps a different product out of the possible band.
+    """
+    if token.isdigit():
+        return int(token)
+    total = highest = 0
+    for char in reversed(token.lower()):
+        value = _ROMAN[char]
+        total += -value if value < highest else value
+        highest = max(highest, value)
+    return total
+
 def sequel_mismatch(a, b):
     """True when two normalized titles are the same name with different
     trailing numerals -- "widget quest" vs "widget quest ii".
@@ -61,10 +90,15 @@ def sequel_mismatch(a, b):
     A fuzzy scorer rates that pair near-identical, because it is: one token
     differs. But it is the one near-identical pair that is definitely NOT
     the same product, so it needs a rule of its own rather than a threshold.
+
+    The numerals are compared by VALUE, so "2" and "ii" are one number in
+    two notations rather than a mismatch. Everything else is compared as
+    before: a missing numeral on one side is still a mismatch, which is
+    the base-versus-sequel case this rule exists for.
     """
     ta, tb = a.split(), b.split()
-    na = ta.pop() if ta and _NUMERAL.match(ta[-1]) else None
-    nb = tb.pop() if tb and _NUMERAL.match(tb[-1]) else None
+    na = _numeral_value(ta.pop()) if ta and _NUMERAL.match(ta[-1]) else None
+    nb = _numeral_value(tb.pop()) if tb and _NUMERAL.match(tb[-1]) else None
     return ta == tb and na != nb
 
 def sort_tokens(cleaned):

@@ -281,3 +281,24 @@ Verification: 84 known-answer assertions, 83 held.
 Learnings: Trace the consumer before asserting a desired answer, especially when the docstring gives a clean literal one. Twice this run a probe has asserted what a function's own contract says it should return, and twice the consumer showed that answer would degrade behaviour - the cover path that is a URL rather than a directory, and now a numeral test whose accidental breadth produces the right verdict. The docstring says what the function claims; only the caller says what the answer is for.
 
 Next: Iteration 9 executes F1. Compare the trailing tokens by numeric value when both parse as numerals and keep the text comparison otherwise; the battery holds the differential at 1 NUM failure, and the acceptance check also asks for an end-to-end classify_game assertion, because the unit answer is not what the user meets.
+
+## iter 9/15 | affcbaff-100429 | 2026-08-02 | F1 | done
+
+Task: F1 (Medium, runtime, correctness) - a digit and a roman numeral naming the same sequel number read as a sequel PAIR, sending a game the user owns to "new".
+
+Changed: humble_catalog/titles.py (`_numeral_value`, `sequel_mismatch` compares by value, both docstrings), tests/test_game_match.py (+11), .jeffy/probes/titles/probe.py (the NUM case now holds), PLAN.md (titles-clean re-swept), BACKLOG.md (F1 deleted).
+
+Checkpoint: <pending>
+
+Verification: The filed reproduction was re-run first, before any edit, and still stood at 83/84 with the one NUM failure.
+  - Acceptance check, both halves. `.jeffy/probes/titles/probe.py` exits 0 at 84/84, and the end-to-end half holds: with `Widget Quest 2` in the pool an offered `Widget Quest II` now classifies as `possible` rather than `new`, and `Final Chapter IV` against `Final Chapter 4` likewise.
+  - `possible` rather than `owned` is the honest outcome and was not forced further. The two titles still differ as text, so the score stays at 89.7, below the 92 the report needs to claim ownership. The band exists for exactly this: the report asks the user to check. What it must never do is state that they do not own it.
+  - The rule is not blunted, which is the risk a fix like this carries. `Widget Quest III` and `Widget Quest 3` against an owned `Widget Quest 2` both still classify as `new`, and so does the bare `Widget Quest`; those three are the control and they pass against both the fixed and the unfixed code.
+  - Differential: 6 of the 11 new tests fail against the unfixed titles.py, restored from HEAD. That run was possible only because the tests deliberately do not import `_numeral_value`, the one name this fix adds - the same trap that made the differential unmeasurable in iterations 3 and 6, avoided by testing through `sequel_mismatch` and `classify_game`, which existed before.
+  - The roman reading is deliberately not restricted to canonical spellings, and the reason is the case withdrawn in iteration 8: an ordinary word spelled from those letters reads as some number, that number differs from the other side's, and the verdict stays `new` - which is the correct answer for a different product. Restricting to canonical spellings would have changed that outcome for no gain, and `mix` is canonical roman for 1009 anyway.
+  - Contract preserved. `sequel_mismatch` keeps its signature and its meaning; only the comparison of two numerals changes, from text to value. Its docstring and `clean_game_title`'s cross-reference were updated in this iteration. `_NUMERAL` has exactly one user, `sequel_mismatch`, and `sequel_mismatch` has exactly one caller, game_match.py:108, both checked before the edit.
+  - Verify command: pytest 1126 passed (exit 0), up from 1115 with 11 new tests; check_no_data_tracked exit 0; leak_check exit 0.
+
+Learnings: When a fix adds a name, keep that name out of the regression tests if the differential is meant to run against the reverted module - test through the functions that already existed. This is the third iteration this run to meet that trap and the first to route around it deliberately.
+
+Next: The ledger is empty with 6 iterations left. The evaluator gate still does not apply, because no FULL audit has been recorded this run - all four have been partial, with rows unswept. Iteration 10 is another replenishing audit; the largest untouched clusters are the viewer read routes, the storage layer's schema and migrations, and the enrichment family.

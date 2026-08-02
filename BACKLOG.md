@@ -12,8 +12,6 @@ Rules:
 
 ## Next
 
-- [ ] F1 (Medium, runtime, correctness): `titles.sequel_mismatch` compares the trailing numeral as TEXT, so a game written with a digit and the same game written in roman numerals read as a sequel pair. Reproduced end to end: with `Widget Quest 2` in the imported library, `game_match.classify_game` reports an offered `Widget Quest II` as `new`, and `Final Chapter 4` against `Final Chapter IV` likewise. Both notations are real conventions, so a library and a bundle can each pick a different one for the same title. The score alone would have said `possible` - 89.7 and 83.9, between GAME_POSSIBLE 80 and GAME_OWNED 92 - so the rule turns an honest "check this one" into a confident "you do not own this", which is the answer a purchase decision rests on. Fix: compare the trailing tokens by numeric VALUE when both parse as numerals, keeping the text comparison for everything else. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/titles/probe.py` exits 0 at 84/84 (it reports 1 NUM failure against the code as filed), and a test asserts classify_game reports `Widget Quest II` as owned or possible, never new, when `Widget Quest 2` is in the pool.
-
 ## Later
 
 ## Proposed
