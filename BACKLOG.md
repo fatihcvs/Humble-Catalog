@@ -14,8 +14,6 @@ Rules:
 
 ## Later
 
-- [ ] G1 (Low, runtime, code quality): the guard at `enrich.py:328` in `fill_series` is unreachable, and the comment beneath it claims a purpose it cannot serve. The query two lines above selects `WHERE e.series IS NULL OR e.series_number IS NULL`, so every row reaching the loop has at least one empty cell and `row["series"] is not None and row["series_number"] is not None` is never true. Confirmed by tracing a run over a five-row fixture holding all four fill states: the row with both cells set is not returned by the query at all, and the guard's body does not execute. The comment says it is "for the COUNT, not for correctness", which reads as though it keeps `filled` honest; it cannot, because it never fires. Acceptance: the guard is deleted, the comment says instead that the query already excludes fully-filled rows, `.venv/Scripts/python.exe .jeffy/probes/enrich-topups/probe.py` still exits 0 at 36/36 with its fully-filled-row case unchanged, and the suite stays green.
-
 ## Proposed
 
 Items needing a user decision before any work, one plain line each, never a checkbox task: envelope changes, audit escalations, challenges to a settled class. Never worked without explicit user approval and never counted against convergence.

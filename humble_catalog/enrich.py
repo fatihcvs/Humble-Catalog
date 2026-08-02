@@ -324,15 +324,17 @@ def fill_series(db_path="catalog.db", _conn=None):
         name, number = series_from_title(*clean_title(row["name"]))
         if number is None:
             continue
-        if row["series"] is not None and row["series_number"] is not None:
-            continue          # nothing left to fill; COALESCE would no-op
         # COALESCE and not a plain SET: it states the no-override rule in
         # the one place that can enforce it, so a half-filled row keeps
-        # whichever cell it already had. The Python guard above is for the
-        # COUNT, not for correctness -- sqlite3's total_changes is
-        # cumulative over the connection and rowcount counts rows matched
-        # rather than rows altered, so neither can tell a real fill from a
-        # COALESCE that wrote a value back onto itself.
+        # whichever cell it already had.
+        #
+        # `filled` is counted in Python because neither sqlite3 counter can
+        # answer this question: total_changes is cumulative over the
+        # connection, and rowcount counts rows MATCHED rather than rows
+        # altered, so a COALESCE that wrote a value back onto itself would
+        # count the same as a real fill. It does not need a guard against
+        # fully-filled rows either - the query above already excludes them,
+        # selecting only rows with at least one empty cell.
         conn.execute(
             "UPDATE enrichment SET series=COALESCE(series, ?), "
             "series_number=COALESCE(series_number, ?) WHERE item_id=?",

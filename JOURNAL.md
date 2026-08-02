@@ -408,3 +408,23 @@ Verification: 36 known-answer assertions, 36 held. The finding came from reading
 Learnings: A guard whose condition the surrounding query already excludes is invisible to every test, because no input can reach it - so it is found by reading, and confirmed by tracing rather than by a failing case. Worth the trace: reasoning alone would have been an argument, and the evidence rule asks for a reproduced fact.
 
 Next: Iteration 14 executes G1, which is small and fits an iteration with room to spare. Iteration 15 is the WRAPUP: tidy the ledger and write the handoff, rather than starting a sweep that cannot finish.
+
+## iter 14/15 | affcbaff-100429 | 2026-08-02 | G1 | done
+
+Task: G1 (Low, runtime, code quality) - the unreachable guard in `fill_series` and the comment that claimed a purpose it could not serve.
+
+Changed: humble_catalog/enrich.py (the guard deleted, the comment rewritten), BACKLOG.md (G1 deleted), PLAN.md (enrich-topups re-swept).
+
+Checkpoint: <pending>
+
+Verification: Deleting code that cannot run should change nothing, and the evidence has to show that rather than assume it.
+  - Acceptance check. The guard is gone - `grep -c 'nothing left to fill' humble_catalog/enrich.py` returns 0 - and both enrich batteries were re-run and hold at exactly their previous counts: enrich-topups 36/36, including its fully-filled-row case, and enrich-core 64/64.
+  - The suite already pinned the property, which is the more interesting half. `test_fill_series_never_overwrites_a_disagreeing_number` and `test_fill_series_leaves_a_hand_edited_row_alone` both assert a fully-filled row yields 0, and both pass on either side of the deletion - because the query, not the guard, is what excludes those rows. That is precisely why the guard was dead, and it means the behaviour was already protected without it.
+  - No test was added. Two existing ones cover the property and the Method prefers deletion to addition; a third asserting the same thing would have been the kind of coverage that grows without protecting anything new.
+  - The comment now says what is true: `filled` is counted in Python because neither sqlite3 counter can answer the question - total_changes is cumulative over the connection and rowcount counts rows MATCHED rather than altered - and no guard against fully-filled rows is needed because the query already excludes them. The half of the old comment that was correct, about why the count is not taken from sqlite3, is kept.
+  - Contract preserved. No signature, no return value, no observable behaviour; `fill_series` returns the same counts on the same inputs, which the unchanged battery scores are the evidence for.
+  - Verify command: pytest 1126 passed (exit 0), unchanged; check_no_data_tracked exit 0; leak_check exit 0.
+
+Learnings: When a fix is a deletion, the evidence that it is safe is that the numbers do NOT move - unchanged battery scores and an unchanged suite, not a new failing-then-passing test. A deletion that needs a new test to prove it was probably not dead code.
+
+Next: Iteration 15 is the final one and is a WRAPUP: tidy the ledger, record the run's position, and write a handoff naming the 31 unswept rows and which of them need a different instrument. The run does not converge - it cannot, with 31 rows unswept - and the report should say so plainly rather than dress the budget running out as completion.
