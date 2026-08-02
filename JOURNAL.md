@@ -591,7 +591,7 @@ Task: Last of the four rows the user chose. Swept backup-restore, whose failure 
 
 Changed: .jeffy/probes/backup-restore/probe.py (new, 73 cases), PLAN.md (one row swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: 8d8d59f. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 73 known-answer assertions, 73 held on the first run. No findings.
   - The cases are deliberately weighted towards what must NOT happen, because that is where the cost is. Every refusal path reads the live catalog's BYTES before and after and asserts they are identical - a missing snapshot, an unreadable snapshot, and eight wrong answers at the confirmation prompt.
