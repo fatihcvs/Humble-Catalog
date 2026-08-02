@@ -302,3 +302,29 @@ Verification: The filed reproduction was re-run first, before any edit, and stil
 Learnings: When a fix adds a name, keep that name out of the regression tests if the differential is meant to run against the reverted module - test through the functions that already existed. This is the third iteration this run to meet that trap and the first to route around it deliberately.
 
 Next: The ledger is empty with 6 iterations left. The evaluator gate still does not apply, because no FULL audit has been recorded this run - all four have been partial, with rows unswept. Iteration 10 is another replenishing audit; the largest untouched clusters are the viewer read routes, the storage layer's schema and migrations, and the enrichment family.
+
+## iter 10/15 | affcbaff-100429 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit. The ledger emptied when F1 closed, so this iteration swept db-schema and editions-dedupe - the storage layer's migrations, where a defect destroys data the owner cannot re-derive, and the two key functions that decide what the viewer offers to merge.
+
+Changed: .jeffy/probes/db-schema/probe.py (new, 50 cases), .jeffy/probes/editions-dedupe/probe.py (new, 54 cases), PLAN.md (two rows swept).
+
+Checkpoint: <pending>
+
+Verification: 104 known-answer assertions across the two rows, 104 held. No findings, and the sweeps were built so that a clean result means something.
+  - db-schema, 50/50. A fresh database takes every migration as a no-op, so opening an empty file would have exercised almost none of this code and reported a clean row on no evidence. Every case therefore BUILDS a legacy database by hand - the old schema, comma-joined tag columns, external_keys keyed on human_name, no user_version - and drives it forward. The added columns land, the tag arrays and genre casing are rewritten correctly, authors are NOT titleized while genres are, hand_edited is derived from pre_edit exactly once, the external_keys re-key preserves the row's data, and three consecutive opens stay at version 12.
+  - The guard that module documents as its worst-failure insurance was probed directly, because it is the one place where a bad row could leave the database unopenable: json_extract raises on malformed JSON, so the migration wraps it in a json_valid CASE. A legacy database carrying one unparseable `raw`, one row with no machine_name, and one good row migrates, keeps the good row and reaches version 12; a database where EVERY row is unparseable also migrates, leaving the table empty rather than broken.
+  - editions-dedupe, 54/54. Both modules document that they match exactly after normalization and that fuzzy was rejected as measurably LESS accurate, so the negatives were probed as hard as the positives: the one-word subset pair that fuzzy scored 100 stays apart, `#` and `+` keep C, C# and C++ distinct, a leading format word is kept while a trailing one strips, `audiobook` does not strip down to `book`, a marker-only title never collapses to the empty key, and android and music stay out of edition grouping.
+  - The per-pair dismissal rule is the subtle one and it holds: a member dismissed against one sibling but still live against another stays in the group, which a filter written as "drop anything dismissed" would get wrong.
+  - Scores, claiming ONLY the 23 swept rows of 57 - the other 34 are unswept:
+  - correctness: None on the swept rows, on 104 known answers rather than on absence of complaint.
+  - error handling: None on the swept rows. The migration's skip-and-continue guard is the one error path here and it behaves as documented.
+  - architecture, documentation: None. Both modules record the measurement that chose the rule, including why fuzzy matching was rejected and why android and music are excluded, which is what made the negative cases straightforward to write.
+  - testing: None on the swept rows.
+  - security, performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 34 rows are unswept, so it never counts toward convergence, and closeout is NOT entered - closeout requires a FULL audit, and no audit this run has been one.
+  Verify command: pytest 1126 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+
+Learnings: A migration cannot be swept by opening a fresh database. Every step is guarded by a version check or a column check, so on a new file they all no-op and the probe certifies nothing while looking thorough. The sweep has to construct the OLD state - which also means the battery doubles as the only place the legacy schema is written down.
+
+Next: Iteration 11 audits again, because this one filed nothing and the ledger is still empty. That is the right use of the remaining budget: with 34 rows unswept the run cannot converge, so sweeping rows and leaving batteries behind is what carries forward. The largest untouched clusters are the viewer read routes, the enrichment family, and the seven front-end rows.
