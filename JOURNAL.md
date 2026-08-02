@@ -493,7 +493,7 @@ Task: Replenishing audit, ledger still empty. This iteration swept js-catalog-re
 
 Changed: .jeffy/probes/js-catalog-render/probe.py (new, 48 cases), PLAN.md (one row swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - nothing was filed at rubric severity, for the reason below.
+Checkpoint: 2e5d715. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - nothing was filed at rubric severity, for the reason below.
 
 Verification: 48 known-answer assertions, 48 held.
   - The escaping cases are exact strings rather than "contains a escaped character": `esc` must turn the four markup characters into their entities, and `highlight` must escape in all THREE slices it builds - before the span, inside it, and after - because it concatenates into innerHTML. Asserted by stripping the one element it is allowed to introduce, `<mark>`, and requiring no `<` survives.
