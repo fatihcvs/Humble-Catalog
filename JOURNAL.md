@@ -443,3 +443,33 @@ Verification: The filed reproduction was re-run first, before any edit, and stil
 Learnings: A round-trip invariant over a rounded value needs a tolerance of half the rounding step; asserting exact equality there fails on correct code and reads as a real defect. Separately, a test whose only assertion is that a value is absent or within a wide range cannot fail on a defect that produces a small in-range value - which is exactly what this one produced, and the assertion had been sitting next to it since the file was written.
 
 Next: The ledger is empty with 11 iterations left. The evaluator gate does NOT run: it needs a clean full audit already recorded in this run, and both audits so far have been partial with rows unswept. Iteration 5 is therefore a replenishing audit, and the best targets are the remaining adversarial rows - extract-humble and bundle-preview-tiers - plus the sources-accessors row this run created.
+
+## iter 5/15 | affcbaff-100429 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit. The ledger emptied when D2 closed, so this iteration swept the last unswept adversarial acquisition row, extract-humble, and sources-accessors, the row this run's own D1 fix created.
+
+Changed: .jeffy/probes/extract-humble/probe.py (new, 33 cases), .jeffy/probes/sources-accessors/probe.py (new, 75 cases), PLAN.md (two rows swept, one row split out), BACKLOG.md (E1 High, E2 Low filed).
+
+Checkpoint: <pending>
+
+Verification: 108 known-answer assertions across the two rows, 104 held. The 4 failures are one root cause, reproduced before filing.
+  - sources-accessors, 75/75. The boundary holds, including the two things nothing else reached: `text_list`'s `key` parameter at a second value, which changes the answer and so is not inert, and `as_number`'s `allow_text` at both values on the same input. The property the whole boundary exists for is asserted directly - 133 calls over 19 shapes and 7 functions raise nothing.
+  - extract-humble, 29/33, against a real http.server on an ephemeral port with BASE repointed, never a mocked session. The logged-in contract was exercised at five failing values, each of which must flip the answer, including a 200 carrying html and a response with no Content-Type header at all. The `all_tpkds=true` parameter is asserted from the server's own request log rather than from the return value, and the throttle by counting sleeps at two delay values.
+  - E1, High, 4 shapes reproduced. `humble_api.py:42` indexes `o["gamekey"]` per entry, so one order missing that field, an order list that is a dict, and an order list of bare strings each abort `extract` before a single bundle is harvested; `parse_order.py:8` indexes `raw["product"]["human_name"]`, so an order whose product is not a dict raises through store_order. Third surface with this root cause, so it is filed as one structural task extending the D1 boundary rather than as four patches.
+  - Severity was checked against a claim I did not get to keep. A poison pill would have made this worse: a malformed order cached and then re-parsed at the start of every later run. It is not one - the run raises before that order is committed, and only the previously-good order was in raw_orders afterwards. Recorded because the finding reads more alarming without it.
+  - E2, Low, reproduced while checking that. `extract.run` and `reparse` close the connection only on the success path, so an exception leaks the handle and, on Windows, the next in-process open fails with a locked database. A CLI run is unaffected because the process exits, which is why this is Low and not higher.
+  - One finding was withdrawn before it was filed, which is the more useful part of this audit. The probe first asserted that a non-default `covers_dir` must appear in the recorded `cover_path`, and reported two failures. Tracing the consumer showed the assertion was wrong: the front end renders that column as an img src against the viewer's `/covers/<filename>` route, so the prefix names the ROUTE, not the directory, and is correct for any covers_dir. The battery now pins the real contract - the recorded URL's last segment is the file actually written under covers_dir - and no finding was filed.
+  - The parse-order row stays swept rather than flipping: its code has not changed since e0b77ba. Its battery simply never probed the shape of `product`, which is why it certified clean, and E1 covers that site.
+  - Scores, claiming ONLY the 19 swept rows of 57 - the other 38 are unswept:
+  - correctness: HIGH, E1, at two sites reached by every harvest.
+  - error handling: LOW, E2.
+  - security: None on the swept rows. The client sends cookies only to the configured host, the throttle is enforced from the attempt rather than from success, and a non-json 200 is refused rather than parsed.
+  - testing: None on the swept rows, with one qualification recorded rather than scored: the suite covers these paths' happy cases well and no shape case, which is the same gap the metadata parsers had.
+  - architecture, documentation, code quality: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 38 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  Verify command: pytest 1095 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+
+Learnings: Before filing a finding that a parameter fails to affect an output, trace what CONSUMES that output. The recorded cover path looked like a filesystem path that ignored its directory parameter, and it is a URL rooted at a route, which is correct as written - two assertions were wrong, not the code. Separately, a row whose sweep genuinely could not reach part of its scope must be split rather than described as swept-with-an-exception: the playwright login helpers are now their own row, so the swept count means what it says.
+
+Next: Iteration 6 executes E1, the only High. The accessors already exist and are proven at 75/75; the work is moving them to a module both families can import, keeping sources.base re-exporting them so the D1 settled class and its imports stay intact, and applying them at humble_api.py:42 and parse_order.py:8.

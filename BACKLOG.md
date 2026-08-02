@@ -10,9 +10,13 @@ Rules:
 
 ## Now
 
+- [ ] E1 (High, runtime, correctness): the HumbleBundle order path reads payload fields without checking the JSON type they arrived as, and the envelope classes that payload adversarial for the same reason it classes the metadata responses. 4 shapes reproduced, each aborting the whole `extract` command with a traceback: `humble_api.py:42` does `o["gamekey"]` per entry, so one order lacking that field, an order list that is a dict, and an order list of bare strings all raise before a single bundle is harvested; and `parse_order.py:8` does `raw["product"]["human_name"]`, so an order whose `product` is not a dict raises through `store_order`. This is the third surface with this root cause after D1, so it is one structural task, not four patches: move the shape accessors out of `sources/base.py` into a module both families can use and apply them at these sites, keeping `sources.base` re-exporting them so the existing imports and the settled class stay intact. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/extract-humble/probe.py` exits 0 at 33/33 (it scores 29/33 against the code as filed), and the suite stays green.
+
 ## Next
 
 ## Later
+
+- [ ] E2 (Low, runtime, error handling): `extract.run` and `extract.reparse` open a database connection and close it only on the success path, so any exception in between leaks the handle - reproduced by running `extract.run` with an order that raises, after which a second `run` in the same process fails with `OperationalError: database is locked` on Windows, where an open handle keeps the file locked. A CLI run is unaffected because the process exits, so this costs an in-process caller and the suite rather than a user. Acceptance: both functions close the connection on the exception path, and a test asserts a second `run` in one process succeeds after the first raised.
 
 ## Proposed
 
