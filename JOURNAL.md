@@ -381,3 +381,30 @@ Verification: 64 known-answer assertions, 64 held. No findings.
 Learnings: Where two modules hold halves of one contract - a list of fields in one and the UPDATE that writes them in another - assert that they are equal rather than testing each side. The pairing is what rots, and neither side's own tests can see it.
 
 Next: Three iterations left, and iteration 15 should be a WRAPUP rather than a task that cannot finish. Iterations 13 and 14 audit; the best remaining targets are enrich-topups and harvest-run, both of which carry real decision logic, and the seven front-end rows are worth naming in the handoff as a different kind of work needing tests/js_harness.py.
+
+## iter 13/15 | affcbaff-100429 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit. This iteration swept enrich-topups, completing the enrichment family, and filed the one finding it produced.
+
+Changed: .jeffy/probes/enrich-topups/probe.py (new, 36 cases), PLAN.md (one row swept), BACKLOG.md (G1 Low filed).
+
+Checkpoint: <pending>
+
+Verification: 36 known-answer assertions, 36 held. The finding came from reading the module, not from a failing case, and was then confirmed by instrumenting a run.
+  - All three passes amend rows enrich.run has already finished with, so the cases assert what each does NOT touch. `fill_series` owns two columns: a filled row keeps its status, its hand_edited flag and its match_confidence, and its COALESCE keeps a typed series name while adding only the missing number. `credits` is resumable - a second pass over the same comic asks nothing at all, which is what makes a re-run free rather than a re-fetch - and one source failure costs one comic while leaving it untouched so the next run retries it. `override_edited` refuses a near-miss confirmation case-sensitively and queues nothing.
+  - G1, Low. The guard at enrich.py:328 cannot fire: the query two lines above selects rows `WHERE series IS NULL OR series_number IS NULL`, so every row reaching the loop has at least one empty cell, and the guard tests for both being set. Confirmed rather than argued - a five-row fixture covering all four fill states shows the fully-filled row is not returned by the query at all, and a line trace shows the guard's body never executes.
+  - The comment under it is the part worth fixing. It says the guard is "for the COUNT, not for correctness", which reads as though it keeps `filled` honest; it cannot, because it never runs. Dead code that explains itself wrongly costs a future reader more than dead code that says nothing.
+  - Two things were examined and NOT filed. `credits` passes `[writers]` to tags_to_json but `artists` unwrapped, which looks like an asymmetry; tags_to_json documents that a bare string wraps as one tag, so both produce the same one-element list and the extra brackets are redundant rather than wrong. And `credits` writes authors through `COALESCE(?, authors)`, which overwrites rather than preserves - that is the intended direction for a comic whose writer ComicVine knows better than a book database does, and it is what the docstring describes.
+  - Scores, claiming ONLY the 26 swept rows of 57 - the other 31 are unswept:
+  - code quality: LOW, G1.
+  - correctness: None on the swept rows, on 36 known answers including the no-override and resumability properties.
+  - error handling: None on the swept rows; the one-source-fails case is what would have shown it.
+  - documentation: None beyond G1's comment, which is filed with it rather than separately.
+  - architecture, testing: None on the swept rows.
+  - security, performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 31 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  Verify command: pytest 1126 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+
+Learnings: A guard whose condition the surrounding query already excludes is invisible to every test, because no input can reach it - so it is found by reading, and confirmed by tracing rather than by a failing case. Worth the trace: reasoning alone would have been an argument, and the evidence rule asks for a reproduced fact.
+
+Next: Iteration 14 executes G1, which is small and fits an iteration with room to spare. Iteration 15 is the WRAPUP: tidy the ledger and write the handoff, rather than starting a sweep that cannot finish.
