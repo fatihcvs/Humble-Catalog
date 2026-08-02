@@ -355,7 +355,7 @@ Task: C3 (Low, runtime, code quality) - a function-local binding shadowing a mod
 
 Changed: humble_catalog/extract.py (salvaged in this iteration's SALVAGE commit: the download count is now bound to `downloaded`, with a comment recording why the module name must stay free), .jeffy/probes/module-shadowing/probe.py (new, the enumerating check), BACKLOG.md (C3 deleted, one Settled classes line added).
 
-Checkpoint: <pending>
+Checkpoint: acf287f. Not a stall: runtime code was salvaged and committed, a probe battery was added under .jeffy/probes/, and C3 moved from open to settled.
 
 Verification: The filed acceptance check was run first, on both sides, before anything else.
   - The filed check, `grep -n "^ *covers = " humble_catalog/extract.py`, returns nothing at HEAD and returns `33: covers = _download_covers(...)` against 585656a, the commit before the fix. Differential, so it can fail.
