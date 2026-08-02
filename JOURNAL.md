@@ -721,7 +721,7 @@ Task: Swept the last two Python rows with real logic - harvest-reports and priva
 
 Changed: .jeffy/probes/harvest-reports/probe.py (new, 28 cases), .jeffy/probes/privacy-gates/probe.py (new, 59 cases), PLAN.md (two rows swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: 25ac5ec. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 87 known-answer assertions across two rows, 87 held. No findings.
   - harvest-reports, 28/28. The trim is the case worth having: it is counted in RUNS, not rows, because a run is one started_at spread over up to six sources and trimming rows would behead a run mid-way, leaving a partial record that reads as a complete one. Asserted with four runs of three sources at keep=2: exactly the two newest survive, and each survives WHOLE at six rows rather than some truncated count.
