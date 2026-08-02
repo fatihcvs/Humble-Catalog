@@ -622,7 +622,7 @@ Task: Continuing down the user's ranking now that their four chosen rows are don
 
 Changed: .jeffy/probes/keys-report/probe.py (new, 60 cases), PLAN.md (one row swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: cdff75b. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 60 known-answer assertions, 60 held. No findings.
   - `report(conn, now=...)` takes an injectable clock, so every expiry answer is fixed arithmetic against 2026-08-02T12:00Z rather than something that drifts with the wall clock. That is the trap iteration 12 fell into with a stub reset time, avoided here by construction.
