@@ -486,3 +486,33 @@ Verification: 41 known-answer assertions, 41 held. No findings.
 Learnings: Write a battery's expected ORDER from the property that orders it, never from the order the fixture happens to be written in. Five cases here asserted id order because the fixture listed items 1,2,3,4, while the code sorts by name - the failures pointed at the sort, which was correct, and the fixture was what needed reading.
 
 Next: 21 rows and 11 iterations after this one, so convergence is out of reach and the run's value is the batteries it leaves behind. Iteration 10 continues the front-end cluster with js-catalog-render, which shares catalog.js and can reuse this battery's fixture shape; the remaining rows after that are js-autocomplete, js-panels, js-shell, viewer-markup, the five scripts and packaging rows, and eleven Python rows led by the harvest family.
+
+## iter 10/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit, ledger still empty. This iteration swept js-catalog-render, the table the owner actually reads, completing catalog.js alongside the filter row swept in iteration 9.
+
+Changed: .jeffy/probes/js-catalog-render/probe.py (new, 48 cases), PLAN.md (one row swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - nothing was filed at rubric severity, for the reason below.
+
+Verification: 48 known-answer assertions, 48 held.
+  - The escaping cases are exact strings rather than "contains a escaped character": `esc` must turn the four markup characters into their entities, and `highlight` must escape in all THREE slices it builds - before the span, inside it, and after - because it concatenates into innerHTML. Asserted by stripping the one element it is allowed to introduce, `<mark>`, and requiring no `<` survives.
+  - The overlap rule is pinned because getting it wrong duplicates text rather than raising: with spans [0,6] and [3,9] the second is skipped and the answer is `<mark>Salt a</mark>nd Sextant`. Without the `start < at` guard the slice runs backwards and the row shows the same characters twice.
+  - The guards are each driven with the field they exist for: `tagBadges(undefined)` renders nothing rather than throwing, `person` on a row carrying neither name field yields [], `esc(null)` and `esc(undefined)` both yield empty - `v == null` catches both, where a strict check would render the text "undefined" into the table - and `statusSelect` on a row with no status selects unread.
+  - The render cases assert the count line as an exact string, which is the cheapest honest check of the whole pipeline: `3 / 3 items` unfiltered, `1 / 3 items` under a search, and the documented ` - by relevance` suffix present only while relevance is active AND the query non-empty.
+  - Also pinned: a row without a cover emits NO img rather than one with an empty src, which a browser resolves against the page URL and re-requests; and an empty catalog renders zero rows with a `0 / 0 items` count rather than throwing.
+  - INVESTIGATED AND NOT FILED, recorded so a later audit does not re-derive it. The first version of this battery crashed `visible()`: `chipFilters.narrator.accessor` is `i => [...i.narrator, ...i.illustrator]` and spreads both fields unguarded, so a row omitting them raises TypeError and blanks the page - which is exactly the failure the guards elsewhere in this file were added for, and the comments say so.
+  - It is not filed because reaching it needs an off-contract payload. `db.fetch_items` runs every tag column through `tags_from_json`, which answers [] for NULL, so narrator, illustrator, genre, authors and user_tags are always present in a real response. The Operating envelope classes this surface machine-generated: the generator's real output is the contract, and hand-mangled variants are out of envelope, Low at most and Declined by default. `bundle`'s accessor has the same shape.
+  - The fixture was corrected rather than the code, and the reason is written into the battery: a probe asserting a shape the server cannot produce pins a contract the project does not have. The partial row now omits only the SCALARS the guards genuinely protect.
+  - Scores, claiming ONLY the row swept this iteration; 20 rows remain unswept:
+  - correctness: None on the swept row, on 48 exact answers.
+  - security: None on the swept row. Every innerHTML path escapes, checked by stripping the one permitted element rather than by looking for one entity.
+  - error handling: None on the swept row, on the guards driven with their missing fields. The unguarded accessors above are out of envelope, not clean.
+  - architecture, documentation, testing, UX: None on the swept row.
+  - performance, dependency hygiene, observability, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 20 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 260 files.
+
+Learnings: When a probe crashes the code under test, decide whether the INPUT was in envelope before deciding it is a finding. This one produced a real TypeError from a real unguarded spread, and the correct answer was still to fix the fixture: the server cannot emit that shape, so asserting against it would have pinned a contract the project never made and left a permanent false obligation in the battery.
+
+Next: 20 rows and 10 iterations. The user has asked whether this is real progress and the answer belongs in the reply rather than here; the honest position is that findings have thinned sharply since iteration 1 while row coverage has not, so the remaining value is coverage rather than defects. Iterations 11+ should take the user's steer before continuing to spend budget the same way.
