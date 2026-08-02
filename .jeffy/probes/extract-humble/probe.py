@@ -284,23 +284,60 @@ conn.close()
 # --------------------------------------------------------------------
 # DRIFT. HumbleBundle order JSON is adversarial per the envelope.
 # --------------------------------------------------------------------
+# One malformed entry must not cost the whole library.
 with Server({"/api/v1/user/order": (200, JSON, [{"gamekey": "abc123"},
                                                 {"no_gamekey": 1}])}):
     check_no_raise("drift: an order entry without a gamekey is skipped",
                    lambda: client().list_order_keys(), ["abc123"], group="DRIFT")
+with Server({"/api/v1/user/order": (200, JSON, [{"gamekey": "abc123"},
+                                                "not-an-order", None])}):
+    check_no_raise("drift: entries that are not objects are skipped",
+                   lambda: client().list_order_keys(), ["abc123"], group="DRIFT")
+with Server({"/api/v1/user/order": (200, JSON, [])}):
+    check_no_raise("drift: a genuinely empty library is not an error",
+                   lambda: client().list_order_keys(), [], group="DRIFT")
 
+# A wholesale shape change must NOT read as an empty library. These two
+# cases asserted `== []` when this battery was written; that was the wrong
+# desired answer - a harvest would then do nothing and report success -
+# and the assertion is corrected here, in the iteration that pins it.
 with Server({"/api/v1/user/order": (200, JSON, {"orders": []})}):
-    check_no_raise("drift: an order list that is not a list yields no keys",
-                   lambda: client().list_order_keys(), [], group="DRIFT")
+    check_raises("drift: an order index that is not a list refuses",
+                 lambda: client().list_order_keys(),
+                 humble_api.MalformedOrderList, group="DRIFT")
+with Server({"/api/v1/user/order": (200, JSON, ["abc123", "apk456"])}):
+    check_raises("drift: an index whose every entry is unusable refuses "
+                 "rather than reporting an empty library",
+                 lambda: client().list_order_keys(),
+                 humble_api.MalformedOrderList, group="DRIFT")
 
-with Server({"/api/v1/user/order": (200, JSON, ["abc123"])}):
-    check_no_raise("drift: an order list of bare strings yields no keys",
-                   lambda: client().list_order_keys(), [], group="DRIFT")
+# parse_order keeps its documented stance - a required field missing is a
+# refusal at the parse site, never a NULL written two layers on - but the
+# refusal now names the order and the field instead of raising an opaque
+# subscript error.
+from humble_catalog.parse_order import MalformedOrder, parse_order   # noqa: E402
+
+for payload, why in (
+        ({"gamekey": "abc123", "product": "nope"}, "a product that is not an object"),
+        ({"gamekey": "abc123"}, "an order with no product at all"),
+        ({"product": {"human_name": "Bundle One"}}, "an order with no gamekey")):
+    check_raises(f"parse: {why} is refused by name",
+                 lambda p=payload: parse_order(p), MalformedOrder, group="DRIFT")
+
+try:
+    parse_order({"gamekey": "abc123", "product": "nope"})
+except MalformedOrder as exc:
+    message = str(exc)
+else:
+    message = ""
+check("parse: the refusal names the order and the field",
+      "abc123" in message and "human_name" in message, True, group="DRIFT")
 
 check_no_raise(
-    "drift: an order whose product is not a dict still caches",
-    lambda: run_extract({"abc123": {"gamekey": "abc123", "product": "nope"}})
-    and True, True, group="DRIFT")
+    "drift: an order whose subproduct list is not a list still parses",
+    lambda: parse_order({"gamekey": "abc123", "subproducts": "nope",
+                         "product": {"human_name": "Bundle One"}})[1],
+    [], group="DRIFT")
 
 
 def group_of(line):

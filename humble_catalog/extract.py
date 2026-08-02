@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from humble_catalog import covers, db, humble_api, outbound
 from humble_catalog.progress import Progress
+from humble_catalog.shapes import as_mapping
 from humble_catalog.store import store_order
 
 # Generous for cover art - the icons Humble serves run well under a
@@ -28,7 +29,7 @@ def run(db_path="catalog.db", covers_dir="covers", client=None, refetch=False):
                      "VALUES (?,?,?)",
                      (key, datetime.now(timezone.utc).isoformat(), json.dumps(raw)))
         store_order(conn, raw)
-        prog.step(raw.get("product", {}).get("human_name", key))
+        prog.step(as_mapping(raw.get("product")).get("human_name") or key)
     prog.detach()  # the cover phase paints its own block below this one
     # Not `covers`: that is the module imported above, and binding it here
     # would make the name local to this whole function, so any later use of
@@ -56,7 +57,8 @@ def _reparse_cached(conn):
     prog = Progress(conn, "reparse", total=len(rows), phase="Bundle")
     for row in rows:
         raw = json.loads(row["json"])
-        prog.step(raw.get("product", {}).get("human_name", row["gamekey"]))
+        prog.step(as_mapping(raw.get("product")).get("human_name")
+                  or row["gamekey"])
         store_order(conn, raw)
     prog.finish(f"Re-parsed {len(rows)} cached bundles.")
 

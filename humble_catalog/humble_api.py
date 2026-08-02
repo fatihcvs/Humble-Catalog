@@ -2,12 +2,22 @@ import subprocess
 import time
 from pathlib import Path
 import requests
+from humble_catalog.shapes import as_mapping, as_text
 
 BASE = "https://www.humblebundle.com"
 UA = {"User-Agent": "HumbleCatalog/1.0"}
 
 class NotLoggedIn(Exception):
     pass
+
+class MalformedOrderList(ValueError):
+    """The order index came back in a shape this client cannot read.
+
+    Distinct from NotLoggedIn on purpose: a session problem is something
+    the user fixes by logging in again, and `ensure_login` acts on it,
+    while this says the endpoint answered with something else entirely
+    and re-logging in would not help.
+    """
 
 class HumbleClient:
     def __init__(self, cookies, delay=4.0, http=None):
@@ -39,7 +49,30 @@ class HumbleClient:
             return False
 
     def list_order_keys(self):
-        return [o["gamekey"] for o in self._get("/api/v1/user/order")]
+        """Every order key the account owns.
+
+        One malformed entry is skipped rather than raised on: this is the
+        index of the whole library, so failing here costs every bundle,
+        not one. That is a different granularity from parse_order, which
+        refuses a single order missing a required field and is right to.
+
+        A payload that is not a list at all, or one whose every entry is
+        unusable, does raise. Returning [] there would report an empty
+        library, and a harvest would then do nothing and call it success -
+        the silent-wrong-answer failure this project prefers to avoid.
+        """
+        orders = self._get("/api/v1/user/order")
+        if not isinstance(orders, list):
+            raise MalformedOrderList(
+                f"GET /api/v1/user/order returned {type(orders).__name__}, "
+                f"not a list of orders")
+        keys = [key for key in
+                (as_text(as_mapping(o).get("gamekey")) for o in orders) if key]
+        if orders and not keys:
+            raise MalformedOrderList(
+                f"GET /api/v1/user/order returned {len(orders)} order(s), "
+                f"none carrying a usable gamekey")
+        return keys
 
     def get_order(self, gamekey):
         # all_tpkds=true is required or the API omits external keys
