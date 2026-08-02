@@ -647,3 +647,36 @@ Verification: 60 known-answer assertions, 60 held. No findings.
 Learnings: When a first assertion fails, check whether the SECOND one is testing the same misunderstanding. Both attempts at the MAX_NAME case encoded a wrong model - once as a width bound, once as an invariance claim - and only reading the actual rendered rows settled what the cap does. A failing assertion is evidence about the model, not only about the value.
 
 Next: 15 rows remain with 6 iterations. Iteration 15 continues with import-games and import-sheets, both of which parse files the project did not write. The final iteration is reserved for a WRAPUP handoff, so realistically 4 more sweeping iterations remain.
+
+## iter 15/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Continuing the ranking. Swept import-games and import-sheets, the two rows that read files the project did not write - the same shape as the surface where every defect this run was found.
+
+Changed: .jeffy/probes/import-games/probe.py (new, 35 cases), .jeffy/probes/import-sheets/probe.py (new, 62 cases), PLAN.md (two rows swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 97 known-answer assertions across two rows, 97 held on the first run of each. No findings.
+  - import-games, 35/35. This module's most important behaviour is a pair of REFUSALS, and both exist because one shape - an empty list - is written by two different NORMAL states: a logged-out Heroic store and a private Steam profile. Acting on it would delete a good library, and the next bundle preview would then report a whole bundle as new.
+  - Both refusals are asserted the strong way, by reading the games table back and comparing it against what it held before: `store_games` raises on empty rather than clearing, and the library is byte-identical afterwards. `read_heroic` raises on unparseable JSON rather than reading it as "no games", with the message naming the file, because Heroic may simply be mid-write.
+  - The transaction guarantee is exercised rather than assumed: a malformed row raises inside the write, AFTER the delete has run, and the previous rows are asserted to still be there. That is the one case where the `with conn:` block is doing work no other assertion would notice.
+  - The private-profile branch is reached through the `http=` seam with a stub session, so the case that motivated the whole guard runs with no network, and `include_appinfo` is asserted to be sent - without it the API returns bare appids and every title would go unmatched.
+  - Per-store replacement is pinned on both sides: a re-import drops a game removed upstream AND leaves every other store untouched.
+  - import-sheets, 62/62. The rule this module is built around is gap-fill only, and it is asserted directly: a row whose every field the owner has already set is read back unchanged after an import that had something to say about all of them.
+  - The header vocabulary carries a distinction worth pinning, and `unknown_headers` exists solely to keep it: a header mapping to None is understood and deliberately dropped, because bundles and publishers are authoritative from Humble orders, while an unrecognised header is a typo that silently imports nothing. A mixed header row is asserted to report only the typos.
+  - `_cell` treating a numeric 0 as PRESENT is pinned, since the documented meaning is that a 0 rating means "unrated" and is skipped later with that meaning rather than being lost at the read.
+  - `norm_title`'s float rule is pinned because it is the non-obvious one: a numeric title arrives from a sheet cell as a float, and 1632.0 must normalize to "1632" or it matches nothing.
+  - `match` is asserted on all three outcomes including the one that refuses to guess: two catalog rows sharing a normalized title answer `ambiguous` rather than picking one, and an unmatched title suggests the catalog's ORIGINAL spelling rather than its normalized key.
+  - Scores, claiming ONLY the two rows swept this iteration; 13 rows remain unswept:
+  - correctness: None on the swept rows.
+  - error handling: None on the swept rows, and this is where the weight sits - three documented refusals, each asserted to leave the stored data untouched.
+  - security: None on the swept rows.
+  - architecture: None. The `root=` and `http=` seams are what let both file readers be driven from fixtures.
+  - documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 13 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 267 files.
+
+Learnings: Where one input shape is produced by two different normal states, the refusal is the feature and the battery's job is to prove the stored data survived it. Both of this module's guards exist because an empty list means "logged out" as often as it means "owns nothing", and asserting only that a call raised would miss the half that matters - that nothing was deleted on the way to raising.
+
+Next: 13 rows remain with 5 iterations, and the last is reserved for the WRAPUP handoff. Iteration 16 takes cli-dispatch and reset-cmd; harvest-reports and privacy-gates are the other Python rows worth having, and the seven front-end and scripts rows would be next after that.
