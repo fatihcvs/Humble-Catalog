@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from rapidfuzz import fuzz, process
 
-from humble_catalog import db, import_games, series, stats, url_import
+from humble_catalog import db, import_games, series, shapes, stats, url_import
 from humble_catalog.game_match import classify_game, prepare_pool
 from humble_catalog.titles import clean_game_title, clean_title
 
@@ -51,6 +51,11 @@ def fetch_bundle(url, http=None):
 
     Raises ValueError for a non-Humble host or a page carrying no bundle
     data; lets HTTP and network errors propagate as themselves.
+
+    The blob is third-party content, so it is read through `shapes`: a
+    page whose JSON parses but is not the expected object yields an empty
+    dict, which `preview` reports as a bundle selling nothing, rather than
+    an AttributeError surfacing as a 500 from the viewer route.
     """
     parts = urlparse(url_import.normalize_url(url))
     host = parts.netloc.lower().removeprefix("www.")
@@ -72,7 +77,8 @@ def fetch_bundle(url, http=None):
             "not a Humble bundle page (no bundle data found) -- a bundle "
             "that has closed still serves its page, but without its "
             "contents; they are not recoverable")
-    return json.loads(match.group(1)).get("bundleData") or {}
+    blob = shapes.as_mapping(json.loads(match.group(1)))
+    return shapes.as_mapping(blob.get("bundleData"))
 
 
 def _owned(conn):
@@ -141,7 +147,8 @@ def _adds(ordered, items):
     seen = set()
     for tier, new_names in reversed(ordered):
         tier["adds"] = sorted(
-            ((items.get(name) or {}).get("human_name") or name
+            (shapes.as_text(shapes.as_mapping(items.get(name))
+                            .get("human_name")) or name
              for name in new_names if name not in seen),
             key=str.lower)
         seen.update(new_names)
@@ -155,8 +162,15 @@ def delivery_stores(item):
     delivery store. An item with no game entry (a book, or the one
     observed entry carrying {}) yields an empty set and routes to the
     book path, so a mixed bundle needs no global decision.
+
+    Read through `shapes` because this is third-party content and the
+    quiet failure is the dangerous one: `set()` over a STRING yields its
+    characters, so a `game` field arriving as "steam" produced five
+    single-letter storefronts, each of which then read as a store the
+    owner had never imported. Accepts any shape and answers with a set.
     """
-    return set((item.get("platforms_and_oses") or {}).get("game") or {})
+    game = shapes.as_mapping(shapes.as_mapping(item).get("platforms_and_oses"))
+    return set(shapes.as_mapping(game.get("game")))
 
 
 def _owned_games(conn):
@@ -243,9 +257,14 @@ def preview(conn, bundle, url=None):
     # Keyed on the display title, which is what classify_game hands back.
     keyed_extra = {display: (key_type, bundle_name)
                    for _n, display, key_type, bundle_name in keyed}
-    basic = bundle.get("basic_data") or {}
-    pricing = bundle.get("tier_pricing_data") or {}
-    items = bundle.get("tier_item_data") or {}
+    # Every read of `bundle` below goes through `shapes`: it is the parsed
+    # bundle page, which the envelope classes adversarial, and `x or {}`
+    # is not a type check - a NON-EMPTY list is truthy and reaches the
+    # attribute access, which is why the empty-list cases looked clean.
+    bundle = shapes.as_mapping(bundle)
+    basic = shapes.as_mapping(bundle.get("basic_data"))
+    pricing = shapes.as_mapping(bundle.get("tier_pricing_data"))
+    items = shapes.as_mapping(bundle.get("tier_item_data"))
     # Sold, unowned, book-path items, keyed by machine_name so the same
     # name in two cumulative tiers is one candidate. A dict rather than a
     # set: _overlaps sorts by score and Python's sort is stable, so tie
@@ -262,11 +281,18 @@ def preview(conn, bundle, url=None):
     # verdict counts; a `possible` was not counted as new either.
     unmatched_stores = set()
     ordered = []
-    for key, display in (bundle.get("tier_display_data") or {}).items():
-        names = display.get("tier_item_machine_names") or []
+    for key, display in shapes.as_mapping(
+            bundle.get("tier_display_data")).items():
+        # text_list, not as_list: a list field that arrived unwrapped as a
+        # bare string is ONE name, never its characters. That is the rule
+        # shapes.first_text and shapes.text_list already state, and the
+        # defect this replaced counted a 1-item tier as 10 and offered
+        # single letters as titles the owner would be buying.
+        names = shapes.text_list(
+            shapes.as_mapping(display).get("tier_item_machine_names")) or []
         new_names, possible, owned_count, keyed_hits = [], [], 0, []
         for name in names:
-            item = items.get(name) or {}
+            item = shapes.as_mapping(items.get(name))
             if name in owned:
                 owned_count += 1
                 continue
@@ -280,10 +306,11 @@ def preview(conn, bundle, url=None):
                 # counting must be exhaustive. Hinting must not be, and a
                 # machine_name is not a title.
                 if name in items:
-                    candidates[name] = item.get("human_name") or name
+                    candidates[name] = shapes.as_text(
+                        item.get("human_name")) or name
                 continue
             game_names.add(name)
-            offered = item.get("human_name") or name
+            offered = shapes.as_text(item.get("human_name")) or name
             verdict, match = classify_game(offered, games)
             if verdict == "new":
                 # Only an outright keyed 'owned' is honoured. A keyed
@@ -305,8 +332,12 @@ def preview(conn, bundle, url=None):
                 new_names.append(name)
                 unmatched_stores |= delivery_stores(item)
         ordered.append(({
-            "price": ((pricing.get(key) or {}).get("price|money")
-                      or {}).get("amount", 0.0),
+            # as_number, not a bare get: the amount is formatted with
+            # `:.2f` downstream, so a string here raises inside the
+            # report rather than at the read that accepted it.
+            "price": shapes.as_number(
+                shapes.as_mapping(shapes.as_mapping(pricing.get(key))
+                                  .get("price|money")).get("amount")) or 0.0,
             "total": len(names),
             "owned": owned_count,
             "possible": len(possible),
@@ -346,9 +377,9 @@ def preview(conn, bundle, url=None):
     tiers = [tier for tier, _new_names in ordered]
     libraries = import_games.imported_stores(conn)
     return {
-        "name": basic.get("human_name") or "Humble Bundle",
-        "url": url or bundle.get("page_url") or "",
-        "currency": basic.get("currency") or "USD",
+        "name": shapes.as_text(basic.get("human_name")) or "Humble Bundle",
+        "url": url or shapes.as_text(bundle.get("page_url")) or "",
+        "currency": shapes.as_text(basic.get("currency")) or "USD",
         "tiers": tiers,
         "game_matching": bool(game_names),
         "libraries": libraries,
