@@ -317,3 +317,27 @@ Verification: 63 known-answer assertions across three rows, 63 held. No findings
 Learnings: A cutoff is swept by deriving the expected verdict from the documented constant, not by feeding it real-looking data and recording what comes back. Synthetic inputs whose score is computable by hand - here 2*M/T over letter strings - turn a fuzzy matcher into a known-answer surface, and asserting the constants themselves in the same battery keeps the derivation honest if they ever move.
 
 Next: Iteration 4 executes H2, the only open item, now that the ledger has been checked rather than assumed empty of worse. After that the ledger empties again and the run returns to sweeping; 27 rows remain and the largest untouched clusters are the four harvest and progress rows, the seven front-end rows, and the five scripts and packaging rows.
+
+## iter 4/20 | ce2620c5-151422 | 2026-08-02 | H2 | done
+
+Task: H2 (Low, runtime, error handling) - the two viewer routes that take a URL answered 500 rather than 400 for a body that is not an object or a `url` that is not a string.
+
+Changed: humble_catalog/webapp/__init__.py (`_url_from_body` added as one shared reader; both routes now call it), tests/test_webapp.py (+5), BACKLOG.md (H2 deleted, H3 filed), PLAN.md (three webapp rows re-swept).
+
+Checkpoint: recorded below. Not a stall: runtime code and tests changed, H2 closed and H3 opened.
+
+Verification: The filed reproduction was re-run first and still stood - both routes raised AttributeError on an array body, a bare-string body and `{"url": 5}`.
+  - Acceptance check. 5 new tests in tests/test_webapp.py pass, and the suite is 1158 passed against 1153 at the last checkpoint, which is exactly the 5 added and no existing test moved.
+  - Differential, run by copying the fixed file aside and restoring HEAD's version under it rather than checking out over uncommitted work: 4 of the 5 fail against the unfixed route code. The fifth is the control and passes on BOTH sides - it asserts the blank-url refusal that already worked, so it proves the fix did not trade away the behaviour it was extending.
+  - One reader rather than two guards, because the two routes must not be able to disagree about what a usable body is. `silent=True` folds malformed JSON in as well, so a bad body now earns the same JSON error object as every other refusal instead of Werkzeug's HTML 400 page, which the viewer's JS cannot parse.
+  - A test asserts the property that makes this a refusal rather than a slow failure: with `url_import.resolve` and `bundle_preview.fetch_bundle` replaced by functions that raise if called, every refused body still answers 400, so nothing outbound is attempted for a body that cannot supply a URL.
+  - Contract preserved. Both routes keep their paths, their methods, their success shapes and their existing 400 for `{}` and for a blank url. The change is strictly a narrowing of what answers 5xx.
+  - webapp/__init__.py is the implementing code of three already-swept rows, so all three batteries were re-run rather than assumed unaffected: webapp-host-guard 34/34, webapp-read-routes 46/46, webapp-write-routes 18/18, each unchanged. The rows are re-swept at this checkpoint.
+  - A CORRECTION, recorded because it was very nearly written into the ledger as fact. The Settled classes line for H2 was drafted claiming `grep -n "get_json" humble_catalog/webapp/__init__.py` returned 6 sites. It returns 19. The claim was written from expectation and then checked, and the check refuted it; the line was deleted rather than repaired, because the class it claimed to settle is not settled.
+  - What the real enumeration found is H3: 13 further routes carry the identical idiom and answer 500 on an array body, reproduced route by route. So H2 fixed exactly the two routes its finding named and left the class open. That is the honest reading - the finding was scoped to two routes because those were the two that had been probed, not because the others were clean.
+  - `/api/items/<id>/rating`, `/type` and `/choose` are NOT affected, having already been given `get_json(silent=True)` and an isinstance check by A1. That is the shape the H3 fix generalizes.
+  - Verify command: pytest 1158 passed (exit 0); check_no_data_tracked exit 0; leak_check exit 0 over 5251 terms and 253 files. Exit status checked directly, never through a pipe.
+
+Learnings: Run the enumerating check before writing what it returns, not after. A settled-class line is a claim that a whole class is closed, and this one was drafted from the two sites the finding happened to name; the real grep returned three times as many and 13 of them were still broken. The Method already says to enumerate the idiom rather than the fix - the failure here was enumerating from memory and treating the number as known.
+
+Next: Iteration 5 executes H3, the only open item, which is the same fix generalized to one shared body reader across every POST route. Its acceptance check drives every route in `grep -n "@app.post"` with an array body, so it closes the class by enumeration rather than by the list of routes that happen to be named today.

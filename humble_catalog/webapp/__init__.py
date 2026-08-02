@@ -49,6 +49,26 @@ def _sorted_candidates(raw):
     cands.sort(key=lambda c: c.get("confidence", 0), reverse=True)
     return cands
 
+def _url_from_body():
+    """The `url` field of the request's JSON body, or None.
+
+    Shared by the two routes that take a URL, so they cannot disagree
+    about what a usable body is. Three shapes answer None and therefore
+    400, where reading the body directly raised and answered 500:
+    a body that is not an object (a JSON array or a bare string has no
+    `.get`), a `url` that is not a string (a number has no `.strip`),
+    and a blank one.
+
+    `silent=True` folds malformed JSON in here too, so a bad body earns
+    the same JSON error object as every other refusal rather than
+    Werkzeug's HTML 400 page, which the viewer's JS cannot parse.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return None
+    url = body.get("url")
+    return url.strip() if isinstance(url, str) else None
+
 def create_app(db_path="catalog.db", covers_dir="covers"):
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["DB_PATH"] = db_path
@@ -507,7 +527,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/items/<int:item_id>/fetch_url")
     def fetch_url(item_id):
-        url = ((request.get_json() or {}).get("url") or "").strip()
+        url = _url_from_body()
         if not url:
             return jsonify({"error": "url required"}), 400
         try:
@@ -534,7 +554,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         # bundle URL in a query string reaches access logs and history.
         # Nothing here writes to the catalog -- the report is a question,
         # not a fact about the library.
-        url = ((request.get_json() or {}).get("url") or "").strip()
+        url = _url_from_body()
         if not url:
             return jsonify({"error": "url required"}), 400
         try:

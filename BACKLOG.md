@@ -14,7 +14,7 @@ Rules:
 
 ## Later
 
-- [ ] H2 (Low, runtime, error handling): `/api/bundle-preview` and `/api/items/<id>/fetch_url` answer 500 rather than 400 when the JSON body is not an object (`[1,2,3]`, `"hello"`) or when `url` is not a string (`{"url": 5}`); both read `(request.get_json() or {}).get("url")` and then `.strip()`. Low by the envelope: the viewer API is user-error, where a wrong value earns a clear message and exotic shapes are Low at most. Settled class A1 does not cover it - its enumerating check lists direct-index reads (`request.get_json()[`) and these two routes read with `.get`, and neither writes to the catalog. Acceptance: both routes answer 400 with a JSON error body for all three shapes, pinned by tests in tests/test_webapp.py that fail against the current code.
+- [ ] H3 (Low, runtime, error handling): the `(request.get_json() or {}).get(...)` idiom answers 500 on 13 further viewer routes, so H2 fixed the two routes its finding named and left the class open - `or {}` keeps a non-empty list, which then has no `.get`. Reproduced with a `[1,2,3]` body against `/api/items/<id>/{user-tags,comment,read-status,apply,edit,override}`, `/api/genres/{rename,delete}`, `/api/user-tags/{rename,bulk}`, `/api/merge`, `/api/dismiss_pair` and `/api/export.csv`; all 13 raise AttributeError. `/api/items/<id>/rating`, `/type` and `/choose` do NOT, because they already read with `get_json(silent=True)` and type-check. Low by the envelope, as H2 was: the viewer API is user-error. Fix at one shared reader used by every route, not per site. Acceptance: a test driving every POST route in `grep -n "@app.post" humble_catalog/webapp/__init__.py` with a JSON-array body asserts none answers 5xx, and fails against the current code.
 
 ## Proposed
 

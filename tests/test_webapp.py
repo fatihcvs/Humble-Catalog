@@ -448,6 +448,88 @@ def test_fetch_url_endpoint(tmp_path, monkeypatch):
     assert resp.status_code == 400
     assert "unsupported" in resp.get_json()["error"]
 
+# --- the two routes that take a URL in the body ----------------------------
+# Both read `url` through _url_from_body, so neither can answer 500 for a
+# body shape the other refuses. Each of these shapes raised an
+# AttributeError before H1's sibling fix: a body with no `.get`, a `url`
+# with no `.strip`. The envelope makes them Low - the viewer API is
+# user-error, reachable only from loopback - but a wrong value is exactly
+# the case that earns a clear failure message rather than a stack trace.
+
+BAD_BODIES = [
+    ("a JSON array", "[1,2,3]"),
+    ("a bare JSON string", '"hello"'),
+    ("a JSON number", "5"),
+    ("malformed JSON", "{not json"),
+]
+
+
+def _post_raw(client, route, body):
+    return client.post(route, data=body, content_type="application/json")
+
+
+def test_fetch_url_refuses_a_body_that_is_not_an_object(tmp_path):
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    for label, body in BAD_BODIES:
+        resp = _post_raw(client, f"/api/items/{item_id}/fetch_url", body)
+        assert resp.status_code == 400, label
+        assert resp.get_json()["error"] == "url required", label
+
+
+def test_bundle_preview_refuses_a_body_that_is_not_an_object(tmp_path):
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    for label, body in BAD_BODIES:
+        resp = _post_raw(client, "/api/bundle-preview", body)
+        assert resp.status_code == 400, label
+        assert resp.get_json()["error"] == "url required", label
+
+
+def test_both_routes_refuse_a_url_that_is_not_a_string(tmp_path):
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    for value in [5, 5.5, True, None, ["https://example.invalid/x"],
+                  {"href": "https://example.invalid/x"}]:
+        for route in [f"/api/items/{item_id}/fetch_url", "/api/bundle-preview"]:
+            resp = client.post(route, json={"url": value})
+            assert resp.status_code == 400, (route, value)
+            assert resp.get_json()["error"] == "url required", (route, value)
+
+
+def test_both_routes_still_refuse_a_blank_url(tmp_path):
+    # The behaviour that already worked must not have been traded away.
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    for value in ["", "   ", "\t\n"]:
+        for route in [f"/api/items/{item_id}/fetch_url", "/api/bundle-preview"]:
+            resp = client.post(route, json={"url": value})
+            assert resp.status_code == 400, (route, value)
+
+
+def test_a_refused_body_never_reaches_the_network(tmp_path, monkeypatch):
+    # The property that makes this a refusal rather than a slow failure:
+    # nothing outbound is attempted for a body that cannot supply a URL.
+    from humble_catalog import bundle_preview, url_import
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+
+    def explode(*args, **kwargs):
+        raise AssertionError("a refused body reached the network")
+
+    monkeypatch.setattr(url_import, "resolve", explode)
+    monkeypatch.setattr(bundle_preview, "fetch_bundle", explode)
+    for _label, body in BAD_BODIES:
+        assert _post_raw(client, f"/api/items/{item_id}/fetch_url",
+                         body).status_code == 400
+        assert _post_raw(client, "/api/bundle-preview", body).status_code == 400
+
+
 def test_index_has_the_stats_panel():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")
