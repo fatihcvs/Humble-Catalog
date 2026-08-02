@@ -404,7 +404,7 @@ Task: D1 (High, runtime, correctness) - close the class of third-party payload f
 
 Changed: humble_catalog/sources/base.py (7 shape-safe accessors, the boundary), google_books.py, open_library.py, hardcover.py, oreilly.py, audible.py, comicvine.py (every extraction site routed through them), tests/test_sources_shapes.py (new, 49 tests), PLAN.md (both parser rows re-swept, one row added), BACKLOG.md (D1 deleted, Settled classes line added).
 
-Checkpoint: <pending>
+Checkpoint: 3ba6109. Not a stall: runtime code across seven modules, 49 new tests, and D1 moved from open to settled.
 
 Verification: The filed reproduction was re-run first, before any edit, and both halves still reproduced at 54/61 and 69/82.
   - Acceptance, part one. `.jeffy/probes/sources-books/probe.py` exits 0 at 61/61, up from 54/61, and `.jeffy/probes/sources-media/probe.py` reports 0 DRIFT failures, up from 8. All 15 reproduced shapes now hold.
