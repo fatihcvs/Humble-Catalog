@@ -454,3 +454,35 @@ Verification: 77 known-answer assertions across two rows, 77 held. No findings.
 Learnings: A documented score band is a known-answer surface, not an opinion. Where a module writes its formula and its band edges down, the battery derives every expected value from them and asserts the constants too, so a changed cutoff fails loudly rather than being re-blessed - and the ordering BETWEEN bands is worth asserting separately, because that is the property the tiers exist to provide and a single tier's numbers can be right while the ranking is wrong.
 
 Next: Six front-end rows remain and are now known to be affordable. Iteration 9 continues the audit on that cluster - js-catalog-render and js-catalog-filter are the largest, sharing catalog.js - with 22 rows and 12 iterations left; that ratio is the run's real constraint and no full audit, and therefore no evaluator gate and no convergence, is possible until it closes.
+
+## iter 9/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit, ledger still empty. This iteration swept js-catalog-filter - the predicates that decide which rows the owner sees and in what order, and the largest single behaviour in the viewer.
+
+Changed: .jeffy/probes/js-catalog-filter/probe.py (new, 41 cases), PLAN.md (one row swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 41 known-answer assertions, 41 held. No findings.
+  - Every case states the exact id list that must come back, in order, which is the only assertion shape that works here: a filter keeping too much still renders a plausible page, and a sort falling back to insertion order still looks sorted.
+  - The `flag` filter's eleven values are each exercised with their exact expected row set rather than merely being called. That is the case the Method singles out - a predicate returning true for everything filters nothing while looking exactly like a filter that works - and the id lists are what would catch it.
+  - The documented union is asserted as a relation rather than as a third list: `review` must equal `unmatched` plus `low_confidence`, and each named flag must be strictly narrower. That is the distinction the workflow rests on, since a stats row showing 4 unmatched has to jump to those 4 and not to the 8 the union holds.
+  - `mode` is exercised at both values on the SAME chip set, and it changes the answer: two genres under `any` return three rows, under `all` return none, because no item carries both. A documented parameter that changed nothing would be a finding.
+  - The narrator chip is asserted to span illustrator too, which is the documented union - the column shows narrator||illustrator, so an item carrying either must stay findable under either name.
+  - `read_status` sorting is the case most likely to be quietly wrong and is pinned directly: the lifecycle order is want_to_read, unread, reading, read, and alphabetically that would be reading, read, unread, want_to_read. It sorts by ordinal.
+  - A missing `read_status` is asserted twice, on both the filter and the sort, because the two read it independently: filtering on unread catches the row with no status at all, and sortValue maps it to unread's ordinal. A partial payload from an older server is the documented reason.
+  - Filters are asserted to combine as AND rather than OR: type=ebook keeps two rows, the Mystery chip keeps two, and together they keep the one row in both. A chain that ORed would return three and still look like it was filtering.
+  - Five cases failed first and every one was MY expectation, not the code: I wrote the expected id lists in fixture order while the default sort is by name, and "Nightjar Post" precedes "Salt and Sextant". Corrected to the name order the code is right to produce, with the reason recorded in the battery so the next reader does not re-derive it.
+  - The battery generates its scenario setup as inlined source rather than passing strings to `eval` in the sandbox: the strings are literals written in the probe, but inlining makes a typo a parse error instead of a silent runtime surprise.
+  - Scores, claiming ONLY the row swept this iteration; 21 rows remain unswept:
+  - correctness: None on the swept row, on 41 exact row-set and ordering answers.
+  - error handling: None on the swept row; the missing-status and empty-result cases are the ones that would have shown it.
+  - architecture: None. The filter registry and the separation of relevance from sortKey are both documented at the point of decision, which is what made the negative cases writable.
+  - documentation, testing, UX: None on the swept row.
+  - security, performance, dependency hygiene, observability, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 21 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 259 files.
+
+Learnings: Write a battery's expected ORDER from the property that orders it, never from the order the fixture happens to be written in. Five cases here asserted id order because the fixture listed items 1,2,3,4, while the code sorts by name - the failures pointed at the sort, which was correct, and the fixture was what needed reading.
+
+Next: 21 rows and 11 iterations after this one, so convergence is out of reach and the run's value is the batteries it leaves behind. Iteration 10 continues the front-end cluster with js-catalog-render, which shares catalog.js and can reuse this battery's fixture shape; the remaining rows after that are js-autocomplete, js-panels, js-shell, viewer-markup, the five scripts and packaging rows, and eleven Python rows led by the harvest family.
