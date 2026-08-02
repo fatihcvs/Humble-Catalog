@@ -428,3 +428,29 @@ Verification: Deleting code that cannot run should change nothing, and the evide
 Learnings: When a fix is a deletion, the evidence that it is safe is that the numbers do NOT move - unchanged battery scores and an unchanged suite, not a new failing-then-passing test. A deletion that needs a new test to prove it was probably not dead code.
 
 Next: Iteration 15 is the final one and is a WRAPUP: tidy the ledger, record the run's position, and write a handoff naming the 31 unswept rows and which of them need a different instrument. The run does not converge - it cannot, with 31 rows unswept - and the report should say so plainly rather than dress the budget running out as completion.
+
+## iter 15/15 | affcbaff-100429 | 2026-08-02 | WRAPUP | done
+
+Task: Final iteration of the run. Tidy the ledger, record the position, and write the handoff. No new sweep was started: with 31 rows unswept a fourteenth-hour battery could not have been finished or verified, and an unfinished one is worse than none.
+
+Changed: JOURNAL.md (this entry). BACKLOG.md needed no tidying - Now, Next and Later are empty, nothing is marked [b], and no task was left half-done.
+
+Checkpoint: <pending>
+
+Verification: The run's closing state, checked rather than recalled.
+  - Ledger: 0 open, 0 blocked. Every task filed this run was completed - C3, D1, D2, E1, E2, F1, G1 - and none was Declined, so nothing was quietly dropped.
+  - Surface inventory: 26 of 57 rows swept, 31 unswept, 0 unreachable. No `[~]` row exists, so there is nothing this host could not reach.
+  - Verify command: pytest 1126 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+  - The run is NOT converged and the closing rule is not satisfied on any clause but one. The Definition of done needs a FULL fresh-evidence audit scoring zero High and zero Medium; every audit this run was partial by construction, because 31 rows remain unswept. The evaluator gate was therefore never invoked - it requires that same clean full audit - and no Converged line is appended. The only clause that does hold is the empty ledger.
+  - Five batteries were added this run and six existed before it; all 22 under .jeffy/probes/ are committed and re-runnable, and every one was re-run in the iteration that touched its code rather than trusted.
+
+Learnings: A run that cannot converge is still worth its budget if what it leaves behind is re-runnable. The 11 iterations of sweeping produced 470 known-answer assertions across 9 rows, and the next run re-runs them in seconds instead of reconstructing the instrument - which is where most of a re-sweep's cost otherwise goes.
+
+Handoff for the next run.
+  - Start a NEW session. The state files carry the run forward and the context does not; relaunching in this session keeps every accumulated token and forfeits the clean-context benefit the loop is built on.
+  - The 31 unswept rows split into three kinds of work, and the split matters more than the count. Nineteen are ordinary Python and take the same instrument every row this run used: cli-dispatch, four webapp route families, humble-login, bundle-preview-tiers, series-db, game-match, the four harvest and quota rows, check-cmd, import-sheets, import-games, keys-report, backup-restore and reset-cmd. Seven are front-end JavaScript - js-catalog-render, js-catalog-filter, js-fuzzy, js-autocomplete, js-panels, js-shell and viewer-markup - and need `tests/js_harness.py` rather than a Python battery, which is a different instrument and worth budgeting separately. Five are scripts and packaging: privacy-gates, demo-catalog, favicon-fixtures, os-wrappers and packaging-ci.
+  - Highest value first, on this run's evidence: every defect found this run was at a boundary where third-party or upstream data enters, and the internal logic came back clean on 210 assertions across five rows. The remaining rows with that same shape are webapp-remote-routes and bundle-preview-tiers, both of which parse content the project does not control. game-match is worth a sweep for a different reason - F1 was found there through titles, and the module was never probed directly.
+  - Two rows are cheap and were deliberately left: humble-login needs a real browser and a profile directory, and check-cmd makes live per-source requests. Both are reachable on this host; neither fits a battery that must not touch the network.
+  - The Proposed item on `leak_check.py` is unresolved and cost this run three more rewordings, on ordinary English prose and on two Python identifiers whose spelling cannot be changed. It needs a user decision; it is not something a run should decide for itself.
+
+Next: Nothing. This is the final iteration; the run ends here with the report to the user.
