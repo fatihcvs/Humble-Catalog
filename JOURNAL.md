@@ -368,3 +368,32 @@ Verification: The filed acceptance check was run first, on both sides, before an
 Learnings: An instance check and a class check are different instruments, and a Low is where that difference is cheapest to install. The filed grep would have certified this fix while a second site elsewhere in the package stayed broken; the AST pass costs one iteration once and answers the question for every future audit, including binding forms a grep cannot see at all.
 
 Next: The ledger is now empty, with 14 iterations left and 40 of 55 inventory rows unswept, so iteration 2 is a partial audit that sweeps unswept rows. The evaluator gate does not apply: it runs on an empty ledger only when a full fresh-evidence audit has already been recorded in the same run, and this run has recorded none.
+
+## iter 2/15 | affcbaff-100429 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit. The ledger emptied when C3 closed, so this iteration swept the two unswept rows the previous run's handoff named as the priority: sources-books and sources-media, the metadata parsers the Operating envelope classes adversarial.
+
+Changed: .jeffy/probes/sources-books/probe.py (new, 61 cases), .jeffy/probes/sources-media/probe.py (new, 82 cases), PLAN.md (both rows swept, one Lesson), BACKLOG.md (D1 High, D2 Medium filed).
+
+Checkpoint: <pending>
+
+Verification: 143 known-answer assertions across the two rows, 123 held. The 20 failures are the two findings, and both were reproduced before either was filed.
+  - sources-books, 54/61. Every contract case holds: the url fallback chain at three values, the api key and the token at two values each, featured_series winning over series_names and each falling back independently, and the GraphQL error payload raising before anything is cached. The 7 failures are D1.
+  - sources-media, 69/82. Every contract case holds: the web_url form at three values, the sequence parse across numeric, decimal, non-numeric and absent, every role atom of the narrow illustrator policy including the documented cover-only omission, and credits refusing a foreign host, a non-http scheme and a suffix-spoofed host with the request log as the assertion. The 13 failures are D1 and D2.
+  - D1, High, 15 shapes reproduced. Two of them write wrong values into the catalog with nothing logged: a string `categories` yields a genre of one character, and a non-string `key` yields a malformed source url. Both reach the enrichment table through apply_candidate, which passes the parsed fields straight into an UPDATE. The other 13 raise out of lookup. That is survivable in harvest and enrich, which catch broadly and skip the title, but url_import does not catch, and the viewer's fetch_url route catches only ValueError, MetadataUnavailable and RequestException - so those three exception types leave the route as a 500. Filed as one structural task with a boundary in sources/base.py, per the envelope's rule that scattered per-site guards are the wrong remedy, and because these are 15 instances of one root cause rather than 15 findings.
+  - D2, Medium, 5 values reproduced. The rating scale is inferred from the value's size, so anything between 5 and 1000 is divided by 1000: 7.0, 10, 50, 87 and 5.001 become 0.01 to 0.09 rather than being refused. Today's upstream serves the x1000 scale the code assumes, so this is latent - but the envelope names a changed upstream shape as in envelope, and the consequence of that change is a silently rescored catalog rather than a failure.
+  - The check that should have caught D2 cannot fail on it: the fixture test asserts only that a rating is None or at most 5, and 0.09 satisfies that. This is the absence-of-badness pattern the Method warns about, sitting directly beside the defect it was meant to pin.
+  - Two defects in this iteration's own probes, both found by disbelieving a pass. The unconfigured-source cases sent a real request, because both classes fall back to the environment and this host has keys exported - the case went green while asserting the opposite of its name. And the group marker split labels on the first colon, so every drift failure was reported as an ordinary breakage.
+  - Scores, claiming ONLY the 17 swept rows of 55 - the other 38 are unswept:
+  - correctness: HIGH, D1, at two silent-wrong-value sites and 13 raising ones.
+  - error handling: MEDIUM, D2, and the uncaught path from url_import to the viewer route recorded under D1.
+  - testing: MEDIUM - the fixture assertion above, folded into D2 rather than filed separately, since it is the same code and the same iteration's work.
+  - security: None on the swept rows. The credential rules hold: keys stay out of the cache key, the Authorization header is not built from third-party text, and credits refuses a foreign destination before sending.
+  - architecture, documentation, code quality: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 38 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  Verify command: pytest 1026 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0. Output redirected to a file and the exit status checked, never piped.
+
+Learnings: A probe of a keyed source must clear that provider's API-key environment variable before importing it, or the host's own configuration decides the result and the unconfigured-source cases certify the opposite of what they assert. More generally, both probe defects this iteration were passes that should not have been possible - a source with no key that still sent a request, and a drift group reporting zero members - and reading the passing lines rather than only the failing ones is what found them.
+
+Next: Iteration 3 executes D1, the only High. Build the accessors in sources/base.py first and route the five parsers through them; the two batteries already hold the differential baseline, 54/61 and 69/82, so the fix is measured rather than asserted. D2 is next and is small enough to follow in one iteration.
