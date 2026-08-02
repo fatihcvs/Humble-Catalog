@@ -781,3 +781,33 @@ Verification: 53 known-answer assertions across two rows, 53 held. No findings.
 Learnings: When a probe cannot observe half of what a row does, extending the harness beats narrowing the assertion - but only after checking that nothing depended on the old behaviour, and only with every battery that shares the harness re-run. The alternative was flipping a row while a documented accessibility contract stayed uncertified, which is the failure the inventory exists to prevent.
 
 Next: Iteration 19 is the last sweeping iteration and takes js-autocomplete and viewer-markup if both fit. Iteration 20 writes the WRAPUP handoff naming whatever remains - on current pace five or six rows, all of them front-end or packaging.
+
+## iter 19/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Last sweeping iteration. Swept viewer-markup, which is also the first row this run to come back with a finding since iteration 6.
+
+Changed: .jeffy/probes/viewer-markup/probe.py (new, 40 cases), BACKLOG.md (J1 filed), PLAN.md (one row swept).
+
+Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/, one inventory row changed state, and J1 was filed.
+
+Verification: 40 known-answer assertions, 39 held and 1 failed as a finding.
+  - The cases that earn this row are CROSS-FILE, and they are the reason it was worth sweeping at all rather than eyeballing the markup. The scripts write into selectors the HTML must provide, and a selector that does not exist fails in the quietest way available: querySelector answers null, the write goes nowhere, and every test that checks the scripts in isolation still passes.
+  - So the battery scans every `$("#id")` and `querySelector("#id")` across the viewer's scripts and asserts the markup provides each one. It also guards against that check passing vacuously, by asserting the scan found more than ten selectors - a regex that stopped matching the codebase's style would otherwise report a clean sweep over nothing.
+  - The section wiring is asserted in the same direction, and the section list is READ from shell.js rather than retyped, so adding a section to one file and not the other fails here. For each of the four: a `#tab-<id>`, a `#section-<id>`, a `.badge-count` span inside the tab, an `href="#/<id>"`, and the panel starting hidden. A tab without a badge slot would drop its count silently; a panel not starting hidden would paint two sections at once.
+  - No stale selector was found, and every section is wired both ways.
+  - J1, filed, Low. Eleven filter controls carry no accessible name. `#f-type` and `#f-flag` are bare selects with no label, no aria-label and no aria-labelledby, so a screen reader announces each as "combo box" and their first option text is a visible cue only. Nine inputs have a placeholder and nothing else; the accname spec does fall back to it, but that name disappears exactly when the field is in use.
+  - Severity was judged rather than assumed. Low, not Medium: this surface has one known user, the placeholder fallback covers nine of the eleven, and the rubric puts naming at Low. It is filed rather than declined because four sibling controls already carry aria-label, so the intent is established and these are the gaps in it - and because the Goal lists accessibility as a dimension to audit where a user-facing surface exists.
+  - The row is flipped to swept anyway: a sweep that finds a defect has still swept the row, and the finding is the evidence. Fixing J1 will change index.html and stale it, which the next run re-sweeps by re-running the same battery.
+  - The CSS cases assert two things a colour-only design would fail: the active filter chips are marked by an outline and weight rather than by hue alone, and every custom property used is defined - a `var(--typo)` resolving to nothing renders as an invisible or unstyled control with no error anywhere.
+  - Scores, claiming ONLY the row swept this iteration; 6 rows remain unswept:
+  - accessibility: LOW, J1, on the swept row.
+  - correctness: None on the swept row - no stale selector, and the section wiring is complete in both directions.
+  - documentation, architecture, testing, UX: None on the swept row.
+  - security, error handling, performance, dependency hygiene, observability: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 6 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - js-autocomplete was NOT attempted and is left unswept with a reason rather than half-done: `autocomplete.js` is not in the harness's VIEWER_JS list and is replaced by a stub in the sandbox, so driving it needs a second harness change on the run's last sweeping iteration. That is the wrong time to touch shared test infrastructure, and a partly covered row is unswept.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 274 files.
+
+Learnings: A cross-file assertion needs a guard against passing vacuously. The selector check scans the scripts with a regex and asserts the markup provides every hit; if that regex ever stops matching the codebase's style it would find nothing, compare nothing, and report a clean sweep. One extra case - the scan found more than ten selectors - is what keeps the check honest, and any battery that derives its inputs by scanning needs the same.
+
+Next: Iteration 20 is the final one and is a WRAPUP. J1 is small enough to fix inside it - the acceptance check already exists and the fix is eleven attributes - so the wrapup should close J1 first if it fits cleanly, then tidy the ledger and write the handoff naming the six rows left: js-autocomplete, demo-catalog, favicon-fixtures, os-wrappers, packaging-ci, and humble-login.

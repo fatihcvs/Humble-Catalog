@@ -14,6 +14,8 @@ Rules:
 
 ## Later
 
+- [ ] J1 (Low, runtime, accessibility): 11 filter controls in `humble_catalog/webapp/static/index.html` carry no accessible name. Two are the worse half: `#f-type` and `#f-flag` are bare `<select>` elements with no label, no `aria-label` and no `aria-labelledby`, so a screen reader announces each as "combo box" and the first option's text ("All types", "No flag filter") is a visible cue only. The other nine - `#f-genre`, `#f-series`, `#f-authors`, `#f-narrator`, `#f-publisher`, `#f-bundle`, `#f-user-tags`, `#f-notes`, `#bundle-url` - have a placeholder and nothing else; the accname spec does fall back to it, but the name then disappears exactly when the field is in use. Low rather than Medium: this surface has one known user, the placeholder fallback covers nine of the eleven, and the rubric puts naming at Low. Filed because the markup already carries `aria-label` on four sibling controls, so the intent is established and these are the gaps in it. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/viewer-markup/probe.py` exits 0, its `case_every_form_control_has_an_accessible_name` listing no control.
+
 ## Proposed
 
 Items needing a user decision before any work, one plain line each, never a checkbox task: envelope changes, audit escalations, challenges to a settled class. Never worked without explicit user approval and never counted against convergence.
