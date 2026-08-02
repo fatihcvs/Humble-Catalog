@@ -550,3 +550,37 @@ Verification: 74 known-answer assertions across two rows, 74 held. No findings.
 Learnings: State a row's scope in its battery when a neighbouring row owns part of the surface, and say what the stub stands in for. Two of this project's rows reach the network but their guards are swept elsewhere, so driving a real server here would have re-tested the refusal and never reached the mapping the row exists to certify - and without the note, a later reader would read the stubs as a shortcut rather than as the scope.
 
 Next: Iteration 12 sweeps harvest-run, the largest remaining row and the one with real decision logic behind it - resume behaviour and parallelism. backup-restore follows. After those four the user's chosen work is done, and the remaining iterations should go to a WRAPUP with a handoff rather than to sweeping the low-risk remainder.
+
+## iter 12/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Third of the four rows the user chose. Swept harvest-run, the largest remaining row and the one carrying the project's most consequential decision logic - resume behaviour, the 429 rules, and the parallel walk.
+
+Changed: .jeffy/probes/harvest-run/probe.py (new, 58 cases), PLAN.md (one row swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 58 known-answer assertions, 58 held. No findings.
+  - Almost every rule in this module is about what happens when a source FAILS, and the rules are asymmetric on purpose. Each asymmetry is invisible to a liveness probe because all of them end in "the harvest finished", so each is asserted directly:
+  - A CacheMiss is not a failure at all - it does not tick, does not settle the source as failed, does not mark it incomplete, and records nothing.
+  - An ordinary error records a failure row, marks the source incomplete, and KEEPS DRAINING: the stub records every title it is asked for, and the queue is asserted to reach the titles below the failing one.
+  - A 429 records NO failure row, because it says nothing about the title and source_quota already holds it. Asserted as an absence against a populated table, plus the positive half: the source is switched offline and the quota IS recorded.
+  - A 429 keeps serving the rest from cache - the documented reason it does not stop the walk, since stopping would strand every cached title below the first uncached one. Every title is still asked for and the cached ones still tick.
+  - A SECOND 429 breaks the walk, so the titles below it are never reached. The two 429 cases together are what pin the difference between "serve the rest from cache" and "stop hammering the API".
+  - Redaction is asserted on BOTH consumers, which is what the code's own comment claims: the scrubbed detail is used for the log line and the stored row, so a fake key is checked to reach neither.
+  - The worklist's determinism rules are pinned as the docstring states them: music and android skipped, per-type source routing, de-duplication so two items with one cleaned title cost one request, casefold sorting, and the case-only tie broken by the raw string because Python's sort is stable and a casefold-only key would fall back to SQLite's unordered scan.
+  - `run`'s documented parameter is exercised at both values and changes the answer: a source with a live quota record starts offline and is reported incomplete, while `ignore_quota=True` leaves it online. An EXPIRED record is asserted not to be believed, which is the same rule from the other side.
+  - A blocked source is asserted to be WALKED rather than skipped - the documented reason being that the walk is what keeps the progress number true, so a 90%-cached source still reports 90% rather than appearing to go backwards.
+  - Eight cases failed first and every one was a fixture bug of mine, all three kinds worth recording. Six assumed `clean_title` lowercases - it strips edition and series noise and preserves case, and only the SORT folds case. One gave the stub source a fixed reset date in 2026-06, which is in the past, so `quota.blocked` correctly refused to believe it and the case asserted against a record that was never live. One misread the worklist docstring: "sorts past z" describes a title whose FIRST letter is accented, and a mid-word accent orders on its first letter like any other, so that case now asserts the property that actually holds for the pair - accents are not folded, so ordering is by codepoint.
+  - Scores, claiming ONLY the row swept this iteration; 17 rows remain unswept:
+  - correctness: None on the swept row, on 58 known answers.
+  - error handling: None on the swept row, and this is where the row's weight sits: four distinct failure modes with four different documented responses, each asserted on both what it does and what it must NOT do.
+  - security: None on the swept row - the credential in an error string is redacted before it reaches either the log or the stored row.
+  - architecture: None. The `sources=`/`_conn=` seams are what let the real threading and tallying run with no network.
+  - documentation, testing: None on the swept row.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 17 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 263 files.
+
+Learnings: A stub's default must sit on the LIVE side of any freshness check it feeds. A stub source defaulting to a fixed past reset time made the quota assertions test nothing, because the code correctly declines to believe an expired record - the case looked like a code defect and was a fixture that had aged out. Defaults in a fixture are relative to now, or they expire.
+
+Next: backup-restore is the last of the four the user chose, and its failure mode is the worst in the project - a restore that loses data. Iteration 13 sweeps it. After that the chosen work is done, and the remaining iterations should go to a WRAPUP handoff rather than to the low-risk remainder.
