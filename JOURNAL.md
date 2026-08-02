@@ -480,7 +480,7 @@ Task: E1 - close the class of HumbleBundle order fields read without checking th
 
 Changed: humble_catalog/shapes.py (new, the accessors moved here so both families share them), humble_catalog/sources/base.py (re-exports every name), humble_catalog/humble_api.py (MalformedOrderList, list_order_keys), humble_catalog/parse_order.py (MalformedOrder, _required, every payload read routed through the accessors), humble_catalog/extract.py (two product reads), tests/test_humble_api.py (+5), tests/test_parse_order.py (+11), .jeffy/probes/extract-humble/probe.py (33 cases to 39), PLAN.md (four rows re-swept, one Lesson), BACKLOG.md (E1 deleted, Settled classes line added).
 
-Checkpoint: <pending>
+Checkpoint: 9037db1. Not a stall: runtime code across five modules, 17 new tests, and E1 moved from open to settled.
 
 Verification: The filed reproduction was re-run first, before any edit, and still stood at 29/33 with the same 4 failures.
   - Acceptance check. `.jeffy/probes/extract-humble/probe.py` exits 0 at 39/39, up from 29/33. The three sibling batteries were re-run against the moved accessors and held unchanged - sources-books 61/61, sources-media 82/82, sources-accessors 75/75 - which is what re-sweeps those rows rather than flipping them.
