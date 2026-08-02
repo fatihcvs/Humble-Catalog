@@ -286,3 +286,34 @@ Verification: Counted rather than assumed, because the failure mode here is sile
 Learnings: None beyond the mechanism already written down.
 
 Next: Continues into iteration 3 as the H1 entry describes.
+
+## iter 3/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing partial audit. The ledger held one item, H2 (Low), which is below the replenishment line of 3, and the binding constraint on this run is 30 unswept rows rather than that single Low - so this iteration swept three rows that compute values and are small enough to sweep properly in one turn: game-match, series-db and quota-gate. H2 was deliberately not executed here; it is the next iteration's task.
+
+Changed: .jeffy/probes/game-match/probe.py (new, 25 cases), .jeffy/probes/series-db/probe.py (new, 15 cases), .jeffy/probes/quota-gate/probe.py (new, 23 cases), PLAN.md (three rows swept), JOURNAL.md (this entry). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: three probe batteries were added under .jeffy/probes/ and three inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 63 known-answer assertions across three rows, 63 held. No findings, and each sweep was built so that a clean result means something.
+  - game-match, 25/25. The two cutoffs are pinned on BOTH sides with derived answers rather than observed ones: `fuzz.ratio` is 2*M/T, so synthetic letter pairs give scores computable by hand - 92.31 and 100.00 must be owned, 90.00 and 83.33 must be possible, 40.00 must be new. A case asserts the two cutoff constants themselves, so if either moves the derivation fails first and names the reason instead of silently certifying whatever the scorer now returns.
+  - The index-parallel invariant is the one worth asserting as a property, because breaking it makes every match name the WRONG game while still looking like a match: a three-title pool is queried for each title in turn and each must resolve back to itself.
+  - Also pinned: the sequel rule forcing new in both directions, the F1 case that a digit and a roman numeral for one volume are NOT a sequel pair, an edition suffix still matching the base game, the empty pool and the title that normalizes to nothing, that the display title rather than the sorted scoring key comes back, and the documented refusal - a plain list raises rather than being silently prepared per call.
+  - series-db, 15/15. The valuable outcome is the re-buy, and it is asserted directly: an offered volume already held is flagged, a continuation is not, a gap is rendered as `Vol. 1-2, 5` rather than smoothed into a run the owner does not hold, and only an explicit range carries a span while a single volume invents none. Two spellings of one volume index to a single number, so a duplicate cannot inflate the count.
+  - quota-gate, 23/23. The arithmetic is closed-form because PACIFIC is a FIXED offset, so every expected instant is written out in full rather than recomputed by repeating the implementation. The strictly-after boundary is pinned at the exact instant, one second either side, and the same instant spelled in a third zone. An invariant over 48 hourly inputs asserts every answer is strictly ahead and within 24 hours, which a constant return or an off-by-one-day would break.
+  - The two commit contracts are asserted the way the Lessons require - directly, not by a weaker proxy. `record` commits, checked from a SECOND connection, which is the only thing that can tell a commit from a pending write; `clear` does not commit, checked by rolling back and seeing the row return.
+  - The fixed UTC-8 offset was NOT filed. During Pacific Daylight Time the computed reset is an hour late, and the module documents that as a deliberate trade taken in the safe direction - waiting costs nothing because the source is served from cache either way, while retrying early spends the request the module exists to save. Audit discipline forbids re-filing a documented decision on unchanged code; it is pinned as behaviour instead.
+  - Scores, claiming ONLY the three rows swept this iteration; 27 rows remain unswept:
+  - correctness: None on the swept rows, on 63 known answers including both sides of both matching cutoffs.
+  - error handling: None on the swept rows. The unknown-source, empty-pool and empty-title paths are the ones that would have shown it.
+  - architecture: None. Both scoring modules document the measurement that chose their rule, which is what made the negative cases straightforward to write.
+  - documentation: None on the swept rows; every documented parameter checked was true of the code.
+  - testing: None on the swept rows.
+  - security, performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 27 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1153 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 253 files.
+  - The gate fired once during this iteration, on a two-word phrase of ordinary English in a probe docstring. Reworded rather than allowed. Worth recording that it was a WHOLE-WORD hit: the word-boundary change ended the embedded-identifier collisions, not this class, and the Lessons already say so.
+
+Learnings: A cutoff is swept by deriving the expected verdict from the documented constant, not by feeding it real-looking data and recording what comes back. Synthetic inputs whose score is computable by hand - here 2*M/T over letter strings - turn a fuzzy matcher into a known-answer surface, and asserting the constants themselves in the same battery keeps the derivation honest if they ever move.
+
+Next: Iteration 4 executes H2, the only open item, now that the ledger has been checked rather than assumed empty of worse. After that the ledger empties again and the run returns to sweeping; 27 rows remain and the largest untouched clusters are the four harvest and progress rows, the seven front-end rows, and the five scripts and packaging rows.
