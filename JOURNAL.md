@@ -372,7 +372,7 @@ Task: Replenishing audit, the ledger having emptied when H3 closed. This iterati
 
 Changed: .jeffy/probes/webapp-merge-routes/probe.py (new, 44 cases), .jeffy/probes/webapp-export-routes/probe.py (new, 30 cases), BACKLOG.md (I1 filed), PLAN.md (two rows swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/, two inventory rows changed state, and I1 was filed.
+Checkpoint: 9739358. Not a stall: two probe batteries were added under .jeffy/probes/, two inventory rows changed state, and I1 was filed.
 
 Verification: 74 known-answer assertions across the two swept rows, 74 held, and one finding from the third row that was reproduced before being filed.
   - webapp-merge-routes, 44/44. These routes DESTROY a row, so the cases that carry the weight assert what must NOT happen. Every refusal - the same id twice, a missing id, a string id, a bool id, a float id, an unknown id, a type mismatch - is followed by reading the database back and asserting both rows survive and `merges` is empty. A route that answered 400 while deleting anyway would pass a status-code check and fail these.
