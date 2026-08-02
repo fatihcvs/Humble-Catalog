@@ -680,3 +680,37 @@ Verification: 97 known-answer assertions across two rows, 97 held on the first r
 Learnings: Where one input shape is produced by two different normal states, the refusal is the feature and the battery's job is to prove the stored data survived it. Both of this module's guards exist because an empty list means "logged out" as often as it means "owns nothing", and asserting only that a call raised would miss the half that matters - that nothing was deleted on the way to raising.
 
 Next: 13 rows remain with 5 iterations, and the last is reserved for the WRAPUP handoff. Iteration 16 takes cli-dispatch and reset-cmd; harvest-reports and privacy-gates are the other Python rows worth having, and the seven front-end and scripts rows would be next after that.
+
+## iter 16/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Continuing the ranking. Swept reset-cmd and cli-dispatch. This iteration also produced the run's only privacy near-miss, recorded in full below because it matters more than either sweep.
+
+Changed: .jeffy/probes/reset-cmd/probe.py (new, 42 cases), .jeffy/probes/cli-dispatch/probe.py (new, 62 cases), PLAN.md (two rows swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 104 known-answer assertions across two rows, 104 held. No findings.
+  - A PRIVACY NEAR-MISS, and the most important thing in this entry. The first version of the cli-dispatch battery invoked `export` with a valid path and again with no argument at all. `export`'s path is OPTIONAL and defaults to catalog.csv, so both runs SUCCEEDED and wrote real exports of the owner's catalog into the repo root: catalog.csv at 516 KB and out.csv at 95 KB, both untracked, sitting exactly where this loop's `git add -A` checkpoint would have swept them in.
+  - They were deleted before any commit, `git status` was re-checked to confirm, and the Verify command's own gates then ran clean. Nothing reached a commit and nothing reached the leak scanner's history check. But it would have, one iteration later, and no automated check in this project would have stopped it: `check_no_data_tracked` filters paths of TRACKED files, and these were untracked until the checkpoint added them.
+  - The battery was rewritten so it cannot recur. The valid-column control is now checked IN-PROCESS against `export.COLUMNS` instead of by running the command; `export` is removed from the missing-argument case because its argument is optional; its default path is asserted from `--help` text rather than by invoking it; and a standing guard case now asserts that no catalog.csv, catalog.xlsx, out.csv or out.xlsx exists in the repo root after the battery runs, so a future case that writes one fails loudly.
+  - The rule this teaches is narrower and sharper than "be careful": a CLI battery must never invoke a subcommand whose SUCCESS has a side effect on the owner's data. The refusal cases were always safe, because they exit before `db.connect()`; the danger was precisely the one case written to prove the happy path.
+  - reset-cmd, 42/42. Same discipline as the backup row: assert what SURVIVES. The preserved layer - raw_orders, source_cache - is asserted to be intact after a wipe, because those are what a rebuild reads FROM and losing them turns a rebuild into a re-download, or into permanent loss for a bundle since retired.
+  - The snapshot's DELETE-first rule is exercised end to end rather than read: reset with a rating set, rebuild the row with the rating cleared, reset again, and assert no stale snapshot remains. Without the DELETE the old rating would resurrect on the next rebuild, which is the kind of defect that looks like the feature working.
+  - The delete ORDER is asserted twice, from both directions: functionally, by enabling `PRAGMA foreign_keys = ON` and resetting successfully, and structurally, by asserting every child table precedes `items` in DERIVED_TABLES and that `bundles` is last.
+  - The three preserved tables are asserted to be ABSENT from DERIVED_TABLES, which is the cheapest possible guard against someone adding one to the list.
+  - cli-dispatch, 62/62. The envelope classes CLI arguments user-error, where a wrong value earns a clear failure MESSAGE, so the cases assert the text the owner sees and not merely the exit code. The `--override-edited` refusal is asserted to explain that `--reset` would wipe the hand edits the override exists to carry through; the export suffix refusal to name both accepted suffixes; the unknown-column refusal to name the offending column.
+  - `check_dependencies` is driven by temporarily adding an absent module to the dependency map, restoring it in a finally, and asserting the map is clean again afterwards - the one case that could otherwise leave the module poisoned for every later case.
+  - One case failed first and was mine: I asserted `export` refuses without an argument. It does not; the argument is optional. That failing assertion is what surfaced the export files.
+  - Scores, claiming ONLY the two rows swept this iteration; 11 rows remain unswept:
+  - correctness: None on the swept rows.
+  - security: None on the swept rows. The privacy near-miss above was caused by the BATTERY, not by the project - `export` writing where it is told is correct behaviour.
+  - error handling: None on the swept rows; every documented refusal is asserted with its message.
+  - architecture: None. The `_conn=`/`_input=` seams are what let a destructive command be driven exactly.
+  - documentation, testing, UX: None on the swept rows.
+  - performance, dependency hygiene, observability, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 11 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 269 files.
+
+Learnings: A probe that drives a CLI must never invoke a subcommand whose SUCCESS writes. The refusal cases in this battery were safe by construction, because they exit before touching the database; the one case written to prove the happy path wrote 600 KB of the owner's catalog into the repo, untracked, one checkpoint away from being committed. Neither `check_no_data_tracked` nor `leak_check` would have caught it beforehand: the first filters paths of already-tracked files, and the second scans content only once something is staged. Assert a happy path in-process, or against `--help`, or not at all.
+
+Next: 11 rows remain with 4 iterations, the last reserved for the WRAPUP handoff. Iteration 17 takes harvest-reports and privacy-gates, the last two Python rows with real logic; the remaining nine are five front-end and four scripts and packaging rows, which the handoff will name.
