@@ -557,7 +557,7 @@ Task: Third of the four rows the user chose. Swept harvest-run, the largest rema
 
 Changed: .jeffy/probes/harvest-run/probe.py (new, 58 cases), PLAN.md (one row swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: f26460d. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 58 known-answer assertions, 58 held. No findings.
   - Almost every rule in this module is about what happens when a source FAILS, and the rules are asymmetric on purpose. Each asymmetry is invisible to a liveness probe because all of them end in "the harvest finished", so each is asserted directly:
