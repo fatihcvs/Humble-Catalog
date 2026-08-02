@@ -748,3 +748,36 @@ Verification: 87 known-answer assertions across two rows, 87 held. No findings.
 Learnings: A checker's own coverage rules deserve a battery more than its matching rules do. The matching was already pinned by 27 tests; what nothing had ever exercised was which files the gate declines to read - and a gate that quietly skips a directory reports `clean` in exactly the same words as one that read everything. Probe the exclusions, on both sides, or the check is trusted rather than verified.
 
 Next: 9 rows remain - five front-end and four scripts and packaging - with 3 iterations, the last reserved for the WRAPUP handoff. Iteration 18 takes js-shell and js-panels, iteration 19 viewer-markup and js-autocomplete if they fit, and iteration 20 writes the handoff naming whatever is left.
+
+## iter 18/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Swept js-shell and js-panels. This iteration also made a small change to shared test infrastructure, recorded below because it is the only non-probe code this run has touched outside a filed task.
+
+Changed: tests/js/harness.mjs (the element stub now RECORDS attributes), .jeffy/probes/js-shell/probe.py (new, 27 cases), .jeffy/probes/js-panels/probe.py (new, 26 cases), PLAN.md (two rows swept, three re-swept).
+
+Checkpoint: recorded below. Not a stall: two probe batteries were added, test infrastructure changed, and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 53 known-answer assertions across two rows, 53 held. No findings.
+  - A HARNESS CHANGE, and why it was made rather than worked around. Four cases failed first because the DOM stub's `getAttribute` returned null unconditionally and `setAttribute` discarded its argument, so `showSection`'s aria-current marking was unobservable - and that is the only signal a screen reader gets about which section is showing. A battery that skipped it would have left half of `showSection` uncertified while flipping the row.
+  - The change is additive and was checked to be safe before it was made: `grep getAttribute humble_catalog/webapp/static/*.js` returns nothing, so no viewer script reads attributes back, and no test in the suite referenced getAttribute or aria-current. Nothing depended on the old null.
+  - Because the harness is shared, all three previously-swept JS rows were re-run against it rather than assumed unaffected: js-fuzzy 28/28, js-catalog-filter 41/41, js-catalog-render 48/48, each unchanged. All three are re-swept at this checkpoint.
+  - js-shell, 27/27. The routing rule worth pinning is a refusal to be helpful: an unknown hash falls back to Library WITHOUT rewriting the URL, because a silent rewrite would erase the evidence that a bookmark went stale. Asserted on three bad hashes by reading `location.hash` back afterwards and requiring it untouched - exactly the decision a later tidy-up would reverse, with nothing else in the suite noticing.
+  - The hash form is asserted to be exact in both directions: `#library` without the slash and `#/LIBRARY` in the wrong case both fall back rather than matching loosely.
+  - `showSection` is pinned on panel visibility AND on aria-current, with an invariant that exactly one tab is current in every case - a state where two tabs claimed `page`, or none did, would render plausibly and mislead assistive tech silently.
+  - The library's badge is asserted to stay empty even when a pending count is deliberately set for it, and a zero count is asserted to render as an empty string rather than "0".
+  - js-panels, 26/26. The case this row is worth sweeping for is a counting INVARIANT the code documents as the fix for a real bug: `keyChipCounts` counts by `displayState` rather than reading the server's `counts`, because that map partitions every key - matched and hidden included - so a chip reading "Not in a library 624" would deliver fewer than 624 once hidden rows moved to their own bucket.
+  - The code calls that equality true "by construction". It is checked rather than trusted: for all four chips, the count is asserted to equal the length of what selecting that chip actually shows, and the four counts are asserted to sum to every row.
+  - `displayState`'s override is pinned on two rows whose server states differ - unredeemed and uncertain - both of which must collapse to the hidden chip, since an earlier design that made hidden a second axis produced exactly the mismatched chip this replaced.
+  - `keysExpiring` is asserted to exclude both the hidden row that has a live expiry and the row whose expiry has passed, which is the same rule the CLI report follows.
+  - Scores, claiming ONLY the two rows swept this iteration; 7 rows remain unswept:
+  - correctness: None on the swept rows, on the chip-partition invariant and the routing answers.
+  - accessibility: None on the swept rows, and this is the first iteration able to claim it at all - the aria-current marking is now observable, and exactly one tab is current in every case.
+  - error handling: None on the swept rows; the unknown-hash and empty-selection paths are the ones that would have shown it.
+  - architecture, documentation, testing, UX: None on the swept rows.
+  - security, performance, dependency hygiene, observability: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 7 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  - Verify command: pytest 1164 passed (exit 0), unchanged by the harness edit; check_no_data_tracked exit 0; leak_check exit 0 over 5251 terms and 273 files.
+
+Learnings: When a probe cannot observe half of what a row does, extending the harness beats narrowing the assertion - but only after checking that nothing depended on the old behaviour, and only with every battery that shares the harness re-run. The alternative was flipping a row while a documented accessibility contract stayed uncertified, which is the failure the inventory exists to prevent.
+
+Next: Iteration 19 is the last sweeping iteration and takes js-autocomplete and viewer-markup if both fit. Iteration 20 writes the WRAPUP handoff naming whatever remains - on current pace five or six rows, all of them front-end or packaging.

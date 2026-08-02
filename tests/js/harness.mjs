@@ -47,8 +47,18 @@ function makeEl(selector) {
     closest: () => makeEl(selector),
     querySelector: () => makeEl(selector),
     querySelectorAll: () => [],
-    getAttribute: () => null,
-    setAttribute() {},
+    // Attributes are RECORDED, not discarded. shell.js marks the active
+    // tab with aria-current, which is the only signal a screen reader
+    // gets about which section is showing, and a stub that swallowed the
+    // write left that half of showSection unobservable. Additive: no
+    // viewer script reads getAttribute, so nothing depended on the old
+    // null.
+    attrs: {},
+    getAttribute(name) {
+      return Object.prototype.hasOwnProperty.call(this.attrs, name)
+        ? this.attrs[name] : null;
+    },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
     appendChild() {},
     get innerHTML() { return writes[selector] ?? ""; },
     set innerHTML(v) { writes[selector] = String(v); },
