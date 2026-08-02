@@ -687,7 +687,7 @@ Task: Continuing the ranking. Swept reset-cmd and cli-dispatch. This iteration a
 
 Changed: .jeffy/probes/reset-cmd/probe.py (new, 42 cases), .jeffy/probes/cli-dispatch/probe.py (new, 62 cases), PLAN.md (two rows swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: 082003f. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 104 known-answer assertions across two rows, 104 held. No findings.
   - A PRIVACY NEAR-MISS, and the most important thing in this entry. The first version of the cli-dispatch battery invoked `export` with a valid path and again with no argument at all. `export`'s path is OPTIONAL and defaults to catalog.csv, so both runs SUCCEEDED and wrote real exports of the owner's catalog into the repo root: catalog.csv at 516 KB and out.csv at 95 KB, both untracked, sitting exactly where this loop's `git add -A` checkpoint would have swept them in.
