@@ -328,3 +328,29 @@ Verification: 104 known-answer assertions across the two rows, 104 held. No find
 Learnings: A migration cannot be swept by opening a fresh database. Every step is guarded by a version check or a column check, so on a new file they all no-op and the probe certifies nothing while looking thorough. The sweep has to construct the OLD state - which also means the battery doubles as the only place the legacy schema is written down.
 
 Next: Iteration 11 audits again, because this one filed nothing and the ledger is still empty. That is the right use of the remaining budget: with 34 rows unswept the run cannot converge, so sweeping rows and leaving batteries behind is what carries forward. The largest untouched clusters are the viewer read routes, the enrichment family, and the seven front-end rows.
+
+## iter 11/15 | affcbaff-100429 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit, the ledger still being empty after iteration 10 filed nothing. This iteration swept webapp-read-routes, the largest unswept user-facing Python surface.
+
+Changed: .jeffy/probes/webapp-read-routes/probe.py (new, 46 cases), PLAN.md (one row swept).
+
+Checkpoint: <pending>
+
+Verification: 46 known-answer assertions against the real app through Flask's test client, 46 held. No findings.
+  - The strongest cases are the two reshape-only routes. `/api/stats` and `/api/keys` each document that the panel and the CLI must not be able to disagree, which is an invariant rather than a shape, so the battery asserts the route's payload equals `stats.report` and `keys.report` field for field - section keys, labels, and every row's label and count in order. A route that recounted instead of reshaping would pass a shape check and fail this one.
+  - Also pinned: the documented absent-not-empty editions key, that a same-type duplicate pair is NOT given an edition link, the review route's filter and its sort by confidence, that `/api/duplicates` pops the raw hand_edited column rather than leaking it, that `/api/status` hides finished phases, and that all five read routes survive an empty catalog rather than raising on the empty case.
+  - Two failures were reported and both were defects in this battery, not in the viewer. The traversal case asserted a status allow-list, and `/covers//etc/passwd` answers 308 because Werkzeug normalizes the doubled slash before routing; the normalized path then 404s, which is equally safe. The assertion now states the actual property - the outside file is never SERVED - and follows redirects to prove it. The other assertion contradicted its own label: it said hand_edited must not be leaked and then asserted the key was present, when the route pops it.
+  - A third candidate was investigated and NOT filed. `/api/duplicates` takes its groups from `dedupe.find_groups`, which reads `items` alone, then re-queries each member with `JOIN enrichment`; a member with no enrichment row would make `fetchone()` return None and `dict(None)` raise a 500. Reaching that needs an item without an enrichment row, and there is no supported path to one: `store.py` is the only place that inserts an item and creates the enrichment row in the same transaction, and `reset.DERIVED_TABLES` wipes both together. Hand-deleting the row is state-at-rest corruption, which the envelope puts out of envelope and Declines by default. Recorded here so a later audit does not re-derive it.
+  - Scores, claiming ONLY the 24 swept rows of 57 - the other 33 are unswept:
+  - correctness: None on the swept rows, on the report-equality invariant rather than on a shape check.
+  - error handling: None on the swept rows; the empty-catalog cases are the ones that would have shown it.
+  - security: None on the swept rows. Six traversal shapes, including percent-encoded and backslash forms, never serve a file outside the covers directory. The Host guard belongs to its own row and was not re-probed here.
+  - architecture, documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 33 rows are unswept, so it never counts toward convergence and closeout is NOT entered.
+  Verify command: pytest 1126 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0.
+
+Learnings: Assert the property, not the status code. A traversal case written as "the status is 400, 403 or 404" reported a finding against a 308 that redirects to a path which then 404s - safe behaviour, failed by an allow-list that encoded one expected mechanism instead of the outcome that matters. The assertion that survives is "the file outside the directory is never served", with redirects followed.
+
+Next: Iteration 12 audits again; the ledger is still empty and 33 rows remain. The enrichment family is the largest untouched cluster with real computation behind it, and the seven front-end rows need `tests/js_harness.py` rather than a Python battery, which is worth noting for the handoff since they are a third of what is left.
