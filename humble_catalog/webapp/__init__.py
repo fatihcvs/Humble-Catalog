@@ -71,6 +71,25 @@ def _json_object():
     return body if isinstance(body, dict) else {}
 
 
+def _text_field(data, key):
+    """A named field as a stripped string, or None when it cannot be one.
+
+    The field-level counterpart of `_json_object`, and the same mistake
+    one level down: `(data.get("x") or "").strip()` reads as a default
+    and is not a type check, so a number survived `or ""` and then had no
+    `.strip`. Six routes answered 500 that way.
+
+    Absent, non-string and blank-after-stripping all answer None, because
+    every caller treats the three identically - none of them can act on a
+    tag name that is not a name - and folding them here keeps that
+    decision in one place rather than in six.
+    """
+    value = data.get(key)
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
 def _url_from_body():
     """The `url` field of the request's JSON body, or None.
 
@@ -244,6 +263,14 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         tags = _json_object().get("tags")
         if not isinstance(tags, list):
             return jsonify({"error": "tags must be a list"}), 400
+        # Entries too, not just the list. `db.normalize_tags` coerces with
+        # str(), which is right for the import paths it also serves - a
+        # number in a spreadsheet cell is a genre - but here it turned
+        # {"tags": [null]} into a tag literally spelled None, stored with
+        # a 200. Refusing at this boundary leaves that coercion intact for
+        # the callers that want it.
+        if not all(isinstance(t, str) for t in tags):
+            return jsonify({"error": "tags must be strings"}), 400
         if not _item_exists(item_id):
             return jsonify({"error": "no such item"}), 404
         value = db.tags_to_json(db.normalize_tags(conn(), db.USER_TAGS, tags))
@@ -435,8 +462,8 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
     @app.post("/api/genres/rename")
     def rename_genre():
         data = _json_object()
-        old = (data.get("old") or "").strip()
-        new = (data.get("new") or "").strip()
+        old = _text_field(data, "old")
+        new = _text_field(data, "new")
         if not old or not new:
             return jsonify({"error": "old and new tag names required"}), 400
         changed = db.rename_tag(conn(), db.GENRE, old, new)
@@ -447,7 +474,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
     @app.post("/api/genres/delete")
     def delete_genre():
         data = _json_object()
-        tag = (data.get("tag") or "").strip()
+        tag = _text_field(data, "tag")
         if not tag:
             return jsonify({"error": "tag required"}), 400
         changed = db.delete_tag(conn(), db.GENRE, tag)
@@ -460,8 +487,8 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
     @app.post("/api/user-tags/rename")
     def rename_user_tag():
         data = _json_object()
-        old = (data.get("old") or "").strip()
-        new = (data.get("new") or "").strip()
+        old = _text_field(data, "old")
+        new = _text_field(data, "new")
         if not old or not new:
             return jsonify({"error": "old and new tag names required"}), 400
         changed = db.rename_tag(conn(), db.USER_TAGS, old, new)
@@ -471,10 +498,10 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/user-tags/delete")
     def delete_user_tag():
-        tag = _json_object().get("tag") or ""
-        if not tag.strip():
+        tag = _text_field(_json_object(), "tag")
+        if not tag:
             return jsonify({"error": "tag required"}), 400
-        changed = db.delete_tag(conn(), db.USER_TAGS, tag.strip())
+        changed = db.delete_tag(conn(), db.USER_TAGS, tag)
         if changed is None:
             return jsonify({"error": f"no such user tag: {tag}"}), 404
         return jsonify({"changed": changed})
@@ -483,7 +510,7 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
     def bulk_user_tags():
         data = _json_object()
         ids = data.get("ids")
-        tag = (data.get("tag") or "").strip()
+        tag = _text_field(data, "tag")
         action = data.get("action")
         if not isinstance(ids, list) or not ids:
             return jsonify({"error": "ids must be a non-empty list"}), 400

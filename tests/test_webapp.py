@@ -610,6 +610,59 @@ def test_no_post_route_answers_5xx_for_an_absent_body(tmp_path):
         assert resp.status_code < 500, (path, resp.status_code)
 
 
+def test_tag_vocab_routes_refuse_a_non_string_field(tmp_path):
+    # I1: `(data.get("x") or "").strip()` answered 500 for a number,
+    # because `or ""` is not a type check. `_text_field` is the one place
+    # a named text field is read now.
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    routes = [("/api/genres/rename", ["old", "new"]),
+              ("/api/genres/delete", ["tag"]),
+              ("/api/user-tags/rename", ["old", "new"]),
+              ("/api/user-tags/delete", ["tag"])]
+    for route, fields in routes:
+        for field in fields:
+            for value in [5, True, None, ["x"], {"a": 1}]:
+                body = {f: "SF" for f in fields}
+                body[field] = value
+                resp = client.post(route, json=body)
+                assert resp.status_code == 400, (route, field, value)
+                assert resp.get_json() is not None, (route, field, value)
+
+
+def test_bulk_user_tags_refuses_a_non_string_tag(tmp_path):
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    for value in [5, True, None, ["x"], {"a": 1}]:
+        resp = client.post("/api/user-tags/bulk",
+                           json={"ids": [item_id], "tag": value,
+                                 "action": "add"})
+        assert resp.status_code == 400, value
+
+
+def test_user_tags_refuses_a_non_string_entry_rather_than_coercing(tmp_path):
+    # The silent half of I1: db.normalize_tags coerces with str(), which
+    # is right for the import paths it also serves, so {"tags": [null]}
+    # was stored as a tag literally spelled None. Refused at the boundary
+    # instead, leaving that coercion intact for its other callers.
+    dbp = tmp_path / "t.db"
+    item_id = _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    client.post(f"/api/items/{item_id}/user-tags", json={"tags": ["lent out"]})
+    for value in [None, 5, True, {"a": 1}]:
+        resp = client.post(f"/api/items/{item_id}/user-tags",
+                           json={"tags": [value]})
+        assert resp.status_code == 400, value
+    item = client.get("/api/items").get_json()["items"][0]
+    assert item["user_tags"] == ["lent out"]
+
+    # the control: the shape the viewer sends still works
+    assert client.post(f"/api/items/{item_id}/user-tags",
+                       json={"tags": ["lent out", "boxed"]}).status_code == 200
+
+
 def test_index_has_the_stats_panel():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")
