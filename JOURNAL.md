@@ -348,7 +348,7 @@ Task: H3 (Low, runtime, error handling) - the `or {}` body-read idiom answering 
 
 Changed: humble_catalog/webapp/__init__.py (`_json_object` added as the single body reader; 18 read sites replaced; `_url_from_body` reduced to a caller of it; `/comment` now requires its key), tests/test_webapp.py (+3), BACKLOG.md (H3 deleted, the class recorded under Settled classes).
 
-Checkpoint: recorded below. Not a stall: runtime code and tests changed and H3 moved from open to closed.
+Checkpoint: 5fe28bf. Not a stall: runtime code and tests changed and H3 moved from open to closed.
 
 Verification: The filed reproduction was re-run first, and it understated the defect - which is the main thing this entry has to record.
   - H3 was filed saying 13 routes, on the strength of a hand-listed set of routes probed in iteration 4. Enumerating every POST rule from `app.url_map` instead returned 24 routes, of which 19 answered 500. The six the filing missed are `/api/items/<id>/type`, `/choose`, `/keys/hide`, `/keys/unhide`, `/user-tags/delete` and `/export.xlsx`, and the filing's claim that `/type` and `/choose` were already safe was simply wrong.
