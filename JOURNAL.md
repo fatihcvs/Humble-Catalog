@@ -435,7 +435,7 @@ Task: Final iteration of the run. Tidy the ledger, record the position, and writ
 
 Changed: JOURNAL.md (this entry). BACKLOG.md needed no tidying - Now, Next and Later are empty, nothing is marked [b], and no task was left half-done.
 
-Checkpoint: <pending>
+Checkpoint: 5cb9c34. Not a stall in substance, though only ledger files changed: this is the WRAPUP iteration, whose work IS the handoff, and no BACKLOG item changed state because none was left open.
 
 Verification: The run's closing state, checked rather than recalled.
   - Ledger: 0 open, 0 blocked. Every task filed this run was completed - C3, D1, D2, E1, E2, F1, G1 - and none was Declined, so nothing was quietly dropped.
