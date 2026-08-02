@@ -516,3 +516,37 @@ Verification: 48 known-answer assertions, 48 held.
 Learnings: When a probe crashes the code under test, decide whether the INPUT was in envelope before deciding it is a finding. This one produced a real TypeError from a real unguarded spread, and the correct answer was still to fix the fixture: the server cannot emit that shape, so asserting against it would have pinned a contract the project never made and left a permanent false obligation in the battery.
 
 Next: 20 rows and 10 iterations. The user has asked whether this is real progress and the answer belongs in the reply rather than here; the honest position is that findings have thinned sharply since iteration 1 while row coverage has not, so the remaining value is coverage rather than defects. Iterations 11+ should take the user's steer before continuing to spend budget the same way.
+
+## iter 11/20 | ce2620c5-151422 | 2026-08-02 | AUDIT | audit
+
+Task: Replenishing audit, ledger empty. The user was asked mid-run whether the remaining budget was buying anything and chose to spend it on the four highest-yield rows rather than on completing the inventory, accepting that convergence is out of reach. This iteration swept the first two of those four: webapp-remote-routes and check-cmd.
+
+Changed: .jeffy/probes/webapp-remote-routes/probe.py (new, 40 cases), .jeffy/probes/check-cmd/probe.py (new, 34 cases), PLAN.md (two rows swept). No project code was touched.
+
+Checkpoint: recorded below. Not a stall: two probe batteries were added under .jeffy/probes/ and two inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+
+Verification: 74 known-answer assertions across two rows, 74 held. No findings.
+  - The steer is recorded here rather than in PLAN.md, which the template reserves for operational rules: the remaining rows are being chosen by expected defect yield, not by what would complete the table. Order is webapp-remote-routes and check-cmd (this iteration), then harvest-run, then backup-restore.
+  - webapp-remote-routes, 40/40, and the scope is stated in the battery because it decides what the row may claim. The NETWORK behaviour belongs to rows already swept - url-import and outbound-guard own the scheme allowlist, the redirect re-check and the routability test; bundle-preview-parts and -tiers own the host gate and the report. What is left is the ROUTE's contract: how it maps each outcome onto a status code and a body.
+  - That is why the collaborators are replaced at the seam rather than driven through a real server, and the reason is not convenience: a local http.server cannot be reached by either route, because url_import refuses a loopback address by design and fetch_bundle refuses a non-Humble host. A real server would exercise the refusal path already swept elsewhere and could not reach the success mapping this row exists to pin. The Lessons rule about probing a network GUARD with a real server still holds; the guard is not what this row covers.
+  - The degradation path is asserted in full, since it is the one that invents data: a source that cannot answer yields a link_only candidate carrying the ITEM's title rather than the source's, the url preserved, the reason naming the failure, and the source attributed to the url's host. A network error takes the same path.
+  - The documented catch ORDER is pinned as a property: a REJECTED url must never degrade to a link-only candidate, so a ValueError answers 400 with no candidate at all, while MetadataUnavailable answers 200 with one. Catching them in the wrong order would silently turn a refusal into an offer.
+  - The two bundle-preview failure codes are asserted to DIFFER rather than each being checked alone, because the split exists to keep a retired bundle distinguishable from a url the project refused; collapsing them to one code would pass two separate assertions and still lose the distinction.
+  - Both routes are asserted never to reach their collaborator for an unusable url, using a stub that raises if called - the property that makes a refusal a refusal rather than a slow failure - and a successful preview is asserted to leave the items table byte for byte unchanged, which is the module's documented promise that the report is a question and not a fact about the library.
+  - check-cmd, 34/34. `run(sources=...)` is the module's own injection seam, so the real reporting logic is driven with stubs and every branch is reached without a live request.
+  - The case worth sweeping this row for is REDACTION. A source's error can embed the request URL with the API key in it, and this command prints that string; the battery raises an error carrying a fake key and asserts it survives neither into the returned detail nor into anything written to the stream, while the 401 that tells a bad key from a dead host does survive. A probe checking only the status letters would certify a report that leaks a credential to the terminal.
+  - The SKIP branch is asserted to be a refusal to ASK, not just a label: the stub records every call, and a source with an empty key or token is never asked. That is the documented point of it - an unkeyed source would return [] and report a hollow OK.
+  - The summary is checked twice, once as its exact sentence and once as an invariant that the three counts partition the sources, so a miscount cannot hide behind a plausible-looking line.
+  - Scores, claiming ONLY the two rows swept this iteration; 18 rows remain unswept:
+  - correctness: None on the swept rows.
+  - security: None on the swept rows, and this is the strongest claim in this entry: the credential in an error string is redacted before it reaches the report or the terminal, asserted on both.
+  - error handling: None on the swept rows. Every documented failure mapping is pinned, including the two that must stay distinguishable.
+  - architecture: None. Both modules take their collaborators as parameters, which is what made these sweeps reach every branch without a network.
+  - documentation, testing: None on the swept rows.
+  - performance, dependency hygiene, observability, UX, accessibility: NOT SCORED, rows unswept.
+  This is a partial audit, not a full one: 18 rows are unswept, so it never counts toward convergence and closeout is NOT entered. Convergence is out of reach this run by the user's explicit decision, not by oversight.
+  - Verify command: pytest 1164 passed (exit 0), check_no_data_tracked exit 0, leak_check exit 0 over 5251 terms and 262 files.
+
+Learnings: State a row's scope in its battery when a neighbouring row owns part of the surface, and say what the stub stands in for. Two of this project's rows reach the network but their guards are swept elsewhere, so driving a real server here would have re-tested the refusal and never reached the mapping the row exists to certify - and without the note, a later reader would read the stubs as a shortcut rather than as the scope.
+
+Next: Iteration 12 sweeps harvest-run, the largest remaining row and the one with real decision logic behind it - resume behaviour and parallelism. backup-restore follows. After those four the user's chosen work is done, and the remaining iterations should go to a WRAPUP with a handoff rather than to sweeping the low-risk remainder.
