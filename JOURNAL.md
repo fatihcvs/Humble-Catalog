@@ -461,7 +461,7 @@ Task: Replenishing audit, ledger still empty. This iteration swept js-catalog-fi
 
 Changed: .jeffy/probes/js-catalog-filter/probe.py (new, 41 cases), PLAN.md (one row swept). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: af9c881. Not a stall: a probe battery was added under .jeffy/probes/ and one inventory row changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 41 known-answer assertions, 41 held. No findings.
   - Every case states the exact id list that must come back, in order, which is the only assertion shape that works here: a filter keeping too much still renders a plausible page, and a sort falling back to insertion order still looks sorted.
