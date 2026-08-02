@@ -420,3 +420,26 @@ Verification: The filed reproduction was re-run first, before any edit, and both
 Learnings: A differential run needs the fix reverted and nothing else. Reverting the whole module - including code the fix ADDED but did not change - broke the import and turned the measurement into a collection error, which reports as a failure and proves nothing; the accessors had to stay while only the call sites went back. Separately, replacing a truthiness test with a typed accessor can silently narrow it: as_list on a field whose only job was to be truthy would have let a malformed error payload reach the cache, which is the opposite of what that hook exists for.
 
 Next: D2 (Medium) - the O'Reilly rating scale. The media battery already holds its differential baseline at 5 SCALE failures, and the fix is small: divide only the unambiguous x1000 domain, drop what cannot be interpreted, and replace the fixture assertion that cannot fail on it.
+
+## iter 4/15 | affcbaff-100429 | 2026-08-02 | D2 | done
+
+Task: D2 (Medium, runtime, correctness) - the O'Reilly rating scale, which inferred the factor from the value's size and divided a whole band of legitimate values into near-zero ratings.
+
+Changed: humble_catalog/sources/oreilly.py (`_rating`, RATING_MAX and RATING_SCALE named, the inline heuristic removed), tests/test_sources_oreilly.py (+20 known-answer cases, the assertion that could not fail replaced), PLAN.md (sources-media re-swept, one Lesson), BACKLOG.md (D2 deleted).
+
+Checkpoint: <pending>
+
+Verification: The filed reproduction was re-run first, before any edit, and still stood at 5 SCALE failures.
+  - Acceptance check. `.jeffy/probes/sources-media/probe.py` exits 0 at 82/82, up from 77/82. That is the whole row green for the first time.
+  - The rule now has three named domains rather than one comparison: a value in 0-5 is taken as it is, a value at or above 1000 is divided by it and must still land inside 0-5, and everything between the two is dropped. 5001 is refused for the same reason as 7.0 - scaled it would exceed the domain - which the old code did not check either.
+  - The rule is pinned by a 20-row known-answer table, hand-computed. Against the unfixed scale rule, restored from HEAD so that D1's accessors stayed in place and only this fix was reverted, 8 of the 20 fail and 15 pass; the passing ones are the control, since 4667 to 4.67, 4750 to 4.75 and 4395 to 4.39 are what the fix had to leave alone.
+  - 4395 gives 4.39, not 4.40. The float nearest 4.395 sits just below the midpoint, so the value is stated in the table as the code's real answer rather than the arithmetic one.
+  - The weak assertion is gone. `rating is None or rating <= 5` was satisfied by 0.01 - the exact value the defect produced - so it sat beside the bug it was meant to pin and could not fail on it. It is replaced by a round-trip against the fixture's own raw field.
+  - That replacement was wrong on the first attempt and is recorded rather than smoothed over: an exact round-trip fails on CORRECT code, because parsing to two places discards information. The assertion needed a tolerance of half a rounding step, which is 5 raw units, and a mis-scaled value misses by three orders of magnitude, so the check keeps all its power.
+  - Honest limit of that fixture test: it passes against both the fixed and unfixed code, because the captured fixture happens to carry no value in the 5-to-1000 gap. It guards the scale from future drift; it is not evidence for this fix. The known-answer table is.
+  - Contract preserved. Every value the old code handled correctly parses identically; only the uninterpretable band changes, from a fabricated near-zero rating to None. `rating or None` was dropped from the call site because `_rating` already returns None for zero, so no caller sees a behaviour change from that.
+  - Verify command: pytest 1095 passed (exit 0), up from 1075; check_no_data_tracked exit 0; leak_check exit 0.
+
+Learnings: A round-trip invariant over a rounded value needs a tolerance of half the rounding step; asserting exact equality there fails on correct code and reads as a real defect. Separately, a test whose only assertion is that a value is absent or within a wide range cannot fail on a defect that produces a small in-range value - which is exactly what this one produced, and the assertion had been sitting next to it since the file was written.
+
+Next: The ledger is empty with 11 iterations left. The evaluator gate does NOT run: it needs a clean full audit already recorded in this run, and both audits so far have been partial with rows unswept. Iteration 5 is therefore a replenishing audit, and the best targets are the remaining adversarial rows - extract-humble and bundle-preview-tiers - plus the sources-accessors row this run created.

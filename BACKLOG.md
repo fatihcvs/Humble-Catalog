@@ -12,8 +12,6 @@ Rules:
 
 ## Next
 
-- [ ] D2 (Medium, runtime, correctness): `oreilly.py:15` infers the rating scale from the value, dividing anything above 5 by 1000, so a value between 5 and 1000 becomes a near-zero rating rather than a refusal - reproduced at 7.0, 10, 50, 87 and 5.001, all yielding 0.01 to 0.09, and that value is written to `external_rating` by `enrich.apply_candidate`. An upstream move to a 0-10 or 0-100 scale would therefore rescore the whole catalog silently instead of failing. The check that should catch it cannot: `tests/test_sources_oreilly.py:48` asserts only `rating is None or rating <= 5`, which 0.01 satisfies. Fix: divide only the unambiguous x1000 domain and drop what cannot be interpreted, and replace that assertion with a known-answer one. Acceptance: `.venv/Scripts/python.exe .jeffy/probes/sources-media/probe.py` reports 0 SCALE failures, and the suite stays green.
-
 ## Later
 
 ## Proposed
