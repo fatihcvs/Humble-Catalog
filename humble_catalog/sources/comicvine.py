@@ -1,7 +1,8 @@
 import os
 from datetime import datetime, timedelta, timezone
 from humble_catalog import outbound
-from humble_catalog.sources.base import Source, candidate
+from humble_catalog.sources.base import (Source, candidate, as_list, as_mapping,
+                                         as_text)
 
 class ComicVine(Source):
     name = "comicvine"
@@ -36,16 +37,19 @@ class ComicVine(Source):
             params={"api_key": self.key, "format": "json",
                     "resources": "volume", "query": title, "limit": 5})
         out = []
-        for vol in data.get("results", []):
+        for vol in as_list(as_mapping(data).get("results")):
+            vol = as_mapping(vol)
+            name = as_text(vol.get("name"))
             out.append(candidate(
-                source=self.name, title=vol.get("name", ""),
-                series=vol.get("name"),
-                url=vol.get("site_detail_url"),
-                extra={"volume_api_url": vol.get("api_detail_url"),
+                source=self.name, title=name or "",
+                series=name,
+                url=as_text(vol.get("site_detail_url")),
+                extra={"volume_api_url": as_text(vol.get("api_detail_url")),
                        # roles live on issues, so keep the first issue's URL
                        # from this response rather than re-fetching it later
                        "first_issue_api_url":
-                           (vol.get("first_issue") or {}).get("api_detail_url")}))
+                           as_text(as_mapping(vol.get("first_issue"))
+                                   .get("api_detail_url"))}))
         return out
 
     def credits(self, issue_api_url):
@@ -71,7 +75,7 @@ class ComicVine(Source):
                              params={"api_key": self.key, "format": "json",
                                      "field_list": "person_credits"})
         writers, artists = split_credits(
-            (data.get("results") or {}).get("person_credits", []))
+            as_mapping(as_mapping(data).get("results")).get("person_credits"))
         return (", ".join(writers) or None, ", ".join(artists) or None)
 
 def split_credits(person_credits):
@@ -85,10 +89,14 @@ def split_credits(person_credits):
     drops cover-only artists, the single most common credit.
     """
     writers, artists = [], []
-    for person in person_credits or []:
-        roles = (person.get("role") or "").lower()
+    for person in as_list(person_credits):
+        person = as_mapping(person)
+        name = as_text(person.get("name"))
+        if name is None:
+            continue  # an unnamed credit names nobody; there is nothing to add
+        roles = (as_text(person.get("role")) or "").lower()
         if "writer" in roles:
-            writers.append(person["name"])
+            writers.append(name)
         if "artist" in roles or "penciler" in roles:
-            artists.append(person["name"])
+            artists.append(name)
     return writers, artists

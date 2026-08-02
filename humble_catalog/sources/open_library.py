@@ -1,4 +1,6 @@
-from humble_catalog.sources.base import Source, candidate
+from humble_catalog.sources.base import (Source, candidate, as_list, as_mapping,
+                                         as_number, as_text, first_text,
+                                         text_list)
 
 class OpenLibrary(Source):
     name = "open_library"
@@ -20,15 +22,18 @@ class OpenLibrary(Source):
         data = self.get_json(
             "https://openlibrary.org/search.json",
             params={"title": title, "limit": 5, "fields": FIELDS})
-        return [doc_candidate(doc) for doc in data.get("docs", [])]
+        return [doc_candidate(doc) for doc in as_list(as_mapping(data).get("docs"))]
 
 FIELDS = "title,author_name,ratings_average,subject,key"
 
 def doc_candidate(doc):
-    subjects = doc.get("subject") or []
+    doc = as_mapping(doc)
+    # The key is interpolated into a URL, so a non-string one must yield no
+    # URL rather than a plausible-looking address built from whatever it was.
+    key = as_text(doc.get("key"))
     return candidate(
-        source=OpenLibrary.name, title=doc.get("title", ""),
-        authors=doc.get("author_name"),
-        genre=subjects[0] if subjects else None,
-        rating=doc.get("ratings_average"),
-        url=f"https://openlibrary.org{doc['key']}" if doc.get("key") else None)
+        source=OpenLibrary.name, title=as_text(doc.get("title")) or "",
+        authors=text_list(doc.get("author_name")),
+        genre=first_text(doc.get("subject")),
+        rating=as_number(doc.get("ratings_average")),
+        url=f"https://openlibrary.org{key}" if key else None)

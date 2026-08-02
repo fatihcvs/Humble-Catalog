@@ -1,6 +1,8 @@
 import os
 from datetime import datetime, timedelta, timezone
-from humble_catalog.sources.base import Source, candidate
+from humble_catalog.sources.base import (Source, candidate, as_list, as_mapping,
+                                         as_number, as_text, first_mapping,
+                                         first_text, text_list)
 
 QUERY = """
 query Search($q: String!) {
@@ -35,9 +37,15 @@ class Hardcover(Source):
         return (now or datetime.now(timezone.utc)) + timedelta(minutes=2)
 
     def validate(self, data):
-        errors = data.get("errors")
+        # Truthiness decides whether to raise, exactly as before: the point
+        # of this hook is that an error payload is never cached, so an
+        # `errors` field of an unexpected shape must still refuse. The
+        # accessors are used only to dig out a message for the text.
+        errors = as_mapping(data).get("errors")
         if errors:
-            raise RuntimeError(f"hardcover API error: {errors[0].get('message')}")
+            message = (first_mapping(errors).get("message")
+                       or as_text(errors) or repr(errors))
+            raise RuntimeError(f"hardcover API error: {message}")
 
     def lookup(self, title):
         if not self.token:
@@ -46,25 +54,21 @@ class Hardcover(Source):
             "https://api.hardcover.app/v1/graphql", method="POST",
             headers={"Authorization": f"Bearer {self.token}"},
             json_body={"query": QUERY, "variables": {"q": title}})
-        results = ((data.get("data") or {}).get("search") or {}).get("results") or {}
-        hits = results.get("hits", []) if isinstance(results, dict) else []
+        results = as_mapping(as_mapping(as_mapping(data).get("data"))
+                             .get("search")).get("results")
         out = []
-        for hit in hits:
-            doc = hit.get("document", {})
-            featured = doc.get("featured_series") or {}
-            if not isinstance(featured, dict):
-                featured = {}
-            series_names = doc.get("series_names") or []
-            genres = doc.get("genres") or []
-            slug = doc.get("slug")
+        for hit in as_list(as_mapping(results).get("hits")):
+            doc = as_mapping(as_mapping(hit).get("document"))
+            featured = as_mapping(doc.get("featured_series"))
+            slug = as_text(doc.get("slug"))
             out.append(candidate(
-                source=self.name, title=doc.get("title", ""),
-                authors=doc.get("author_names"),
-                genre=genres[0] if genres else None,
+                source=self.name, title=as_text(doc.get("title")) or "",
+                authors=text_list(doc.get("author_names")),
+                genre=first_text(doc.get("genres")),
                 url=f"https://hardcover.app/books/{slug}" if slug else None,
-                series=((featured.get("series") or {}).get("name")
-                        or (series_names[0] if series_names else None)),
-                series_number=(featured.get("position")
-                               or doc.get("featured_series_position")),
-                rating=doc.get("rating")))
+                series=(as_text(as_mapping(featured.get("series")).get("name"))
+                        or first_text(doc.get("series_names"))),
+                series_number=(as_number(featured.get("position"))
+                               or as_number(doc.get("featured_series_position"))),
+                rating=as_number(doc.get("rating"))))
         return out

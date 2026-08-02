@@ -1,4 +1,6 @@
-from humble_catalog.sources.base import Source, candidate
+from humble_catalog.sources.base import (Source, candidate, as_list, as_mapping,
+                                         as_number, as_text, first_mapping,
+                                         first_text, text_list)
 
 class Audible(Source):
     name = "audible"
@@ -9,21 +11,27 @@ class Audible(Source):
             "https://api.audible.com/1.0/catalog/products",
             params={"title": title, "num_results": 5,
                     "response_groups": "contributors,rating,series"})
-        return [product_candidate(p) for p in data.get("products", [])]
+        return [product_candidate(p)
+                for p in as_list(as_mapping(data).get("products"))]
 
 def product_candidate(p):
-    series = (p.get("series") or [{}])[0]
-    seq = series.get("sequence")
-    try:
-        seq = float(seq) if seq is not None else None
-    except ValueError:
-        seq = None
-    rating = ((p.get("rating") or {}).get("overall_distribution") or {}) \
-        .get("average_rating")
-    asin = p.get("asin")
+    p = as_mapping(p)
+    series = first_mapping(p.get("series"))
+    # allow_text because Audible documents `sequence` as a string ("3"),
+    # unlike the rating fields, which are numbers.
+    seq = as_number(series.get("sequence"), allow_text=True)
+    rating = as_number(as_mapping(as_mapping(p.get("rating"))
+                                  .get("overall_distribution"))
+                       .get("average_rating"))
+    asin = as_text(p.get("asin"))
+    narrators = text_list(p.get("narrators"))
     return candidate(
-        source=Audible.name, title=p.get("title", ""),
-        authors=[a["name"] for a in p.get("authors") or []] or None,
-        narrator=", ".join(n["name"] for n in p.get("narrators") or []) or None,
-        series=series.get("title"), series_number=seq, rating=rating,
+        source=Audible.name, title=as_text(p.get("title")) or "",
+        authors=text_list(p.get("authors")),
+        narrator=", ".join(narrators) if narrators else None,
+        # A series that arrived as a list of bare names rather than of
+        # objects still names the series; falling back to it keeps the
+        # value instead of dropping it for a shape difference.
+        series=as_text(series.get("title")) or first_text(p.get("series")),
+        series_number=seq, rating=rating,
         url=f"https://www.audible.com/pd/{asin}" if asin else None)

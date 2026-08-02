@@ -1,6 +1,8 @@
 import os
 from humble_catalog import quota
-from humble_catalog.sources.base import Source, candidate
+from humble_catalog.sources.base import (Source, candidate, as_list, as_mapping,
+                                         as_number, as_text, first_text,
+                                         text_list)
 
 class GoogleBooks(Source):
     name = "google_books"
@@ -36,14 +38,14 @@ class GoogleBooks(Source):
         data = self.get_json("https://www.googleapis.com/books/v1/volumes",
                              params={"q": f'intitle:"{title}"', "maxResults": 5,
                                      "key": self.key})
-        return [volume_candidate(item.get("volumeInfo", {}))
-                for item in data.get("items", [])]
+        return [volume_candidate(as_mapping(item).get("volumeInfo"))
+                for item in as_list(as_mapping(data).get("items"))]
 
 def volume_candidate(vi):
-    cats = vi.get("categories") or []
+    vi = as_mapping(vi)
     return candidate(
-        source=GoogleBooks.name, title=vi.get("title", ""),
-        authors=vi.get("authors"),
-        genre=cats[0] if cats else None,
-        rating=vi.get("averageRating"),
-        url=vi.get("infoLink") or vi.get("canonicalVolumeLink"))
+        source=GoogleBooks.name, title=as_text(vi.get("title")) or "",
+        authors=text_list(vi.get("authors")),
+        genre=first_text(vi.get("categories")),
+        rating=as_number(vi.get("averageRating")),
+        url=as_text(vi.get("infoLink")) or as_text(vi.get("canonicalVolumeLink")))
