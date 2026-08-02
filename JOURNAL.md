@@ -293,7 +293,7 @@ Task: Replenishing partial audit. The ledger held one item, H2 (Low), which is b
 
 Changed: .jeffy/probes/game-match/probe.py (new, 25 cases), .jeffy/probes/series-db/probe.py (new, 15 cases), .jeffy/probes/quota-gate/probe.py (new, 23 cases), PLAN.md (three rows swept), JOURNAL.md (this entry). No project code was touched.
 
-Checkpoint: recorded below. Not a stall: three probe batteries were added under .jeffy/probes/ and three inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
+Checkpoint: 5d5642f. Not a stall: three probe batteries were added under .jeffy/probes/ and three inventory rows changed state, though no BACKLOG item did - this audit found nothing to file.
 
 Verification: 63 known-answer assertions across three rows, 63 held. No findings, and each sweep was built so that a clean result means something.
   - game-match, 25/25. The two cutoffs are pinned on BOTH sides with derived answers rather than observed ones: `fuzz.ratio` is 2*M/T, so synthetic letter pairs give scores computable by hand - 92.31 and 100.00 must be owned, 90.00 and 83.33 must be possible, 40.00 must be new. A case asserts the two cutoff constants themselves, so if either moves the derivation fails first and names the reason instead of silently certifying whatever the scorer now returns.
