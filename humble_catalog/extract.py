@@ -30,9 +30,12 @@ def run(db_path="catalog.db", covers_dir="covers", client=None, refetch=False):
         store_order(conn, raw)
         prog.step(raw.get("product", {}).get("human_name", key))
     prog.detach()  # the cover phase paints its own block below this one
-    covers = _download_covers(conn, client, covers_dir)
+    # Not `covers`: that is the module imported above, and binding it here
+    # would make the name local to this whole function, so any later use of
+    # covers.relink above this line would fail at runtime.
+    downloaded = _download_covers(conn, client, covers_dir)
     prog.finish(f"Fetched {len(new)} new bundles ({len(keys) - len(new)} already "
-                f"cached). Covers downloaded: {covers}.")
+                f"cached). Covers downloaded: {downloaded}.")
     conn.close()
 
 def reparse(db_path="catalog.db", covers_dir="covers"):
