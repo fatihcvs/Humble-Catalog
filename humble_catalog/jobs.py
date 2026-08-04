@@ -102,6 +102,10 @@ class JobRunner:
         self._reader = None
         self._log = deque(maxlen=LOG_LINES)
         self._last = None
+        self._cancelled = False
+
+    # How long a cancelled child gets to unwind before the escalation.
+    GRACE_SECONDS = 10
 
     # ---- public -------------------------------------------------------
 
@@ -132,6 +136,32 @@ class JobRunner:
             return {"running": dict(self._job) if running else None,
                     "log": list(self._log),
                     "last": dict(self._last) if self._last else None}
+
+    def cancel(self):
+        """Interrupt the running job. False when there is nothing to stop.
+
+        A real interrupt, not a kill: CTRL_BREAK_EVENT on Windows and
+        SIGINT elsewhere both arrive as KeyboardInterrupt, which is the
+        Ctrl-C the README already promises `harvest` survives and resumes
+        from. terminate() only as an escalation, for a child wedged in a
+        C call that never returns to the interpreter to see the signal.
+        """
+        with self._lock:
+            proc = self._proc
+            if proc is None or proc.poll() is not None:
+                return False
+            self._cancelled = True
+        sig = (signal.CTRL_BREAK_EVENT if sys.platform == "win32"
+               else signal.SIGINT)
+        try:
+            proc.send_signal(sig)
+        except (ProcessLookupError, OSError):
+            return False        # it exited between the poll and the signal
+        try:
+            proc.wait(timeout=self.GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+        return True
 
     def wait(self, timeout=None):
         """Block until the job finishes. For tests and shutdown only."""
@@ -180,6 +210,14 @@ class JobRunner:
 
     def _retire(self, job, code):
         with self._lock:
-            self._last = {"command": job["command"],
-                          "state": "done" if code == 0 else "failed",
-                          "exit_code": code, "finished_at": _now()}
+            cancelled = self._cancelled
+            self._cancelled = False
+            self._last = {
+                "command": job["command"],
+                # Cancelled beats failed: an interrupted child exits
+                # non-zero by definition, and reporting the user's own
+                # deliberate stop as a failure would send them looking for
+                # a fault that is not there.
+                "state": "cancelled" if cancelled
+                         else ("done" if code == 0 else "failed"),
+                "exit_code": code, "finished_at": _now()}

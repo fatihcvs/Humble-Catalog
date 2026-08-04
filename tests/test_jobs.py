@@ -106,3 +106,20 @@ def test_cleanup_runs_after_the_child_exits(monkeypatch, tmp_path):
     runner.start("reparse", cleanup=lambda: called.append(True))
     runner.wait(timeout=30)
     assert called == [True]
+
+
+def test_cancel_stops_a_running_job(monkeypatch, tmp_path):
+    # The child ignores nothing and simply sleeps; the interrupt ends it.
+    runner = _fake_runner(monkeypatch, tmp_path,
+                          "import time; time.sleep(60)")
+    runner.start("reparse")
+    time.sleep(0.5)          # let the interpreter reach the sleep
+    assert runner.cancel() is True
+    runner.wait(timeout=30)
+    assert runner.state()["running"] is None
+    assert runner.state()["last"]["state"] == "cancelled"
+
+
+def test_cancel_with_nothing_running_is_false(monkeypatch, tmp_path):
+    runner = _fake_runner(monkeypatch, tmp_path, "print('x')")
+    assert runner.cancel() is False
