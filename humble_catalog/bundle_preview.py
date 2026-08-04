@@ -352,7 +352,7 @@ def preview(conn, bundle, url=None):
 
 # Symbols for the currencies Humble actually quotes. A currency not
 # listed prints its ISO code, which is unambiguous if less pretty.
-_SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
+SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "CAD": "CA$", "AUD": "A$"}
 
 
 def _series_note(hit):
@@ -384,7 +384,7 @@ def format_report(report, encoding="utf-8"):
     Highest tier first: that is the tier being decided against. There is
     deliberately no price-per-new-item column -- see the design spec.
     """
-    symbol = _SYMBOLS.get(report["currency"], report["currency"] + " ")
+    symbol = SYMBOLS.get(report["currency"], report["currency"] + " ")
     # A console that cannot encode the symbol falls back to the ISO code
     # rather than to console_safe's replacement character: "?21.90" reads
     # as a bug, "EUR 21.90" reads as a price. Same reasoning that makes

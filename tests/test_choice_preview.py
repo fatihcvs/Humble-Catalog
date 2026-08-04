@@ -206,6 +206,72 @@ def test_libraries_reports_what_was_imported(tmp_path):
     assert "steam" in _report(tmp_path)["libraries"]
 
 
+def _text(tmp_path):
+    return choice_preview.format_report(_report(tmp_path))
+
+
+def test_format_report_leads_with_the_month_and_the_three_counts(tmp_path):
+    out = _text(tmp_path)
+    assert "Humble Choice: January 2031" in out
+    assert "owned 3" in out and "possible 1" in out and "new 2" in out
+
+
+def test_format_report_lists_the_new_games(tmp_path):
+    out = _text(tmp_path)
+    assert "Lantern & Lockpick" in out
+    assert "Widget Quest II" in out
+
+
+def test_format_report_names_the_key_a_count_is_trusting(tmp_path):
+    out = _text(tmp_path)
+    assert "owned via a Humble key" in out
+    assert "Humble Game Bundle: Key Vault" in out
+
+
+def test_format_report_says_a_possible_is_counted_as_neither(tmp_path):
+    out = _text(tmp_path)
+    assert "counted as neither owned nor new" in out
+    assert "Starfall Rally Turbo" in out
+
+
+def test_format_report_always_warns_that_matching_is_approximate(tmp_path):
+    # Unlike the bundle report, this warning is unconditional: every
+    # answer here is a title match, so there is no book path that earns
+    # the warning's absence.
+    assert "APPROXIMATE" in _text(tmp_path)
+
+
+def test_format_report_warns_about_a_store_with_no_import(tmp_path):
+    out = _text(tmp_path)
+    assert "never been imported" in out
+    assert "gog" in out
+
+
+def test_format_report_degrades_a_symbol_the_console_cannot_encode(tmp_path):
+    # cp437 is the Windows console default and has no euro sign. capsys
+    # captures as UTF-8, so no other test can observe this.
+    out = choice_preview.format_report(_report(tmp_path), "cp437")
+    assert "EUR 11.99" in out
+    assert "€" not in out
+
+
+def test_format_report_omits_the_headings_of_empty_blocks(tmp_path):
+    # A month owned outright must print as clean counts, not as a stack of
+    # empty headings.
+    conn = _conn(tmp_path)
+    hub = _hub()
+    for name in ("widgetquest2_choice", "starfallrallyturbo_choice",
+                 "lanternlockpick_choice"):
+        del hub["contentChoiceOptions"]["contentChoiceData"]["game_data"][name]
+    try:
+        out = choice_preview.format_report(choice_preview.preview(conn, hub))
+    finally:
+        conn.close()
+    assert "new 0" in out
+    assert "counted as neither owned nor new" not in out
+    assert "never been imported" not in out
+
+
 def test_preview_survives_a_hub_that_is_not_the_expected_shape(tmp_path):
     # The blob is third-party content. A garbage payload must report a
     # month selling nothing, not raise out of a viewer route.

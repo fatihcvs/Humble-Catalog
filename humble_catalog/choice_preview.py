@@ -15,7 +15,7 @@ collide with anything already stored -- measured during design: zero of
 nine offered games matched by any id the blob carries. Ownership is
 therefore decided by TITLE, and the report says so out loud.
 """
-from humble_catalog import import_games, shapes
+from humble_catalog import bundle_preview, import_games, shapes, stats
 from humble_catalog.game_match import (classify_game, keyed_games,
                                        owned_games, prepare_pool)
 
@@ -163,3 +163,88 @@ def preview(conn, hub):
         # report says so out loud.
         "unimported_stores": sorted(unmatched_stores - set(libraries)),
     }
+
+
+def format_report(report, encoding="utf-8"):
+    """The report as printable text, safe for a console using `encoding`.
+
+    Deliberately no MSRP column, though the blob carries one per game.
+    Same reasoning that kept price-per-new-item out of the bundle report:
+    it is arithmetic the reader can do, and a large "value" figure invites
+    reading it as "worth buying" -- the misjudgement this exists to correct.
+    """
+    symbol = bundle_preview.SYMBOLS.get(report["currency"],
+                                        report["currency"] + " ")
+    # A console that cannot encode the symbol falls back to the ISO code
+    # rather than to console_safe's replacement character: "?11.99" reads
+    # as a bug, "EUR 11.99" reads as a price. The Windows console defaults
+    # to cp437/cp850 and neither carries the euro sign.
+    try:
+        symbol.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        symbol = report["currency"] + " "
+    noun = "game" if report["total"] == 1 else "games"
+    lines = [f"{report['name']}   {symbol}{report['price']:.2f}   "
+             f"{report['total']} {noun}",
+             f"  owned {report['owned']}    possible {report['possible']}"
+             f"    new {report['new']}",
+             ""]
+    if report["claimed"]:
+        # Stated, not acted on: the counts are the same either way, but a
+        # month already claimed is not a month to decide about.
+        lines += ["  You have already made your picks for this month.", ""]
+
+    def block(heading, items):
+        # Omitted entirely when empty, so a month owned outright prints as
+        # clean counts rather than a stack of empty headings.
+        if not items:
+            return
+        lines.append(f"  {heading}:")
+        lines.extend(f"    {line}" for line in items)
+        lines.append("")
+
+    def keyed_line(hit):
+        """One key line: the game, and where the key says it came from."""
+        where = ", ".join(part for part in (
+            f"{hit['key_type']} key" if hit.get("key_type") else None,
+            hit.get("bundle")) if part)
+        return hit["offered"] + (f"  ({where})" if where else "")
+
+    block(f"new ({report['new']})", report["new_items"])
+    block(f"owned ({report['owned']})", report["owned_items"])
+    count = report["keyed"]
+    if count:
+        # Never "unredeemed": Humble marks a key redeemed the moment its
+        # value is revealed, which says nothing about whether the game ever
+        # reached a store account. Absence from every imported library is
+        # what is actually known, so it is what is said.
+        block(f"{count} owned via {'a Humble key' if count == 1 else 'Humble keys'}"
+              f" (not in any imported library)",
+              [keyed_line(hit) for hit in report["keyed_items"]])
+    # Listed, never folded into owned or new. The whole point of the middle
+    # band is that the tool declines to decide, so a bare count would hide
+    # which title it could not decide about.
+    block(f"{report['possible']} possible (counted as neither owned nor new)",
+          [f"{hit['offered']}  ~  {hit['owned_title']}  ({hit['score']:.2f})"
+           for hit in report["possible_items"]])
+    block(f"Extras (not counted, {len(report['extras'])})", report["extras"])
+    # Unconditional, unlike the bundle report's: every answer here is a
+    # title match, so there is no path that earns the warning's absence.
+    lines += ["  Game ownership is matched by title and is APPROXIMATE -- "
+              "verify anything you would buy on."]
+    libraries = report.get("libraries") or {}
+    if libraries:
+        lines.append("  Libraries: " + ", ".join(
+            f"{store} {info['count']} "
+            f"{'game' if info['count'] == 1 else 'games'} "
+            f"(imported {info['imported_at'][:10]})"
+            for store, info in sorted(libraries.items())))
+    for store in report["unimported_stores"]:
+        lines.append(f"  WARNING: this month delivers on '{store}', which has "
+                     f"never been imported -- its unmatched games are counted "
+                     f"as new by default.")
+    if report["unimported_stores"]:
+        lines.append("  Run `python -m humble_catalog import-games` first.")
+    # Degraded at the CLI boundary only: the web route keeps the symbol,
+    # and the game names are arbitrary data that may hold anything.
+    return stats.console_safe("\n".join(lines).rstrip(), encoding)
