@@ -5,8 +5,9 @@ import webbrowser
 from pathlib import Path
 import requests
 from flask import Flask, Response, g, jsonify, request, send_from_directory
-from humble_catalog import (bundle_preview, db, dedupe, editions, export,
-                            keys, stats, url_import)
+from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
+                            editions, export, humble_api, keys, stats,
+                            url_import)
 from humble_catalog.enrich import EDITABLE_FIELDS, apply_candidate
 from humble_catalog.sources.base import candidate
 
@@ -614,6 +615,28 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
             # bundle distinguishable from a URL we refused.
             return jsonify({"error": str(exc)}), 502
         return jsonify(bundle_preview.preview(conn(), bundle, url=url))
+
+    @app.post("/api/choice-preview")
+    def choice_preview_route():
+        # Takes no body: Choice is always "this month". POST rather than
+        # GET because this is a credentialed network action whose response
+        # is a fact about what the owner holds -- neither belongs in a
+        # query string that reaches access logs and browser history.
+        try:
+            hub = choice_preview.fetch_choice()
+        except humble_api.NotLoggedIn:
+            # 409, never 401: nothing about this request's authorization is
+            # wrong, and the fix is a command run in a terminal. The server
+            # must not attempt the login itself -- manual_login blocks on a
+            # browser window it cannot see.
+            return jsonify({"error": "Humble session expired -- run "
+                                     "`python -m humble_catalog login`, "
+                                     "then try again."}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except requests.RequestException as exc:
+            return jsonify({"error": str(exc)}), 502
+        return jsonify(choice_preview.preview(conn(), hub))
 
     @app.post("/api/items/<int:item_id>/choose")
     def choose(item_id):

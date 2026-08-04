@@ -564,16 +564,23 @@ def test_no_post_route_answers_5xx_for_a_body_that_is_not_an_object(tmp_path):
     client = app.test_client()
     routes = _every_post_route(app, item_id)
     assert len(routes) >= 20, routes        # the enumeration found the routes
-    # `/reopen` is the one route that legitimately answers 2xx here: it
-    # takes a bare body by documented contract and reads no field, so a
-    # body it never looks at cannot make it fail. Every other route reads
-    # something and must refuse.
+    # The routes that legitimately answer 2xx here: each reads NO field
+    # from the body, so a body it never looks at cannot make it fail.
+    # `/reopen` takes a bare body by documented contract;
+    # `/api/choice-preview` takes none at all, because Choice is always
+    # "this month" and there is nothing to address. Every other route
+    # reads something and must refuse.
+    #
+    # Membership of this set is a claim about the route, not a waiver: add
+    # a path here only when it reads nothing, and never to quiet a failure
+    # from a route that does.
+    bodiless = {"/api/choice-preview"}
     for path in routes:
         for label, body in BAD_BODIES:
             resp = client.post(path, data=body,
                                content_type="application/json")
             assert resp.status_code < 500, (path, label, resp.status_code)
-            if path.endswith("/reopen"):
+            if path.endswith("/reopen") or path in bodiless:
                 continue
             assert 400 <= resp.status_code < 500, (path, label,
                                                    resp.status_code)
@@ -2046,3 +2053,76 @@ def test_export_rows_carry_no_edition_field(tmp_path):
     _seed_editions(dbp)
     conn = db.connect(dbp)
     assert all("editions" not in row for row in db.fetch_items(conn))
+
+
+# --- The Humble Choice route --------------------------------------------
+
+_CHOICE_HUB = {
+    "baseSubscriptionPrice|money": {"currency": "EUR", "amount": 11.99},
+    "contentChoiceOptions": {
+        "title": "January 2031",
+        "contentChoiceState": {"initial": {"choices_made": []}},
+        "contentChoiceData": {"extras": [], "game_data": {
+            "lanternlockpick_choice": {"title": "Lantern & Lockpick",
+                                       "delivery_methods": ["steam"]}}}},
+}
+
+
+def test_choice_preview_returns_the_report(tmp_path, monkeypatch):
+    from humble_catalog import choice_preview
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    monkeypatch.setattr(choice_preview, "fetch_choice",
+                        lambda client=None: _CHOICE_HUB)
+    client = create_app(db_path=str(dbp)).test_client()
+    resp = client.post("/api/choice-preview", json={})
+    assert resp.status_code == 200
+    assert resp.get_json()["name"] == "Humble Choice: January 2031"
+
+
+def test_choice_preview_answers_409_for_a_stale_session(tmp_path, monkeypatch):
+    # 409, not 401: nothing about the viewer's own authorization is wrong,
+    # and the fix is a command the owner runs elsewhere. Reusing 401 would
+    # invite someone to add a login prompt to the viewer -- and
+    # manual_login blocks on a browser window the server cannot see.
+    from humble_catalog import choice_preview, humble_api
+
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+
+    def stale(client=None):
+        raise humble_api.NotLoggedIn("no usable HumbleBundle session")
+
+    monkeypatch.setattr(choice_preview, "fetch_choice", stale)
+    client = create_app(db_path=str(dbp)).test_client()
+    resp = client.post("/api/choice-preview", json={})
+    assert resp.status_code == 409
+    assert "login" in resp.get_json()["error"]
+
+
+def test_choice_preview_answers_400_for_a_month_it_cannot_read(tmp_path,
+                                                               monkeypatch):
+    from humble_catalog import choice_preview
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+
+    def boom(client=None):
+        raise ValueError("no Humble Choice month on offer")
+
+    monkeypatch.setattr(choice_preview, "fetch_choice", boom)
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post("/api/choice-preview", json={}).status_code == 400
+
+
+def test_choice_preview_answers_502_for_an_upstream_failure(tmp_path,
+                                                            monkeypatch):
+    from humble_catalog import choice_preview
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+
+    def boom(client=None):
+        raise requests.ConnectionError("humblebundle.com unreachable")
+
+    monkeypatch.setattr(choice_preview, "fetch_choice", boom)
+    client = create_app(db_path=str(dbp)).test_client()
+    assert client.post("/api/choice-preview", json={}).status_code == 502
