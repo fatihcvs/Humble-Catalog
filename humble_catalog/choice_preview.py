@@ -16,8 +16,8 @@ nine offered games matched by any id the blob carries. Ownership is
 therefore decided by TITLE, and the report says so out loud.
 """
 from humble_catalog import shapes
-from humble_catalog.game_match import (classify_game, owned_games,
-                                       prepare_pool)
+from humble_catalog.game_match import (classify_game, keyed_games,
+                                       owned_games, prepare_pool)
 
 
 def _month(hub):
@@ -45,8 +45,18 @@ def preview(conn, hub):
     opts, month = _month(hub)
     offered = shapes.as_mapping(month.get("game_data"))
     library = prepare_pool(owned_games(conn))
+    # Tried only AFTER the imported libraries have said "new", so a game
+    # that is both keyed and activated reports as the plain library match
+    # it is, and the keyed list stays what it claims to be: the games
+    # whose only evidence is a key.
+    keyed = keyed_games(conn)
+    keyed_pool = prepare_pool(
+        [(normalized, display) for normalized, display, _t, _b in keyed])
+    # Keyed on the display title, which is what classify_game hands back.
+    keyed_extra = {display: (key_type, bundle_name)
+                   for _n, display, key_type, bundle_name in keyed}
 
-    owned_items, possible_items, new_items = [], [], []
+    owned_items, possible_items, new_items, keyed_items = [], [], [], []
     for machine_name, entry in offered.items():
         entry = shapes.as_mapping(entry)
         # Falls back to the machine_name so counting stays exhaustive even
@@ -54,6 +64,18 @@ def preview(conn, hub):
         # title, but a missing row would be a wrong count.
         title = shapes.as_text(entry.get("title")) or machine_name
         verdict, match = classify_game(title, library)
+        if verdict == "new":
+            # Only an outright keyed 'owned' is honoured. A keyed
+            # 'possible' would be a guess about a guess, so it is left to
+            # fall through to whatever the libraries decided.
+            keyed_verdict, keyed_match = classify_game(title, keyed_pool)
+            if keyed_verdict == "owned":
+                key_type, bundle_name = keyed_extra.get(
+                    keyed_match["owned_title"], (None, None))
+                keyed_items.append({**keyed_match, "key_type": key_type,
+                                    "bundle": bundle_name})
+                owned_items.append(title)
+                continue
         if verdict == "owned":
             owned_items.append(title)
         elif verdict == "possible":
@@ -75,6 +97,12 @@ def preview(conn, hub):
         "possible": len(possible_items),
         "new": len(new_items),
         "owned_items": sorted(owned_items, key=str.lower),
+        # Counted inside `owned` above, listed separately here: the count
+        # answers "how much of this do I already have", the list answers
+        # "and how sure is that".
+        "keyed": len(keyed_items),
+        "keyed_items": sorted(keyed_items,
+                              key=lambda k: k["offered"].lower()),
         "possible_items": sorted(possible_items,
                                  key=lambda p: p["offered"].lower()),
         "new_items": sorted(new_items, key=str.lower),

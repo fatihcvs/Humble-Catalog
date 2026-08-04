@@ -105,6 +105,39 @@ def test_an_empty_catalog_reports_every_game_as_new(tmp_path):
     assert (report["total"], report["owned"], report["new"]) == (6, 0, 6)
 
 
+def test_a_game_held_only_as_a_humble_key_counts_as_owned(tmp_path):
+    # Cinder Vale was paid for in an earlier bundle and never activated,
+    # so it is in no imported library. Reporting it as new would push
+    # toward paying for it twice.
+    report = _report(tmp_path)
+    assert "Cinder Vale" in report["owned_items"]
+    assert "Cinder Vale" not in report["new_items"]
+
+
+def test_a_keyed_game_is_listed_apart_from_a_library_match(tmp_path):
+    # Counted inside `owned`, but named: an unactivated key can be dead or
+    # region-locked in a way a library entry cannot.
+    report = _report(tmp_path)
+    assert report["keyed"] == 1
+    hit = report["keyed_items"][0]
+    assert hit["offered"] == "Cinder Vale"
+    assert hit["key_type"] == "steam"
+    assert hit["bundle"] == "Humble Game Bundle: Key Vault"
+
+
+def test_keyed_is_a_subset_of_owned_and_is_never_added_to_it(tmp_path):
+    report = _report(tmp_path)
+    assert report["keyed"] <= report["owned"]
+    assert report["owned"] + report["possible"] + report["new"] == report["total"]
+
+
+def test_a_library_match_is_not_reported_as_keyed(tmp_path):
+    # Keys are tried only after the libraries say "new", so a game both
+    # keyed and activated reports as the plain library match it is.
+    assert [k["offered"] for k in _report(tmp_path)["keyed_items"]] == [
+        "Cinder Vale"]
+
+
 def test_preview_survives_a_hub_that_is_not_the_expected_shape(tmp_path):
     # The blob is third-party content. A garbage payload must report a
     # month selling nothing, not raise out of a viewer route.
