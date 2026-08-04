@@ -128,6 +128,7 @@ records: `steam`, `gog`, `epic`, `amazon`, `zoom`.
 | Quartz Meridian | — (offered only) | offered on uplay and owned nowhere, keyed or otherwise — the unmatched item that keeps the never-imported-store warning honest. Renamed once already: the first invented title contained a private term as a substring, invisibly. Vet a new title against `leak_check.build_terms()` before using it — `leak_check` matches substrings, so a word buried mid-title trips it |
 | Amber Hollow | — (keyed only) | held as a Humble **steam** key carrying a live `expiry_date`; the key-report row that can still be lost |
 | Glass Meridian | — (keyed only) | held as a Humble **steam** key whose `expiry_date` has passed; the key-report row that was lost |
+| Humble Choice: January 2031 | — | invented Choice month for the choice-preview fixtures (`choice_hub.json`, `choice_page.html`). A future month on purpose, so it can never name a real one the owner subscribed to |
 | Twin Lantern | — (keyed only) | one product keyed on **two** storefronts in a single order (`twinlantern_steam`, `twinlantern_gog`), so both tpks share the `human_name` "Twin Lantern". The `external_keys` primary-key collision fixture: under the old `(gamekey, human_name)` key the second write silently replaced the first |
 | Hollowmere | — (keyed only) | second `human_name` collision, one key lost, so the migration's "still missing" message has more than one product to name |
 

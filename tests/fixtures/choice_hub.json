@@ -1,0 +1,55 @@
+{
+  "baseSubscriptionPrice|money": {"currency": "EUR", "amount": 11.99},
+  "contentChoiceOptions": {
+    "gamekey": "choicejan2031",
+    "title": "January 2031",
+    "contentChoiceState": {"initial": {"choices_made": []}},
+    "contentChoiceData": {
+      "display_order": [
+        "widgetquest2_choice", "neondrifter_choice", "cindervale_choice",
+        "widgetquest_de_choice", "starfallrallyturbo_choice",
+        "lanternlockpick_choice"
+      ],
+      "extras": [
+        {"human_name": "Sample Ambience Pack",
+         "machine_name": "ambiencepack_choice", "class": "coupon",
+         "icon_path": "https://example.invalid/ambience.png", "types": []},
+        {"human_name": "Bonus Wallpaper",
+         "machine_name": "bonuswallpaper_choice", "class": "coupon",
+         "icon_path": "https://example.invalid/wallpaper.png", "types": []}
+      ],
+      "game_data": {
+        "neondrifter_choice": {
+          "title": "Neon Drifter",
+          "display_item_machine_name": "neondrifter_choice_di",
+          "delivery_methods": ["steam"], "tpkds": [],
+          "msrp|money": {"currency": "EUR", "amount": 19.99}},
+        "widgetquest_de_choice": {
+          "title": "Widget Quest: Definitive Edition",
+          "display_item_machine_name": "widgetquest_de_choice_di",
+          "delivery_methods": ["steam"], "tpkds": [],
+          "msrp|money": {"currency": "EUR", "amount": 24.99}},
+        "widgetquest2_choice": {
+          "title": "Widget Quest II",
+          "display_item_machine_name": "widgetquest2_choice_di",
+          "delivery_methods": ["steam", "other-key"], "tpkds": [],
+          "msrp|money": {"currency": "EUR", "amount": 29.99}},
+        "starfallrallyturbo_choice": {
+          "title": "Starfall Rally Turbo",
+          "display_item_machine_name": "starfallrallyturbo_choice_di",
+          "delivery_methods": ["steam"], "tpkds": [],
+          "msrp|money": {"currency": "EUR", "amount": 14.99}},
+        "lanternlockpick_choice": {
+          "title": "Lantern & Lockpick",
+          "display_item_machine_name": "lanternlockpick_choice_di",
+          "delivery_methods": ["gog"], "tpkds": [],
+          "msrp|money": {"currency": "EUR", "amount": 9.99}},
+        "cindervale_choice": {
+          "title": "Cinder Vale",
+          "display_item_machine_name": "cindervale_choice_di",
+          "delivery_methods": ["steam"], "tpkds": [],
+          "msrp|money": {"currency": "EUR", "amount": 12.99}}
+      }
+    }
+  }
+}
