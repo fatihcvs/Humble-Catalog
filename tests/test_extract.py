@@ -258,3 +258,19 @@ def test_run_closes_its_connection_when_it_raises(tmp_path, monkeypatch):
     assert len(opened) == 1
     with pytest.raises(sqlite3.ProgrammingError):
         opened[0].execute("SELECT 1")
+
+
+def test_run_propagates_no_login(monkeypatch, tmp_path):
+    from humble_catalog import humble_api
+
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    def fake_ensure_login(profile_dir=".playwright-profile", allow_login=True):
+        seen["allow_login"] = allow_login
+        raise humble_api.NotLoggedIn("expired")
+
+    monkeypatch.setattr(humble_api, "ensure_login", fake_ensure_login)
+    with pytest.raises(humble_api.NotLoggedIn):
+        extract.run(allow_login=False)
+    assert seen["allow_login"] is False

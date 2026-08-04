@@ -136,10 +136,18 @@ def manual_login(profile_dir=".playwright-profile"):
          f"{BASE}/login?goto=/home/library"])
     proc.wait()
 
-def ensure_login(profile_dir=".playwright-profile"):
+def ensure_login(profile_dir=".playwright-profile", allow_login=True):
     client = HumbleClient(get_cookies(profile_dir))
     if client.logged_in():
         return client
+    if not allow_login:
+        # The viewer's job runner passes allow_login=False. manual_login
+        # opens a browser window and then blocks on proc.wait(), which a
+        # background child process can neither show nor explain -- it would
+        # read as a slow fetch that never ends. Failing here lets the page
+        # say "session expired" and offer the terminal handoff instead.
+        # Same rule /api/choice-preview already follows.
+        raise NotLoggedIn("HumbleBundle session missing or expired")
     print("HumbleBundle session missing or expired.")
     manual_login(profile_dir)
     client = HumbleClient(get_cookies(profile_dir))
