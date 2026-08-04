@@ -335,3 +335,45 @@ def test_help_lists_the_pipeline_in_the_order_you_run_it(monkeypatch, capsys):
     assert out.index("\n    extract") < out.index("\n    harvest")
     assert out.index("\n    harvest") < out.index("\n    enrich")
     assert out.index("\n    enrich") < out.index("\n    serve")
+
+
+def test_choice_command_prints_the_month(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    db.connect("catalog.db").close()
+    fake = {
+        "baseSubscriptionPrice|money": {"currency": "USD", "amount": 11.99},
+        "contentChoiceOptions": {
+            "title": "January 2031",
+            "contentChoiceState": {"initial": {"choices_made": []}},
+            "contentChoiceData": {
+                "extras": [],
+                "game_data": {
+                    "lanternlockpick_choice": {
+                        "title": "Lantern & Lockpick",
+                        "delivery_methods": ["steam"]}}}},
+    }
+    from humble_catalog import choice_preview, humble_api
+    monkeypatch.setattr(humble_api, "ensure_login", lambda *a, **k: object())
+    monkeypatch.setattr(choice_preview, "fetch_choice", lambda client=None: fake)
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "choice"])
+    main()
+    out = capsys.readouterr().out
+    assert "Humble Choice: January 2031" in out
+    assert "new 1" in out
+
+
+def test_choice_command_reports_a_dead_month_without_a_traceback(
+        monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    db.connect("catalog.db").close()
+    from humble_catalog import choice_preview, humble_api
+
+    def boom(client=None):
+        raise ValueError("no Humble Choice month on offer")
+
+    monkeypatch.setattr(humble_api, "ensure_login", lambda *a, **k: object())
+    monkeypatch.setattr(choice_preview, "fetch_choice", boom)
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "choice"])
+    with pytest.raises(SystemExit):
+        main()
+    assert "no Humble Choice month on offer" in capsys.readouterr().err

@@ -188,6 +188,18 @@ def main():
     p_bundle.add_argument(
         "url", help="A humblebundle.com bundle page URL")
     sub.add_parser(
+        "choice",
+        help="Show how much of this month's Humble Choice you already own",
+        description="Shows how many of this month's Humble Choice games you "
+                    "already own, counting games in your imported libraries "
+                    "and games you hold as an unclaimed Humble key. Games "
+                    "are matched by title and only approximately, so treat "
+                    "the counts as a strong hint and check anything you "
+                    "would base a purchase on. Run 'import-games' first or "
+                    "every game reads as new. Read-only, but it needs your "
+                    "Humble login -- Choice pages carry nothing when signed "
+                    "out.")
+    sub.add_parser(
         "import-games",
         help="Import your Steam/Heroic game libraries, so `bundle` can "
              "count games you already own (approximate; title-matched)")
@@ -322,6 +334,14 @@ def main():
         except ValueError as exc:
             # A rejected URL is the user's mistake being made right now,
             # so it reads as a usage error rather than a traceback.
+            parser.error(str(exc))
+    elif args.command == "choice":
+        from humble_catalog import choice_preview
+        try:
+            choice_preview.run()
+        except ValueError as exc:
+            # A month that cannot be read is a condition to report, not a
+            # traceback -- same stance as the bundle command's bad URL.
             parser.error(str(exc))
 
 if __name__ == "__main__":

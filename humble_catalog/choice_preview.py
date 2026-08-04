@@ -17,9 +17,10 @@ therefore decided by TITLE, and the report says so out loud.
 """
 import json
 import re
+import sys
 
-from humble_catalog import (bundle_preview, humble_api, import_games, shapes,
-                            stats)
+from humble_catalog import (bundle_preview, db, humble_api, import_games,
+                            shapes, stats)
 from humble_catalog.game_match import (classify_game, keyed_games,
                                        owned_games, prepare_pool)
 
@@ -289,3 +290,19 @@ def format_report(report, encoding="utf-8"):
     # Degraded at the CLI boundary only: the web route keeps the symbol,
     # and the game names are arbitrary data that may hold anything.
     return stats.console_safe("\n".join(lines).rstrip(), encoding)
+
+
+def run():
+    """Log in if needed, fetch, count, and print. The `choice` entry point."""
+    # ensure_login, not fetch_choice's own check: this is the surface where
+    # a human and a terminal are present, so an expired session is a prompt
+    # rather than an error. The web route does the opposite, deliberately.
+    client = humble_api.ensure_login()
+    hub = fetch_choice(client)
+    conn = db.connect()
+    try:
+        report = preview(conn, hub)
+    finally:
+        conn.close()
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(format_report(report, encoding))
