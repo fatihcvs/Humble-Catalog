@@ -142,3 +142,90 @@ $("#bundle-go").addEventListener("click", () => {
 $("#bundle-url").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") $("#bundle-go").click();
 });
+
+// ---- Humble Choice panel ----------------------------------------------
+// One button, no URL: Choice is always "this month". The counting lives
+// only in choice_preview.py, so every number arrives with the data and
+// there is nothing here to drift from the CLI.
+//
+// Unlike the bundle panel this needs the owner's Humble login, which the
+// server will NOT perform: a stale session comes back as 409 with the
+// command to run, and the message is shown as-is.
+
+let choicePreview = null, choicePreviewError = null;
+let choicePreviewOpen = true;
+
+async function previewChoice() {
+  choicePreview = choicePreviewError = null;
+  const resp = await post("/api/choice-preview", {});
+  const body = await resp.json();
+  if (resp.ok) choicePreview = body;
+  else choicePreviewError = body.error || "could not read this month's Choice";
+  renderChoicePreview();
+}
+
+function renderChoicePreview() {
+  const panel = $("#choice-panel");
+  panel.hidden = !choicePreview && !choicePreviewError;
+  if (panel.hidden) return;
+  if (choicePreviewError) {
+    panel.innerHTML = `<p class="bundle-error">${esc(choicePreviewError)}</p>`;
+    return;
+  }
+  const c = choicePreview;
+  // The three counts on one row, so the comparison the panel exists for
+  // never scrolls. Detail lists follow.
+  const counts = `<table class="bundle-tiers"><tbody><tr>
+    <td class="bundle-price">${esc(money(c.price, c.currency))}</td>
+    <td>${c.total} ${c.total === 1 ? "game" : "games"}</td>
+    <td>owned <b>${c.owned}</b></td>
+    <td>possible <b>${c.possible}</b></td>
+    <td>new <b>${c.new}</b></td></tr></tbody></table>`;
+  // Omitted entirely when empty, so a month owned outright renders as
+  // clean counts rather than a stack of empty headings.
+  const list = (cls, heading, items) => items.length ? `
+    <section class="${cls}">
+      <h4>${esc(heading)}</h4>
+      <ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul>
+    </section>` : "";
+  const plain = (items) => items.map((n) => esc(n));
+  // Never "unredeemed": Humble marks a key redeemed the moment its value
+  // is revealed, which says nothing about whether the game reached a store
+  // account. Absence from every imported library is what is known.
+  const keyedNoun = (n) =>
+    `${n} owned via ${n === 1 ? "a Humble key" : "Humble keys"}`
+    + " (not in any imported library)";
+  const keyed = list("bundle-keyed", keyedNoun(c.keyed),
+    (c.keyed_items || []).map((k) => `${esc(k.offered)}
+      <span class="bundle-score">(${esc([
+        k.key_type ? k.key_type + " key" : null, k.bundle,
+      ].filter(Boolean).join(", "))})</span>`));
+  // Listed, never folded into owned or new: the point of the middle band
+  // is that the tool declines to decide, so a bare count would hide which
+  // game it could not decide about.
+  const possible = list("bundle-overlaps",
+    `${c.possible} possible (counted as neither owned nor new)`,
+    (c.possible_items || []).map((p) => `${esc(p.offered)} ~
+      ${esc(p.owned_title)}
+      <span class="bundle-score">(${p.score.toFixed(2)})</span>`));
+  const warnings = (c.unimported_stores || []).map((s) => `
+    <p class="bundle-error">WARNING: this month delivers on ${esc(s)}, which
+    has never been imported — its unmatched games are counted as new by
+    default.</p>`).join("");
+  panel.innerHTML = `<details${choicePreviewOpen ? " open" : ""}>
+    <summary>${esc(c.name)}</summary>
+    ${counts}
+    ${c.claimed ? "<p>You have already made your picks for this month.</p>" : ""}
+    ${list("bundle-adds", `new (${c.new})`, plain(c.new_items || []))}
+    ${list("bundle-adds", `owned (${c.owned})`, plain(c.owned_items || []))}
+    ${keyed}${possible}
+    ${list("bundle-adds", `Extras (not counted, ${(c.extras || []).length})`,
+           plain(c.extras || []))}
+    <p class="bundle-approximate">Game ownership is matched by title and is
+      APPROXIMATE — verify anything you would buy on.</p>
+    ${warnings}</details>`;
+  panel.querySelector("details").addEventListener("toggle",
+    (ev) => { choicePreviewOpen = ev.target.open; });
+}
+
+$("#choice-go").addEventListener("click", () => { previewChoice(); });

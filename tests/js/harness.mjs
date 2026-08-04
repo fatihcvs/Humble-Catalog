@@ -140,6 +140,8 @@ const publish = `
   setKeyRows: (v) => { keyRows = v; },
   previewBundle, renderBundlePreview, money,
   setBundlePreview: (v) => { bundlePreview = v; },
+  previewChoice, renderChoicePreview,
+  setChoicePreview: (v) => { choicePreview = v; },
   setGenresShowAll: (v) => { genresShowAll = v; },
   setTagEditMode: (v) => { tagEditMode = v; },
   sortValue, renderExportButton, downloadExport,

@@ -1660,3 +1660,87 @@ def test_a_collection_with_no_span_states_no_denominator_in_the_panel():
          "owned": [1, 2], "owned_display": "Vol. 1-2", "already_owned": False}]))
     assert "you own 2 volumes (Vol. 1-2)" in html
     assert " of " not in html.split("Series you already hold")[1]
+
+
+# --- The Humble Choice panel --------------------------------------------
+
+_CHOICE_REPORT = {
+    "name": "Humble Choice: January 2031", "price": 11.99, "currency": "EUR",
+    "total": 4, "owned": 2, "possible": 1, "new": 1,
+    "owned_items": ["Cinder Vale", "Neon Drifter"],
+    "new_items": ["Lantern & Lockpick"],
+    "possible_items": [{"offered": "Starfall Rally Turbo",
+                        "owned_title": "Starfall Rally", "score": 0.86}],
+    "keyed": 1,
+    "keyed_items": [{"offered": "Cinder Vale", "owned_title": "Cinder Vale",
+                     "score": 1.0, "key_type": "steam",
+                     "bundle": "Humble Game Bundle: Key Vault"}],
+    "extras": ["Sample Ambience Pack"], "claimed": False,
+    "libraries": {"steam": {"count": 3, "imported_at": "2026-08-01T10:00:00",
+                            "source": "test", "source_timestamp": None}},
+    "unimported_stores": ["gog"],
+}
+
+
+def _render_choice(report):
+    return eval_js(
+        """(async () => {
+             app.setFetch(() => Promise.resolve(
+               {ok: true, json: () => Promise.resolve(%s)}));
+             await app.previewChoice();
+             return dom.writes["#choice-panel"];
+           })()""" % json.dumps(report))
+
+
+def test_choice_panel_shows_the_month_and_the_three_counts():
+    html = _render_choice(_CHOICE_REPORT)
+    assert "Humble Choice: January 2031" in html
+    assert "owned <b>2</b>" in html
+    assert "new <b>1</b>" in html
+
+
+def test_choice_panel_always_warns_that_matching_is_approximate():
+    # A coloured count in a browser reads as more authoritative than the
+    # same number in a terminal, so the caveat matters more here.
+    assert "APPROXIMATE" in _render_choice(_CHOICE_REPORT)
+
+
+def test_choice_panel_names_the_key_a_count_is_trusting():
+    html = _render_choice(_CHOICE_REPORT)
+    assert "owned via a Humble key" in html
+    assert "Humble Game Bundle: Key Vault" in html
+
+
+def test_choice_panel_labels_a_possible_as_counted_as_neither():
+    html = _render_choice(_CHOICE_REPORT)
+    assert "counted as neither owned nor new" in html
+    assert "Starfall Rally Turbo" in html
+
+
+def test_choice_panel_warns_about_a_store_with_no_import():
+    assert "never been imported" in _render_choice(_CHOICE_REPORT)
+
+
+def test_choice_panel_omits_empty_sections():
+    report = dict(_CHOICE_REPORT, keyed=0, keyed_items=[], possible=0,
+                  possible_items=[], extras=[], unimported_stores=[])
+    html = _render_choice(report)
+    assert "owned via" not in html
+    assert "counted as neither" not in html
+    assert "never been imported" not in html
+
+
+def test_choice_panel_shows_the_error_from_a_stale_session():
+    html = eval_js(
+        """(async () => {
+             app.setFetch(() => Promise.resolve(
+               {ok: false, json: () => Promise.resolve(
+                 {error: "Humble session expired -- run login, then try again."})}));
+             await app.previewChoice();
+             return dom.writes["#choice-panel"];
+           })()""")
+    assert "session expired" in html
+
+
+def test_render_choice_preview_before_any_fetch_draws_nothing():
+    assert eval_js_error("(async () => app.renderChoicePreview())()") is None
