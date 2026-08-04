@@ -15,9 +15,34 @@ collide with anything already stored -- measured during design: zero of
 nine offered games matched by any id the blob carries. Ownership is
 therefore decided by TITLE, and the report says so out loud.
 """
-from humble_catalog import shapes
+from humble_catalog import import_games, shapes
 from humble_catalog.game_match import (classify_game, keyed_games,
                                        owned_games, prepare_pool)
+
+# Delivery methods that are not storefronts. `other-key` means a key
+# redeemed somewhere that is not a store account at all, so no importer
+# can ever exist for it -- and the unimported-store warning's whole
+# content is "go import that store".
+NON_STORES = frozenset({"other-key"})
+
+
+def delivery_stores(game):
+    """The storefronts a Choice game is delivered on, as a set.
+
+    Read through shapes.text_list rather than as_list because this is
+    third-party content and the quiet failure is the dangerous one:
+    set() over a STRING yields its characters, so a delivery_methods
+    field arriving unwrapped as "steam" would produce five single-letter
+    storefronts, each read as a store the owner never imported.
+
+    The `or ()` is REQUIRED, not defensive noise: text_list returns None
+    rather than [] when there is nothing (so callers can pass it straight
+    to `candidate`), and a game with no delivery_methods would otherwise
+    raise TypeError here. bundle_preview writes the same `or []`.
+    """
+    return {store for store in (shapes.text_list(
+        shapes.as_mapping(game).get("delivery_methods")) or ())
+        if store and store not in NON_STORES}
 
 
 def _month(hub):
@@ -57,6 +82,11 @@ def preview(conn, hub):
                    for _n, display, key_type, bundle_name in keyed}
 
     owned_items, possible_items, new_items, keyed_items = [], [], [], []
+    # Storefronts this month delivers on that still have a game nothing
+    # accounted for. Deliberately not every store it delivers on: the
+    # warning these feed says those games were counted as new by default,
+    # and a store whose every game matched makes that sentence false.
+    unmatched_stores = set()
     for machine_name, entry in offered.items():
         entry = shapes.as_mapping(entry)
         # Falls back to the machine_name so counting stays exhaustive even
@@ -82,7 +112,13 @@ def preview(conn, hub):
             possible_items.append(match)
         else:
             new_items.append(title)
+            # Only a `new` verdict counts toward the warning. A `possible`
+            # was not counted as new either, and an owned game says
+            # nothing about a missing importer.
+            unmatched_stores |= delivery_stores(entry)
 
+    state = shapes.as_mapping(opts.get("contentChoiceState"))
+    libraries = import_games.imported_stores(conn)
     money = shapes.as_mapping(hub.get("baseSubscriptionPrice|money"))
     title = shapes.as_text(opts.get("title"))
     return {
@@ -106,4 +142,24 @@ def preview(conn, hub):
         "possible_items": sorted(possible_items,
                                  key=lambda p: p["offered"].lower()),
         "new_items": sorted(new_items, key=str.lower),
+        # Listed, never counted. These are coupon-class entries rather
+        # than games -- nothing about them can be owned, so folding them
+        # into `total` would corrupt every count derived from it. Shown so
+        # the report does not appear to be hiding part of the month.
+        "extras": sorted(
+            (shapes.as_text(shapes.as_mapping(extra).get("human_name"))
+             or shapes.as_text(shapes.as_mapping(extra).get("machine_name"))
+             or "")
+            for extra in shapes.as_list(month.get("extras"))),
+        # Whether this month's picks have already been made. bool() rather
+        # than a shape assertion: Humble has shipped this as a list, and
+        # emptiness is the only property being asked about.
+        "claimed": bool(shapes.as_mapping(state.get("initial")
+                                          ).get("choices_made")),
+        "libraries": libraries,
+        # A store this month delivers on that has never been imported and
+        # still has a game nothing accounted for. That game was counted as
+        # new by DEFAULT, which is a guess dressed as a fact -- so the
+        # report says so out loud.
+        "unimported_stores": sorted(unmatched_stores - set(libraries)),
     }

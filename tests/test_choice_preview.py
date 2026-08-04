@@ -138,6 +138,74 @@ def test_a_library_match_is_not_reported_as_keyed(tmp_path):
         "Cinder Vale"]
 
 
+def test_extras_are_listed_and_never_counted(tmp_path):
+    # Extras are coupon-class entries, not games. Folding them into the
+    # total would corrupt every count derived from it.
+    report = _report(tmp_path)
+    assert report["extras"] == ["Bonus Wallpaper", "Sample Ambience Pack"]
+    assert report["total"] == 6
+    assert report["owned"] + report["possible"] + report["new"] == 6
+
+
+def test_a_month_with_no_choices_made_reads_as_unclaimed(tmp_path):
+    assert _report(tmp_path)["claimed"] is False
+
+
+def test_a_month_with_choices_made_reads_as_claimed(tmp_path):
+    hub = _hub()
+    hub["contentChoiceOptions"]["contentChoiceState"]["initial"][
+        "choices_made"] = ["neondrifter_choice"]
+    conn = _conn(tmp_path)
+    try:
+        assert choice_preview.preview(conn, hub)["claimed"] is True
+    finally:
+        conn.close()
+
+
+def test_a_store_with_an_unmatched_game_and_no_import_is_named(tmp_path):
+    # Lantern & Lockpick is delivered on gog, is owned nowhere, and gog
+    # has never been imported -- so it was counted as new by DEFAULT, and
+    # the report says so rather than presenting a guess as a fact.
+    assert _report(tmp_path)["unimported_stores"] == ["gog"]
+
+
+def test_other_key_is_never_named_as_an_unimported_store(tmp_path):
+    # 'other-key' rides along on Widget Quest II, which is new. It is not
+    # a storefront, so no importer could ever satisfy the advice the
+    # warning gives.
+    assert "other-key" not in _report(tmp_path)["unimported_stores"]
+
+
+def test_a_store_whose_games_all_matched_is_not_warned_about(tmp_path):
+    # Only an unmatched game earns a warning. steam is imported here, but
+    # even were it not, warning about a store whose every game is already
+    # owned is the noise that teaches an owner to skip the real warning.
+    hub = _hub()
+    del hub["contentChoiceOptions"]["contentChoiceData"]["game_data"][
+        "lanternlockpick_choice"]
+    conn = _conn(tmp_path)
+    try:
+        report = choice_preview.preview(conn, hub)
+    finally:
+        conn.close()
+    assert report["unimported_stores"] == []
+
+
+def test_delivery_stores_reads_a_bare_string_as_one_store(tmp_path):
+    # shapes.text_list, not as_list: a list field that arrived unwrapped
+    # is ONE name, never its characters. set() over a string yields five
+    # single-letter storefronts.
+    assert choice_preview.delivery_stores(
+        {"delivery_methods": "steam"}) == {"steam"}
+    assert choice_preview.delivery_stores({}) == set()
+    assert choice_preview.delivery_stores(
+        {"delivery_methods": ["steam", "other-key"]}) == {"steam"}
+
+
+def test_libraries_reports_what_was_imported(tmp_path):
+    assert "steam" in _report(tmp_path)["libraries"]
+
+
 def test_preview_survives_a_hub_that_is_not_the_expected_shape(tmp_path):
     # The blob is third-party content. A garbage payload must report a
     # month selling nothing, not raise out of a viewer route.
