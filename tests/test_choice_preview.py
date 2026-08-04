@@ -1,7 +1,10 @@
 import json
 from pathlib import Path
+from unittest.mock import Mock
 
-from humble_catalog import choice_preview, db, import_games, titles
+import pytest
+
+from humble_catalog import choice_preview, db, humble_api, import_games, titles
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -282,3 +285,67 @@ def test_preview_survives_a_hub_that_is_not_the_expected_shape(tmp_path):
         conn.close()
     assert report["total"] == 0
     assert report["name"] == "Humble Choice"
+
+
+# --- Fetching -----------------------------------------------------------
+
+def _client(text, logged_in=True):
+    """A stub HumbleClient whose one page carries `text`."""
+    client = Mock()
+    client.logged_in.return_value = logged_in
+    client.get_page.return_value = text
+    return client
+
+
+def _page():
+    return (FIXTURES / "choice_page.html").read_text(encoding="utf-8")
+
+
+def test_fetch_choice_parses_the_embedded_hub_blob():
+    hub = choice_preview.fetch_choice(_client(_page()))
+    assert hub["contentChoiceOptions"]["title"] == "January 2031"
+    assert hub["baseSubscriptionPrice|money"]["amount"] == 11.99
+
+
+def test_fetch_choice_returns_the_whole_hub_not_just_the_month():
+    # The price sits at the TOP level, outside contentChoiceOptions.
+    # Returning the narrower dict would put it out of preview's reach.
+    hub = choice_preview.fetch_choice(_client(_page()))
+    assert "baseSubscriptionPrice|money" in hub
+
+
+def test_fetch_choice_refuses_a_stale_session_before_fetching_anything():
+    # A signed-out /membership still answers 200 with a marketing shell,
+    # so a missing blob is ambiguous between "not logged in" and "no offer
+    # this month". logged_in() disambiguates, and the caller needs the
+    # difference: one is fixed by logging in, the other is not.
+    client = _client(_page(), logged_in=False)
+    with pytest.raises(humble_api.NotLoggedIn):
+        choice_preview.fetch_choice(client)
+    client.get_page.assert_not_called()
+
+
+def test_fetch_choice_rejects_a_page_with_no_hub_blob():
+    with pytest.raises(ValueError, match="no Humble Choice data"):
+        choice_preview.fetch_choice(
+            _client("<html><body>Nothing here</body></html>"))
+
+
+def test_fetch_choice_rejects_a_blob_with_no_month_on_offer():
+    with pytest.raises(ValueError, match="no Humble Choice month"):
+        choice_preview.fetch_choice(_client(
+            '<script id="webpack-subscriber-hub-data" '
+            'type="application/json">{"contentChoiceOptions": {}}</script>'))
+
+
+def test_the_fetched_page_feeds_preview_unchanged(tmp_path):
+    # The seam's whole point: what fetch_choice returns is what preview
+    # consumes, with nothing in between to drift.
+    conn = _conn(tmp_path)
+    try:
+        report = choice_preview.preview(
+            conn, choice_preview.fetch_choice(_client(_page())))
+    finally:
+        conn.close()
+    assert report["name"] == "Humble Choice: January 2031"
+    assert (report["total"], report["owned"]) == (1, 1)

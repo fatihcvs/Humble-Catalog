@@ -15,9 +15,18 @@ collide with anything already stored -- measured during design: zero of
 nine offered games matched by any id the blob carries. Ownership is
 therefore decided by TITLE, and the report says so out loud.
 """
-from humble_catalog import bundle_preview, import_games, shapes, stats
+import json
+import re
+
+from humble_catalog import (bundle_preview, humble_api, import_games, shapes,
+                            stats)
 from humble_catalog.game_match import (classify_game, keyed_games,
                                        owned_games, prepare_pool)
+
+HUB_PATH = "/membership/home"
+_HUB = re.compile(
+    r'<script id="webpack-subscriber-hub-data" type="application/json">'
+    r'(.*?)</script>', re.S)
 
 # Delivery methods that are not storefronts. `other-key` means a key
 # redeemed somewhere that is not a store account at all, so no importer
@@ -54,6 +63,38 @@ def _month(hub):
     """
     opts = shapes.as_mapping(shapes.as_mapping(hub).get("contentChoiceOptions"))
     return opts, shapes.as_mapping(opts.get("contentChoiceData"))
+
+
+def fetch_choice(client=None):
+    """The subscriber-hub blob for the current Choice month.
+
+    NEVER logs in interactively. Given no client it builds one from the
+    saved cookies and checks the session; a stale one raises NotLoggedIn.
+    That is what makes this safe to call from a web request, where
+    manual_login's proc.wait() would hang the thread on a browser window
+    the server cannot see.
+
+    The session is checked BEFORE the page is fetched, because a
+    signed-out /membership answers 200 with a marketing shell carrying no
+    blob -- indistinguishable from a month with nothing on offer. The two
+    need different answers: one is fixed by logging in, the other is not.
+    """
+    if client is None:
+        client = humble_api.HumbleClient(humble_api.get_cookies())
+    if not client.logged_in():
+        raise humble_api.NotLoggedIn("no usable HumbleBundle session")
+    match = _HUB.search(client.get_page(HUB_PATH))
+    if not match:
+        raise ValueError(
+            "no Humble Choice data on that page -- the subscriber hub did "
+            "not carry its blob")
+    hub = shapes.as_mapping(json.loads(match.group(1)))
+    _opts, month = _month(hub)
+    if not month:
+        raise ValueError(
+            "no Humble Choice month on offer -- this account may not have "
+            "an active membership")
+    return hub
 
 
 def preview(conn, hub):
