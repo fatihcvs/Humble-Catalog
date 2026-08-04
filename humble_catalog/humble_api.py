@@ -30,16 +30,41 @@ class HumbleClient:
                 http.cookies.set(name, value, domain="www.humblebundle.com")
         self.http = http
 
-    def _get(self, path, **kwargs):
+    def _wait(self):
+        """Hold off until `delay` has passed since the last request.
+
+        Shared by _get and get_page so politeness toward Humble is a
+        property of the client rather than something each caller
+        remembers.
+        """
         if self._last is not None:
             wait = self._last + self.delay - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
+
+    def _get(self, path, **kwargs):
+        self._wait()
         resp = self.http.get(f"{BASE}{path}", timeout=30, **kwargs)
         self._last = time.monotonic()
         if resp.status_code != 200 or "json" not in resp.headers.get("Content-Type", ""):
             raise NotLoggedIn(f"GET {path} -> {resp.status_code}")
         return resp.json()
+
+    def get_page(self, path):
+        """The HTML body of a page on the Humble site.
+
+        The HTML sibling of _get, for the one page whose data is embedded
+        in markup rather than served as JSON. It cannot check the content
+        type the way _get does -- HTML is the expected answer -- so a
+        non-200 is the only signal available here; a signed-out session is
+        caught by logged_in() before this is ever called.
+        """
+        self._wait()
+        resp = self.http.get(f"{BASE}{path}", timeout=30)
+        self._last = time.monotonic()
+        if resp.status_code != 200:
+            raise NotLoggedIn(f"GET {path} -> {resp.status_code}")
+        return resp.text
 
     def logged_in(self):
         try:

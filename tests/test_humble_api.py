@@ -82,3 +82,37 @@ def test_refusal_is_not_a_login_problem():
     with pytest.raises(MalformedOrderList) as caught:
         HumbleClient({}, delay=0, http=http).list_order_keys()
     assert not isinstance(caught.value, NotLoggedIn)
+
+
+def _page_resp(text, status=200):
+    r = Mock()
+    r.status_code = status
+    r.text = text
+    return r
+
+
+def test_get_page_returns_the_html_body():
+    http = Mock()
+    http.get.return_value = _page_resp("<html><body>hi</body></html>")
+    client = HumbleClient({}, delay=0, http=http)
+    assert client.get_page("/membership/home") == "<html><body>hi</body></html>"
+
+
+def test_get_page_raises_not_logged_in_on_a_non_200():
+    # A redirect to the login page arrives as a non-200 here; treating it
+    # as a page would hand the parser a login form and report "no Choice".
+    http = Mock()
+    http.get.return_value = _page_resp("", status=302)
+    client = HumbleClient({}, delay=0, http=http)
+    with pytest.raises(NotLoggedIn):
+        client.get_page("/membership/home")
+
+
+def test_get_page_shares_the_rate_limit_with_the_json_path():
+    # Politeness toward Humble is a property of the client, not something
+    # each caller remembers.
+    http = Mock()
+    http.get.return_value = _page_resp("<html></html>")
+    client = HumbleClient({}, delay=0, http=http)
+    client.get_page("/membership/home")
+    assert client._last is not None
