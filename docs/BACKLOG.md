@@ -164,6 +164,22 @@ verdict; these are what is left.
   promote them to `items` rows. The unredeemed key report under **Open**
   is the same bargain — reporting on keys is in scope, and a report is not
   a promotion.
+- **Past or arbitrary Humble Choice months** (decided 2026-08-04, with
+  `choice`). The subscriber hub serves the current month and only that;
+  addressing an arbitrary month is a different fetch answering a question
+  that was explicitly not wanted — the decision `choice` exists for is
+  "buy this month or skip it", and a month already gone cannot be bought.
+- **Choice-specific history or a Choice view.** Past Choice months
+  already harvest as ordinary orders, and their games already count as
+  owned through `external_keys` — so `choice` and `bundle` both credit
+  them today. Labelling those orders as Choice months would add a view,
+  not an answer.
+- **MSRP and value arithmetic in the Choice report.** The blob carries
+  `msrp|money` per game and it is deliberately not printed, for the same
+  reason the bundle report has no price-per-new-item column: it is
+  arithmetic the reader can do, and a large "value" figure invites
+  reading it as "worth buying" — the misjudgement the report exists to
+  correct.
 - Game-metadata enrichment sources (Google Play/IGDB) for Android
   items — Humble's own data is all we store.
 - Tracking non-book HumbleBundle purchases beyond the above.

@@ -23,7 +23,8 @@ The viewer has four sections, switched by the tabs and addressable by
 URL: **Library** (the table, its filters and the statistics summary),
 **Maintenance** (the review queue and possible duplicates), **Keys**
 (store keys whose game is in none of your imported libraries), and
-**Bundles** (paste a bundle URL to see what you already own). A tab shows
+**Bundles** (paste a bundle URL, or check this month's Humble Choice, to
+see what you already own). A tab shows
 a count when its section is waiting on something — a queue you can empty,
 never an optional backlog. In Library the filters live in a sidebar that
 folds away; whatever is currently narrowing the table stays listed beside
@@ -356,7 +357,7 @@ and `↩` gives your typed values back.
 
 ### Before you buy
 
-These three work together: `import-games` is what gives `bundle` and
+These work together: `import-games` is what gives `bundle`, `choice` and
 `keys` a library to check a game against.
 
 - `python -m humble_catalog bundle <url>` - point it at a
@@ -378,6 +379,19 @@ These three work together: `import-games` is what gives `bundle` and
   decide about are counted as neither owned nor new and listed as
   "possible", and a game delivered on a store you have never imported is
   reported as such rather than quietly counted as new.
+- `python -m humble_catalog choice` - the same question for this
+  month's Humble Choice: how many of its games you already own, how many
+  would be new, and the one price it all costs. Ownership is counted
+  wherever it comes from - a game in an imported library, and a game you
+  hold as a Humble key from an earlier bundle whether or not you ever
+  claimed it. Unlike `bundle` this **needs your Humble login**, because a
+  signed-out Choice page carries no data at all; it uses the same saved
+  session as `extract` and prompts you through a browser if it has
+  expired. Everything a Choice month offers is a game, so ownership is
+  matched **by title and is approximate** throughout - run `import-games`
+  first or every game reads as new, and check anything you would buy on.
+  Titles it cannot decide about are counted as neither owned nor new.
+  Read-only: nothing is written to the catalog.
 - `python -m humble_catalog import-games` - import your game
   libraries so `bundle` can tell which games you already own. GOG, Epic,
   Amazon and Zoom are read from the caches
