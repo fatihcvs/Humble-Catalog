@@ -17,8 +17,9 @@ from urllib.parse import urlparse
 from rapidfuzz import fuzz, process
 
 from humble_catalog import db, import_games, series, shapes, stats, url_import
-from humble_catalog.game_match import classify_game, prepare_pool
-from humble_catalog.titles import clean_game_title, clean_title
+from humble_catalog.game_match import (classify_game, keyed_games,
+                                       owned_games, prepare_pool)
+from humble_catalog.titles import clean_title
 
 # Titles that clear this score are shown as a possible partial overlap.
 # Deliberately NOT matching.AUTO/REVIEW: those decide whether to write
@@ -173,64 +174,6 @@ def delivery_stores(item):
     return set(shapes.as_mapping(game.get("game")))
 
 
-def _owned_games(conn):
-    """[(normalized_title, display_title)] across every imported store.
-
-    Deduped on the normalized title, so a game owned on two stores is one
-    row here and can only be counted once.
-    """
-    rows = conn.execute(
-        "SELECT normalized_title, title FROM games "
-        "ORDER BY normalized_title").fetchall()
-    seen, out = set(), []
-    for row in rows:
-        if row["normalized_title"] and row["normalized_title"] not in seen:
-            seen.add(row["normalized_title"])
-            out.append((row["normalized_title"], row["title"]))
-    return out
-
-
-def _keyed_games(conn):
-    """[(normalized_title, display_title, key_type, bundle_name)] for games
-    the owner holds as a Humble store key rather than as a library entry.
-
-    A game bought in an earlier bundle arrives as a key, not as an items
-    row, and stays invisible to every imported library until the owner
-    actually activates it. That is real ownership -- it is already paid for
-    -- so it belongs in this report; the caller counts these as owned but
-    lists them apart, because a key is a claim on a game and not the game.
-
-    Deduped on the normalized title, like _owned_games: the same game keyed
-    in two bundles must not be able to count twice.
-
-    An expired key still counts. `raw` carries `is_expired` and could filter
-    them out, and deliberately does not: the question this report answers is
-    "should I buy this bundle", and having already paid for a game once is
-    the answer whether or not the key can still be claimed. Excluding them
-    would push the report toward recommending a second purchase, which is
-    the more expensive of the two mistakes available here.
-
-    Ordered so the dedupe is deterministic rather than dependent on the
-    order sqlite happens to return rows in -- the same reason build_worklist
-    sorts.
-    """
-    rows = conn.execute(
-        "SELECT k.human_name AS human_name, k.key_type AS key_type, "
-        "       b.name AS bundle_name "
-        "FROM external_keys k JOIN bundles b ON b.gamekey = k.gamekey "
-        "WHERE k.human_name IS NOT NULL AND k.human_name != '' "
-        "ORDER BY k.human_name, b.name").fetchall()
-    seen, out = set(), []
-    for row in rows:
-        normalized = clean_game_title(row["human_name"])
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        out.append((normalized, row["human_name"], row["key_type"],
-                    row["bundle_name"]))
-    return out
-
-
 def preview(conn, bundle, url=None):
     """The ownership report for one parsed bundleData dict.
 
@@ -246,12 +189,12 @@ def preview(conn, bundle, url=None):
     # items rather than thousands and was never slow; it prepares its
     # pools so game_match owns the sorted-key invariant, rather than
     # having it stated in the key report and not here.
-    games = prepare_pool(_owned_games(conn))
+    games = prepare_pool(owned_games(conn))
     # Tried only after the imported libraries have said "new", so a game
     # that is both keyed and activated reports as the plain library match
     # it is, and the keyed list stays what it claims to be: the games whose
     # only evidence is a key.
-    keyed = _keyed_games(conn)
+    keyed = keyed_games(conn)
     keyed_pool = prepare_pool(
         [(normalized, display) for normalized, display, _t, _b in keyed])
     # Keyed on the display title, which is what classify_game hands back.
