@@ -92,6 +92,11 @@ if (typeof document !== "undefined" && document.addEventListener) {
     if (!btn) return;
     const command = btn.dataset.command;
     const options = JSON.parse(btn.dataset.options || "{}");
+    if (command === "import_sheets") {
+      // Nothing to start without a file; the picker IS this card's action.
+      $("#sheet-file").click();
+      return;
+    }
     // Two clicks for every card, not just the risky ones: these all cost
     // real time or real network, and the arm text is the only place the
     // page can say so before it happens.
@@ -100,5 +105,93 @@ if (typeof document !== "undefined" && document.addEventListener) {
         armOrFire(btn, () => post("/api/jobs/start",
                                   {command, options, force: true}));
     });
+  });
+}
+
+// The one child failure the page translates rather than shows raw. The
+// fix is a command in a terminal, and a user who is here precisely to
+// avoid terminals needs to be told plainly which one.
+const EXPIRED = /session (expired|missing)/i;
+
+function renderJobPanel(state) {
+  const el = $("#job-panel");
+  if (!el) return;
+  const running = state.running;
+  // run_status is written by the CHILD, so there is a window after the
+  // spawn where a job is running and no row exists yet. `|| null` keeps
+  // that window a bar-less "starting" rather than a thrown renderer.
+  const row = (state.progress || []).find(
+    (p) => running && p.command === running.command) || null;
+  const parts = [];
+  if (running) {
+    const bar = row
+      ? `<progress value="${row.done}" max="${row.total || 1}"></progress>
+         <span class="job-count">${esc(row.phase)} ${row.done}/${row.total}</span>
+         <span class="job-current">${esc(row.current || "starting")}</span>`
+      : `<span class="job-count">starting</span>`;
+    parts.push(`<div class="job-head"><strong>${esc(running.command)}</strong>
+                  ${bar}
+                  <button id="job-cancel">Cancel</button></div>`);
+  } else if (state.last) {
+    const {command, state: how, exit_code: code} = state.last;
+    // "cancelled" is its own word, never folded into failure: an
+    // interrupted child exits non-zero by definition, and calling the
+    // user's own deliberate stop a failure sends them hunting a fault
+    // that is not there.
+    const verdict = how === "done" ? "finished"
+                  : how === "cancelled" ? "cancelled"
+                  : `failed (exit ${esc(code)})`;
+    parts.push(`<div class="job-head"><strong>${esc(command)}</strong>
+                  <span class="job-verdict job-${esc(how)}">${verdict}</span></div>`);
+  }
+  const log = state.log || [];
+  if (log.some((line) => EXPIRED.test(line)))
+    parts.push(`<div class="job-hint">Your HumbleBundle session has expired.
+      Run <code>python -m humble_catalog login</code> in the terminal running
+      this viewer, then try again.</div>`);
+  // esc() is not optional here: these lines are the child's stdout, which
+  // names owned titles verbatim and is nobody's idea of trusted markup.
+  if (log.length)
+    parts.push(`<pre class="job-log">${esc(log.slice(-200).join("\n"))}</pre>`);
+  el.innerHTML = parts.join("");
+  el.hidden = parts.length === 0;
+  return el.innerHTML;
+}
+
+async function pollJobs() {
+  const state = await (await fetch("/api/jobs")).json();
+  renderJobPanel(state);
+}
+
+async function uploadSheet(file) {
+  // FileReader gives base64 via a data: URL, whose payload sits after the
+  // comma. The endpoint takes JSON only -- see its docstring for why a
+  // multipart form is not an option here.
+  const b64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const resp = await post("/api/jobs/import-sheets",
+                          {filename: file.name, content_b64: b64});
+  if (!resp.ok) {
+    taskMessage((await resp.json()).error || "Could not import that file.");
+    return;
+  }
+  taskMessage(`Importing ${file.name}.`);
+  await pollJobs();
+}
+
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("click", async (ev) => {
+    if (ev.target && ev.target.id === "job-cancel") {
+      await post("/api/jobs/cancel");
+      await pollJobs();
+    }
+  });
+  document.addEventListener("change", (ev) => {
+    if (ev.target && ev.target.id === "sheet-file" && ev.target.files[0])
+      uploadSheet(ev.target.files[0]);
   });
 }

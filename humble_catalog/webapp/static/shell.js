@@ -111,6 +111,17 @@ $("#theme-toggle").addEventListener("click", () => {
 // paint lands in the right place rather than flashing Library first.
 showSection(currentSection());
 load();
-pollStatus();
-setInterval(pollStatus, 5000);
+// One interval for both. pollStatus draws the header banner (which must
+// keep working for a run started in a terminal); pollJobs draws the Tasks
+// panel, which knows only about jobs this viewer started.
+async function pollAll() {
+  await pollStatus();
+  try {
+    await pollJobs();
+  } catch (err) {
+    console.error("pollJobs() failed:", err);
+  }
+}
+pollAll();
+setInterval(pollAll, 5000);
 syncThemeButton();

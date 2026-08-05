@@ -469,3 +469,15 @@ tr.key-is-hidden td { opacity: .6; }
   background: var(--panel-warn-bg); border: 1px solid var(--panel-warn-border);
   color: var(--fg);
 }
+#job-panel { margin-bottom: 1rem; padding: .8rem; border: 1px solid var(--border);
+             border-radius: 6px; }
+.job-head { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
+.job-current { color: var(--muted); }
+.job-log {
+  max-height: 14rem; overflow: auto; margin: .6rem 0 0;
+  font-family: ui-monospace, monospace; font-size: .85rem;
+  white-space: pre-wrap; word-break: break-word;
+}
+.job-hint { margin-top: .6rem; }
+.job-failed { color: var(--danger); }
+.job-cancelled { color: var(--muted); }
