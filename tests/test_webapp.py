@@ -2126,3 +2126,113 @@ def test_choice_preview_answers_502_for_an_upstream_failure(tmp_path,
     monkeypatch.setattr(choice_preview, "fetch_choice", boom)
     client = create_app(db_path=str(dbp)).test_client()
     assert client.post("/api/choice-preview", json={}).status_code == 502
+
+
+class _StubRunner:
+    """Stands in for JobRunner so no test spawns a real command."""
+
+    def __init__(self):
+        self.started = []
+        self.busy = False
+        self.cancelled = False
+
+    def start(self, command, options=None, args=(), cleanup=None, force=False):
+        from humble_catalog import jobs
+        jobs.argv(command, options)          # keep the whitelist in the path
+        if self.busy:
+            raise jobs.Busy("harvest is already running")
+        self.started.append((command, options, force))
+        return {"command": command, "options": options or {},
+                "started_at": "2026-08-04T00:00:00+00:00"}
+
+    def cancel(self):
+        self.cancelled = True
+        return True
+
+    def state(self):
+        return {"running": None, "log": ["Bundle 1/2: The Hollow Crypt"],
+                "last": {"command": "reparse", "state": "done",
+                         "exit_code": 0, "finished_at": "2026-08-04T00:00:01"}}
+
+
+def _job_client(tmp_path):
+    app = create_app(db_path=str(tmp_path / "catalog.db"))
+    runner = _StubRunner()
+    app.config["JOB_RUNNER"] = runner
+    return app.test_client(), runner
+
+
+def test_start_a_job(tmp_path):
+    client, runner = _job_client(tmp_path)
+    resp = client.post("/api/jobs/start",
+                       json={"command": "harvest",
+                             "options": {"ignore_quota": True}})
+    assert resp.status_code == 202
+    assert runner.started == [("harvest", {"ignore_quota": True}, False)]
+
+
+def test_start_refuses_a_command_outside_the_whitelist(tmp_path):
+    client, _ = _job_client(tmp_path)
+    # reset is a handoff command, never a background job.
+    for command in ("reset", "restore", "login", "rm -rf /"):
+        resp = client.post("/api/jobs/start", json={"command": command})
+        assert resp.status_code == 400, command
+
+
+def test_start_refuses_a_non_boolean_option(tmp_path):
+    client, _ = _job_client(tmp_path)
+    resp = client.post("/api/jobs/start",
+                       json={"command": "harvest",
+                             "options": {"ignore_quota": "yes"}})
+    assert resp.status_code == 400
+
+
+def test_start_answers_409_when_busy(tmp_path):
+    client, runner = _job_client(tmp_path)
+    runner.busy = True
+    resp = client.post("/api/jobs/start", json={"command": "harvest"})
+    assert resp.status_code == 409
+    assert "already running" in resp.get_json()["error"]
+
+
+def test_start_needs_a_command(tmp_path):
+    client, _ = _job_client(tmp_path)
+    assert client.post("/api/jobs/start", json={}).status_code == 400
+    assert client.post("/api/jobs/start", json=[]).status_code == 400
+
+
+def test_start_refuses_options_that_are_not_an_object(tmp_path):
+    client, _ = _job_client(tmp_path)
+    resp = client.post("/api/jobs/start",
+                       json={"command": "harvest", "options": ["--rm-rf"]})
+    assert resp.status_code == 400
+
+
+def test_start_passes_force_through(tmp_path):
+    client, runner = _job_client(tmp_path)
+    client.post("/api/jobs/start", json={"command": "reparse", "force": True})
+    assert runner.started == [("reparse", {}, True)]
+
+
+def test_cancel(tmp_path):
+    client, runner = _job_client(tmp_path)
+    assert client.post("/api/jobs/cancel").status_code == 202
+    assert runner.cancelled is True
+
+
+def test_get_jobs_reports_state_and_progress(tmp_path):
+    client, _ = _job_client(tmp_path)
+    conn = db.connect(str(tmp_path / "catalog.db"))
+    conn.execute("INSERT OR REPLACE INTO run_status "
+                 "(command, phase, done, total, current, started_at, updated_at)"
+                 " VALUES ('harvest','Source',5,9,'hardcover','t','t')")
+    conn.commit()
+    conn.close()
+    body = client.get("/api/jobs").get_json()
+    assert body["log"] == ["Bundle 1/2: The Hollow Crypt"]
+    assert body["last"]["state"] == "done"
+    # Every unfinished run_status row, whoever started it -- the same
+    # table /api/status reads, so the page cannot hold two disagreeing
+    # accounts of how far a run has got.
+    assert [r["command"] for r in body["progress"]] == ["harvest"]
+    assert body["progress"][0]["done"] == 5

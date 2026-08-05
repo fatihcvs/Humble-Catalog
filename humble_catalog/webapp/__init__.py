@@ -6,7 +6,7 @@ from pathlib import Path
 import requests
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
-                            editions, export, humble_api, keys, stats,
+                            editions, export, humble_api, jobs, keys, stats,
                             url_import)
 from humble_catalog.enrich import EDITABLE_FIELDS, apply_candidate
 from humble_catalog.sources.base import candidate
@@ -104,6 +104,10 @@ def _url_from_body():
 def create_app(db_path="catalog.db", covers_dir="covers"):
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["DB_PATH"] = db_path
+    # One runner per app. Held in config rather than a module global so a
+    # test can swap in a stub, and so two apps in one process (the suite
+    # makes several) never share a job slot.
+    app.config["JOB_RUNNER"] = jobs.JobRunner(db_path=db_path)
     covers = Path(covers_dir).resolve()
 
     @app.before_request
@@ -715,6 +719,46 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
                      ".spreadsheetml.sheet",
             headers={"Content-Disposition":
                      "attachment; filename=catalog.xlsx"})
+
+    def _runner():
+        return app.config["JOB_RUNNER"]
+
+    @app.post("/api/jobs/start")
+    def start_job():
+        data = _json_object()
+        command = _text_field(data, "command")
+        options = data.get("options") or {}
+        if not command:
+            return jsonify({"error": "command required"}), 400
+        if not isinstance(options, dict):
+            return jsonify({"error": "options must be an object"}), 400
+        try:
+            # jobs.argv does the whitelisting, inside start(): an unknown
+            # command and a bad option value are the same class of refusal
+            # and must not be re-implemented here, or the two could drift.
+            job = _runner().start(command, options,
+                                  force=bool(data.get("force")))
+        except jobs.Busy as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(job), 202
+
+    @app.post("/api/jobs/cancel")
+    def cancel_job():
+        if not _runner().cancel():
+            return jsonify({"error": "nothing is running"}), 409
+        return jsonify({"ok": True}), 202
+
+    @app.get("/api/jobs")
+    def job_state():
+        state = _runner().state()
+        # The progress rows come from run_status, the same table
+        # /api/status reads, so the page never has two disagreeing
+        # accounts of how far a run has got.
+        state["progress"] = [dict(r) for r in conn().execute(
+            "SELECT * FROM run_status WHERE phase != 'done'")]
+        return jsonify(state)
 
     @app.get("/api/status")
     def status():
