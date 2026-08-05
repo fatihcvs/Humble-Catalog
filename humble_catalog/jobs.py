@@ -109,7 +109,7 @@ class JobRunner:
 
     # ---- public -------------------------------------------------------
 
-    def start(self, command, options=None, args=(), cleanup=None):
+    def start(self, command, options=None, args=(), cleanup=None, force=False):
         """Spawn a job. Busy if one is running; ValueError if malformed.
 
         `args` are positional arguments appended after the flags. They
@@ -117,6 +117,16 @@ class JobRunner:
         is the spreadsheet upload, which passes a path IT created.
         """
         line = argv(command, options) + list(args)
+        if not force:
+            live = self._live_row(command)
+            if live is not None:
+                # A run started in a terminal is invisible to this runner:
+                # different process, no shared state but the database. The
+                # row may also simply be stale. Refusing with the timestamp
+                # turns a silent double-run into a question the page can
+                # put to the user, who can then answer it with force.
+                raise Busy(f"a {command} run is already recorded as active "
+                           f"(last updated {live['updated_at']})")
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 raise Busy(f"{self._job['command']} is already running")
@@ -187,6 +197,47 @@ class JobRunner:
             text=True, encoding="utf-8", errors="replace", bufsize=1,
             cwd=os.getcwd(), creationflags=creationflags)
 
+    def _conn(self):
+        """A short-lived connection of this thread's own.
+
+        Never the viewer's request connection: this runs on the reader
+        thread, and Flask's `g` belongs to a request that has long
+        returned.
+        """
+        return db.connect(self.db_path)
+
+    def _live_row(self, command):
+        # CLI_NAME, not the JSON key: run_status.command holds whatever
+        # the CLI handed to Progress, and import_sheets.py writes
+        # 'import-sheets'. Under the underscored key this would find
+        # nothing and the guard would quietly never fire.
+        conn = self._conn()
+        try:
+            return conn.execute(
+                "SELECT updated_at FROM run_status "
+                "WHERE command=? AND phase != 'done'",
+                (CLI_NAME.get(command, command),)).fetchone()
+        finally:
+            conn.close()
+
+    def _finalize_row(self, command):
+        """Mark this command's run_status row finished, however it ended.
+
+        A child that crashes, or is cancelled, never reaches
+        Progress.finish(), so its row would sit at phase='Bundle' forever
+        and the viewer's banner would report a run that is over. The CLI
+        has the same gap on Ctrl-C; this at least stops the runner adding
+        to it.
+        """
+        conn = self._conn()
+        try:
+            conn.execute("UPDATE run_status SET phase='done', updated_at=? "
+                         "WHERE command=? AND phase != 'done'",
+                         (_now(), CLI_NAME.get(command, command)))
+            conn.commit()
+        finally:
+            conn.close()
+
     def _pump(self, proc, job, cleanup):
         """Drain the child's output, then retire the job.
 
@@ -209,6 +260,7 @@ class JobRunner:
                     print(f"job cleanup failed: {exc}", file=sys.stderr)
 
     def _retire(self, job, code):
+        self._finalize_row(job["command"])
         with self._lock:
             cancelled = self._cancelled
             self._cancelled = False

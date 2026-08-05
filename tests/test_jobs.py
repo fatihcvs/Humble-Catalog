@@ -123,3 +123,68 @@ def test_cancel_stops_a_running_job(monkeypatch, tmp_path):
 def test_cancel_with_nothing_running_is_false(monkeypatch, tmp_path):
     runner = _fake_runner(monkeypatch, tmp_path, "print('x')")
     assert runner.cancel() is False
+
+
+def _record_run(command, done=3):
+    conn = db.connect("catalog.db")
+    conn.execute("INSERT OR REPLACE INTO run_status "
+                 "(command, phase, done, total, current, started_at, updated_at)"
+                 " VALUES (?,'Bundle',?,9,'x','t','t')", (command, done))
+    conn.commit()
+    conn.close()
+
+
+def _phase(command):
+    conn = db.connect("catalog.db")
+    try:
+        return conn.execute("SELECT phase FROM run_status WHERE command=?",
+                            (command,)).fetchone()["phase"]
+    finally:
+        conn.close()
+
+
+def test_a_dead_job_does_not_leave_run_status_claiming_it_runs(monkeypatch,
+                                                               tmp_path):
+    # The child writes a run_status row and dies without finishing it --
+    # what a crash, or a kill, leaves behind. The banner reads this table,
+    # so a stale row is a viewer that lies about a run that ended.
+    runner = _fake_runner(
+        monkeypatch, tmp_path,
+        "from humble_catalog import db;"
+        "c = db.connect('catalog.db');"
+        "c.execute(\"INSERT OR REPLACE INTO run_status "
+        "(command, phase, done, total, current, started_at, updated_at) "
+        "VALUES ('reparse','Bundle',1,9,'x','t','t')\");"
+        "c.commit(); raise SystemExit(1)")
+    runner.start("reparse")
+    runner.wait(timeout=30)
+    assert _phase("reparse") == "done"
+
+
+def test_start_refuses_when_a_terminal_run_is_recorded(monkeypatch, tmp_path):
+    runner = _fake_runner(monkeypatch, tmp_path, "print('x')")
+    _record_run("reparse")
+    with pytest.raises(jobs.Busy, match="already"):
+        runner.start("reparse")
+
+
+def test_force_starts_anyway(monkeypatch, tmp_path):
+    runner = _fake_runner(monkeypatch, tmp_path, "print('x')")
+    _record_run("reparse")
+    runner.start("reparse", force=True)
+    assert runner.wait(timeout=30) == 0
+
+
+def test_the_run_status_guard_uses_the_cli_spelling(monkeypatch, tmp_path):
+    # run_status.command holds what the CLI passes to Progress, and
+    # import_sheets.py writes 'import-sheets'. Looking the row up under
+    # the JSON key would find nothing, so the guard would never fire for
+    # the two hyphenated commands and the finalizer would never close
+    # their rows.
+    runner = _fake_runner(monkeypatch, tmp_path, "print('x')")
+    _record_run("import-sheets")
+    with pytest.raises(jobs.Busy, match="already"):
+        runner.start("import_sheets")
+    runner.start("import_sheets", force=True)
+    runner.wait(timeout=30)
+    assert _phase("import-sheets") == "done"
