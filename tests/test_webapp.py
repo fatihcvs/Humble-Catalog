@@ -2348,3 +2348,19 @@ def test_import_sheets_upload_leaves_no_file_behind_when_busy(tmp_path):
     assert resp.status_code == 409
     # No job will ever run, so nothing else would clean the workbook up.
     assert not list(Path(tempfile.gettempdir()).glob("humble-import-*/a.xlsx"))
+
+
+def test_index_has_a_tasks_tab_and_section():
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    assert '<a id="tab-tasks" href="#/tasks">' in html
+    assert '<section id="section-tasks"' in html
+    assert '<script src="/static/tasks.js"></script>' in html
+
+
+def test_tasks_tab_offers_no_terminal_only_command():
+    # reset, restore and login are terminal handoffs. A card that posted
+    # them to /api/jobs/start would 400, which is a dead button.
+    js = _viewer_js()
+    for command in ("reset", "restore", "login"):
+        assert f'command: "{command}"' not in js

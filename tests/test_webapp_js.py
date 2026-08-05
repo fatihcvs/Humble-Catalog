@@ -1139,7 +1139,7 @@ def test_hash_selects_exactly_one_section():
         `#section-${s.id}`).hidden]);
     })()""")
     assert shown == [["library", True], ["maintenance", False],
-                     ["keys", True], ["bundles", True]]
+                     ["keys", True], ["bundles", True], ["tasks", True]]
 
 
 def test_unknown_hash_falls_back_to_library():
@@ -1744,3 +1744,33 @@ def test_choice_panel_shows_the_error_from_a_stale_session():
 
 def test_render_choice_preview_before_any_fetch_draws_nothing():
     assert eval_js_error("(async () => app.renderChoicePreview())()") is None
+
+
+def test_task_cards_cover_every_headless_command():
+    from humble_catalog import jobs
+    listed = set(eval_js("app.TASK_CARDS.map((c) => c.command)"))
+    assert listed == set(jobs.COMMANDS)
+
+
+def test_tasks_gets_no_badge_even_with_a_job_running():
+    # A badge means a queue you can empty, never an optional backlog, and
+    # "you could run a harvest" is the definition of an optional backlog.
+    assert eval_js("(app.setPending({tasks: 5}), app.badgeCount('tasks'))") == 0
+
+
+def test_render_tasks_groups_every_card_and_escapes_its_text():
+    html = eval_js("(app.renderTasks(), dom.writes['#task-cards'])")
+    for card in eval_js("app.TASK_CARDS"):
+        assert card["label"] in html or "&" in card["label"]
+    # Every group heading a card claims is actually rendered, so a typo in
+    # a card's group cannot silently drop it off the page.
+    for group in eval_js("app.TASK_CARDS.map((c) => c.group)"):
+        assert f"<h3>{group}</h3>" in html
+    # The options ride in an attribute, so a quote in the JSON would end
+    # the attribute early and put the rest in the markup.
+    assert "'{&quot;ignore_quota&quot;:true}'" in html
+
+
+def test_tasks_is_a_section_the_shell_knows_about():
+    assert "tasks" in eval_js("app.SECTIONS.map((s) => s.id)")
+    assert eval_js("(location.hash = '#/tasks', app.currentSection())") == "tasks"

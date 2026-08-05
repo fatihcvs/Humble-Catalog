@@ -448,3 +448,24 @@ a { color: var(--accent); }
    appears when its chip is on, so it never needs to compete for
    attention with the rows that still need work. */
 tr.key-is-hidden td { opacity: .6; }
+
+/* ---- Tasks ---------------------------------------------------------- */
+/* Only properties :root already defines, and each is redefined in the
+   dark and [data-theme] blocks, so the section themes itself. */
+.task-group { margin-bottom: 1.5rem; }
+.task-group h3 { margin: 0 0 .5rem; font-size: 1rem; color: var(--muted); }
+.task-card {
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: .25rem 1rem; padding: .6rem .8rem; margin-bottom: .4rem;
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.task-label { font-weight: 600; }
+.task-note { grid-column: 1; color: var(--muted); font-size: .9rem; }
+.task-go { grid-column: 2; grid-row: 1 / span 2; }
+#task-upload { margin-bottom: 1rem; }
+#task-message:not(:empty) {
+  margin: .5rem 0; padding: .5rem .8rem; border-radius: 6px;
+  background: var(--panel-warn-bg); border: 1px solid var(--panel-warn-border);
+  color: var(--fg);
+}
