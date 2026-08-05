@@ -2364,3 +2364,25 @@ def test_tasks_tab_offers_no_terminal_only_command():
     js = _viewer_js()
     for command in ("reset", "restore", "login"):
         assert f'command: "{command}"' not in js
+
+
+def _readme():
+    return (Path(__file__).parent.parent / "README.md").read_text(
+        encoding="utf-8")
+
+
+def test_readme_documents_the_viewer_s_new_reach():
+    exposure = _readme().split("### The viewer's exposure")[1]
+    # The security note must not quietly go stale: the viewer can now
+    # start processes, and the section that describes its exposure is the
+    # one place a reader will look for that.
+    assert "start" in exposure and "job" in exposure.lower()
+
+
+def test_readme_does_not_still_claim_four_tabs():
+    # The count is stated twice and both were written when there were
+    # four. A section nobody has heard of is a section nobody opens.
+    readme = _readme()
+    assert "four sections" not in readme
+    assert "four tabs" not in readme
+    assert "**Tasks**" in readme

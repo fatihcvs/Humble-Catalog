@@ -236,6 +236,43 @@ verdict; these are what is left.
 
 ## Done (formerly on this list)
 
+- **Catalog commands from the viewer (Phase 1)** —
+  `superpowers/specs/2026-08-04-web-driven-jobs-design.md`.
+  The Tasks tab starts `extract`, `reparse`, `harvest`, `enrich`,
+  `import-sheets`, `import-games`, `backup` and `check` as child
+  processes, with progress read from `run_status` — the same table the
+  banner reads, so a run started in a terminal still shows. `jobs.py`
+  holds one slot; argv comes from a whitelist table, so nothing in a
+  request body reaches a process argument.
+
+  `extract` grew `--no-login`, which the runner always passes. Without it
+  `ensure_login` silently opens a browser window and blocks on it, which
+  as a background child is a job that hangs forever with nothing on
+  screen to say why. The page reports the expiry and names the `login`
+  command instead.
+
+  The spreadsheet upload is base64 inside JSON rather than a multipart
+  form, which is a security decision and not a taste one: multipart and
+  form-encoded are exactly what a cross-origin HTML form can send, and
+  refusing them is what keeps a page you visit from driving the API.
+
+  Cancel sends a real interrupt (`CTRL_BREAK_EVENT` / `SIGINT`), the
+  Ctrl-C `harvest` already resumes from, and a cancelled job is reported
+  as cancelled rather than failed. A job that dies without finishing now
+  has its `run_status` row closed by the runner, so the banner cannot
+  claim a run that ended is still going.
+
+  **Two spellings, one table.** `run_status.command` holds what the CLI
+  passed to `Progress`, and `import_sheets.py` writes `import-sheets`,
+  while the JSON option keys are underscored. The plan looked the row up
+  under the underscored name in one place and the CLI name in the other,
+  which would have left the double-run guard permanently blind for the
+  two hyphenated commands. Both go through `CLI_NAME` now, pinned by
+  `test_the_run_status_guard_uses_the_cli_spelling`.
+
+  Still outstanding: Phase 2, the terminal handoff for `login`, `reset`
+  and `restore`.
+
 - **`clean_title`'s series-number hint understood the wrong spelling** —
   `docs/superpowers/specs/2026-08-01-series-number-fill-design.md`.
   Shipped as `enrich.series_from_title` plus an `enrich --series` top-up,

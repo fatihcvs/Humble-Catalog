@@ -19,12 +19,14 @@ _The viewer, filtered to one bundle — search, the column filters and the
 status chips all narrow the same table. This screenshot predates the
 sections described below and shows the older one-page layout._
 
-The viewer has four sections, switched by the tabs and addressable by
+The viewer has five sections, switched by the tabs and addressable by
 URL: **Library** (the table, its filters and the statistics summary),
 **Maintenance** (the review queue and possible duplicates), **Keys**
-(store keys whose game is in none of your imported libraries), and
+(store keys whose game is in none of your imported libraries),
 **Bundles** (paste a bundle URL, or check this month's Humble Choice, to
-see what you already own). A tab shows
+see what you already own), and **Tasks** (run the catalog commands —
+fetching, harvesting, enriching, importing, backing up — and watch them
+go). A tab shows
 a count when its section is waiting on something — a queue you can empty,
 never an optional backlog. In Library the filters live in a sidebar that
 folds away; whatever is currently narrowing the table stays listed beside
@@ -279,7 +281,16 @@ table is counts, source names and timestamps only.
   running extract/enrich shows in a banner; closing the browser never
   interrupts them.
 
-The viewer's four tabs are described [at the top of this
+The viewer's **Tasks** tab runs the catalog commands for you: fetching new
+bundles, harvesting, enriching, importing a spreadsheet or your game
+libraries, and taking a backup. Each runs as a separate process with its
+progress, its output and a Cancel button on the page, so the terminal is
+needed only for `login`, `reset` and `restore` — the three that need a
+browser window, a database file nobody holds open, or a word typed at a
+console. A command started in a terminal still shows in the banner, as
+it always did.
+
+The viewer's tabs are described [at the top of this
 page](#humble-catalog); what follows is what the Library table itself
 can do.
 
@@ -486,6 +497,16 @@ because a production WSGI server would not provide either:
   send only form-encoded, multipart, or plain-text bodies, all of which
   are refused; a cross-origin `fetch` sending JSON needs a CORS preflight
   the app never grants. So a page you visit cannot drive the API.
+
+Since the Tasks tab, the viewer can also **start catalog commands** as child
+processes, through its `/api/jobs` endpoints. That widens what a program on
+your own machine could do through the port — it could begin a harvest, or an
+import — so it is worth knowing. Three things bound it. The two defences above are unchanged, so a page you
+visit still cannot drive any of it. The command line is built from a fixed
+table of commands and flags, never from anything in the request, so no
+string from a caller reaches a process argument. And the destructive
+commands are not reachable this way at all: `reset` and `restore` still
+require a word typed at an interactive terminal.
 
 Note that any process on your own machine can still reach the port —
 worth knowing if the machine is shared.
