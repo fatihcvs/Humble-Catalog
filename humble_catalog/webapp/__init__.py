@@ -1,6 +1,10 @@
+import base64
+import binascii
 import datetime as dt
 import io
 import json
+import shutil
+import tempfile
 import webbrowser
 from pathlib import Path
 import requests
@@ -19,6 +23,11 @@ from humble_catalog.sources.base import candidate
 # stops protecting the catalog. The browser keeps sending Host: evil.com,
 # so refusing unknown hosts closes it.
 LOOPBACK_AUTHORITIES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+# Large enough for any ratings workbook, small enough that a request
+# cannot spend the machine's memory. The body is base64, so the encoded
+# form is ~4/3 of this; the cap is checked on the DECODED bytes.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 def host_is_loopback(host_header):
@@ -749,6 +758,60 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         if not _runner().cancel():
             return jsonify({"error": "nothing is running"}), 409
         return jsonify({"ok": True}), 202
+
+    @app.post("/api/jobs/import-sheets")
+    def import_sheets_job():
+        """Upload one workbook and run import-sheets over it.
+
+        Base64 inside JSON rather than a multipart form, and that is a
+        security decision rather than a taste one: form-encoded and
+        multipart are exactly the body types a cross-origin HTML form can
+        send, and refusing them is what stops a page you visit driving
+        this API. Keeping "every write endpoint takes JSON only" true
+        without exceptions is worth an unglamorous encoding.
+        """
+        data = _json_object()
+        name = _text_field(data, "filename")
+        content = data.get("content_b64")
+        if not name or not isinstance(content, str):
+            return jsonify({"error": "filename and content_b64 required"}), 400
+        # The name is kept as given, so it must be a bare .xlsx file name:
+        # import-sheets decides ebooks-vs-audiobooks from the FILE NAME, so
+        # it cannot be sanitised away, which makes rejecting any path
+        # separator or traversal the only safe rule.
+        #
+        # The separators are spelled out rather than left to pathlib:
+        # Path(r"C:\evil.xlsx").name is "evil.xlsx" on Windows and the
+        # whole string on POSIX, so a check built on it would mean two
+        # different things on the two platforms -- and the weaker of the
+        # two is the one that lets a path through.
+        if not name.lower().endswith(".xlsx") or name.strip(".") == "" \
+                or any(sep in name for sep in ("/", "\\", ":")):
+            return jsonify({"error": "filename must be a plain .xlsx name"}), 400
+        try:
+            blob = base64.b64decode(content, validate=True)
+        except (binascii.Error, ValueError):
+            return jsonify({"error": "content_b64 is not valid base64"}), 400
+        if len(blob) > MAX_UPLOAD_BYTES:
+            return jsonify({"error": "file too large"}), 400
+        tmpdir = tempfile.mkdtemp(prefix="humble-import-")
+        path = Path(tmpdir) / name
+        path.write_bytes(blob)
+        try:
+            # cleanup runs after the CHILD exits, not here: the file has to
+            # outlive this request, and the runner is the only thing that
+            # knows when the import is done with it.
+            job = _runner().start(
+                "import_sheets", {}, args=[str(path)],
+                cleanup=lambda: shutil.rmtree(tmpdir, ignore_errors=True),
+                force=bool(data.get("force")))
+        except jobs.Busy as exc:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({**job, "path": str(path)}), 202
 
     @app.get("/api/jobs")
     def job_state():

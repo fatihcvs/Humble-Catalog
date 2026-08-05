@@ -1,6 +1,8 @@
 import io
 import json
 import re
+import sys
+import tempfile
 from pathlib import Path
 import requests
 from unittest.mock import Mock
@@ -2236,3 +2238,113 @@ def test_get_jobs_reports_state_and_progress(tmp_path):
     # accounts of how far a run has got.
     assert [r["command"] for r in body["progress"]] == ["harvest"]
     assert body["progress"][0]["done"] == 5
+
+
+def _xlsx_bytes():
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.append(["Name"])
+    wb.active.append(["The Hollow Crypt"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_import_sheets_upload_starts_a_job_with_the_written_path(tmp_path):
+    import base64
+    client, runner = _job_client(tmp_path)
+    blob = _xlsx_bytes()
+    resp = client.post("/api/jobs/import-sheets", json={
+        "filename": "ratings-audiobooks.xlsx",
+        "content_b64": base64.b64encode(blob).decode()})
+    assert resp.status_code == 202
+    command, _options, _force = runner.started[0]
+    assert command == "import_sheets"
+    path = Path(resp.get_json()["path"])
+    assert path.exists() and path.read_bytes() == blob
+    # The name is preserved: import-sheets matches audiobooks by FILE NAME,
+    # so a renamed temp file would silently import against the wrong pool.
+    assert path.name == "ratings-audiobooks.xlsx"
+
+
+def test_import_sheets_upload_passes_the_path_as_a_positional_argument(tmp_path):
+    # The path is the one string the runner ever puts in argv, and it is
+    # one THIS route created -- never anything from the request body.
+    import base64
+    from humble_catalog import jobs
+    seen = {}
+    app = create_app(db_path=str(tmp_path / "catalog.db"))
+
+    class _ArgsRunner(_StubRunner):
+        def start(self, command, options=None, args=(), cleanup=None,
+                  force=False):
+            seen["args"] = list(args)
+            seen["cleanup"] = cleanup
+            return super().start(command, options, args, cleanup, force)
+
+    app.config["JOB_RUNNER"] = _ArgsRunner()
+    resp = app.test_client().post("/api/jobs/import-sheets", json={
+        "filename": "a.xlsx",
+        "content_b64": base64.b64encode(_xlsx_bytes()).decode()})
+    assert seen["args"] == [resp.get_json()["path"]]
+    assert jobs.argv("import_sheets", {}) + seen["args"] == [
+        sys.executable, "-m", "humble_catalog", "import-sheets",
+        resp.get_json()["path"]]
+    # The temp directory outlives the request; only the runner knows when
+    # the child is done with it.
+    assert Path(resp.get_json()["path"]).exists()
+    seen["cleanup"]()
+    assert not Path(resp.get_json()["path"]).exists()
+
+
+def test_import_sheets_upload_refuses_a_non_xlsx_name(tmp_path):
+    import base64
+    client, _ = _job_client(tmp_path)
+    # The separator cases are checked by hand rather than through
+    # pathlib: Path(r"C:\evil.xlsx").name is "evil.xlsx" on Windows and
+    # the whole string on POSIX, so a rule built on it would mean two
+    # different things on the two platforms.
+    for name in ("ratings.csv", "../evil.xlsx", "sub/dir.xlsx",
+                 r"..\evil.xlsx", r"C:\evil.xlsx"):
+        resp = client.post("/api/jobs/import-sheets", json={
+            "filename": name,
+            "content_b64": base64.b64encode(b"x").decode()})
+        assert resp.status_code == 400, name
+
+
+def test_import_sheets_upload_refuses_bad_base64(tmp_path):
+    client, _ = _job_client(tmp_path)
+    resp = client.post("/api/jobs/import-sheets",
+                       json={"filename": "a.xlsx", "content_b64": "not!base64"})
+    assert resp.status_code == 400
+
+
+def test_import_sheets_upload_needs_both_fields(tmp_path):
+    client, _ = _job_client(tmp_path)
+    assert client.post("/api/jobs/import-sheets",
+                       json={"filename": "a.xlsx"}).status_code == 400
+    assert client.post("/api/jobs/import-sheets",
+                       json={"content_b64": "eA=="}).status_code == 400
+
+
+def test_import_sheets_upload_enforces_the_size_cap(tmp_path):
+    import base64
+    from humble_catalog import webapp
+    client, _ = _job_client(tmp_path)
+    big = b"x" * (webapp.MAX_UPLOAD_BYTES + 1)
+    resp = client.post("/api/jobs/import-sheets", json={
+        "filename": "a.xlsx", "content_b64": base64.b64encode(big).decode()})
+    assert resp.status_code == 400
+    assert "too large" in resp.get_json()["error"]
+
+
+def test_import_sheets_upload_leaves_no_file_behind_when_busy(tmp_path):
+    import base64
+    client, runner = _job_client(tmp_path)
+    runner.busy = True
+    resp = client.post("/api/jobs/import-sheets", json={
+        "filename": "a.xlsx",
+        "content_b64": base64.b64encode(_xlsx_bytes()).decode()})
+    assert resp.status_code == 409
+    # No job will ever run, so nothing else would clean the workbook up.
+    assert not list(Path(tempfile.gettempdir()).glob("humble-import-*/a.xlsx"))
