@@ -159,3 +159,47 @@ def test_the_setup_app_serves_only_the_ca_certificate(tmp_path):
     assert resp.status_code == 200
     assert resp.mimetype == "application/x-x509-ca-cert"
     assert resp.data.startswith(b"-----BEGIN CERTIFICATE-----")
+
+
+def _handshake(server_ctx, client_ctx, server_hostname):
+    """A real TLS handshake over memory BIOs: no socket is ever bound."""
+    c_in, c_out, s_in, s_out = (ssl.MemoryBIO() for _ in range(4))
+    client = client_ctx.wrap_bio(c_in, c_out, server_hostname=server_hostname)
+    server = server_ctx.wrap_bio(s_in, s_out, server_side=True)
+    done = {"client": False, "server": False}
+    for _ in range(50):
+        for name, end in (("client", client), ("server", server)):
+            if not done[name]:
+                try:
+                    end.do_handshake()
+                    done[name] = True
+                except ssl.SSLWantReadError:
+                    pass
+        s_in.write(c_out.read())
+        c_in.write(s_out.read())
+        if all(done.values()):
+            return
+    raise AssertionError("the handshake never completed")
+
+
+def _phone_context(lan_dir):
+    ctx = ssl.create_default_context(cafile=str(lan_dir / "ca.crt"))
+    ctx.check_hostname = True
+    return ctx
+
+
+def test_a_phone_trusting_the_authority_accepts_the_server(tmp_path):
+    # OpenSSL reads a hostname-like subject CN as a DNS name when the leaf
+    # has no DNS SAN; the authority permits only DNS "invalid", so a leaf
+    # named CN=<ip> fails the name constraints. Only a real verification
+    # catches that -- checking the extensions does not.
+    d = tmp_path / "lan"
+    crt, key = lan.issue_server_cert(d, "192.168.1.20")
+    _handshake(lan.ssl_context(crt, key), _phone_context(d), "192.168.1.20")
+
+
+def test_a_phone_expecting_another_address_refuses_the_server(tmp_path):
+    d = tmp_path / "lan"
+    crt, key = lan.issue_server_cert(d, "192.168.1.20")
+    with pytest.raises(ssl.SSLCertVerificationError, match="mismatch"):
+        _handshake(lan.ssl_context(crt, key), _phone_context(d), "192.168.1.21")

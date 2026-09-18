@@ -156,15 +156,18 @@ def issue_server_cert(lan_dir, ip):
     now = _now()
     cert = (
         x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,
-                                                     str(addr))]))
+        # An EMPTY subject: OpenSSL reads a hostname-like CN as a DNS name
+        # when there is no DNS SAN, and the authority permits no real DNS
+        # name, so CN=<ip> fails verification as a subtree violation.
+        .subject_name(x509.Name([]))
         .issuer_name(ca_cert.subject)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - dt.timedelta(minutes=5))
         .not_valid_after(now + dt.timedelta(days=SERVER_DAYS))
+        # RFC 5280 4.2.1.6: with an empty subject the SAN must be critical.
         .add_extension(x509.SubjectAlternativeName([x509.IPAddress(addr)]),
-                       critical=False)
+                       critical=True)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None),
                        critical=True)
         .add_extension(x509.ExtendedKeyUsage(
