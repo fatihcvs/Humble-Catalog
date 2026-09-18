@@ -568,15 +568,16 @@ def test_no_post_route_answers_5xx_for_a_body_that_is_not_an_object(tmp_path):
     assert len(routes) >= 20, routes        # the enumeration found the routes
     # The routes that legitimately answer 2xx here: each reads NO field
     # from the body, so a body it never looks at cannot make it fail.
-    # `/reopen` takes a bare body by documented contract;
-    # `/api/choice-preview` takes none at all, because Choice is always
-    # "this month" and there is nothing to address. Every other route
-    # reads something and must refuse.
+    # `/reopen` takes a bare body by documented contract. Every other
+    # route reads something and must refuse. `/api/choice-preview` reads
+    # no field either, but it still requires an object (issue #20): the
+    # route does credentialed network work, and a malformed request must
+    # be refused before any of it starts.
     #
     # Membership of this set is a claim about the route, not a waiver: add
     # a path here only when it reads nothing, and never to quiet a failure
     # from a route that does.
-    bodiless = {"/api/choice-preview"}
+    bodiless = set()
     for path in routes:
         for label, body in BAD_BODIES:
             resp = client.post(path, data=body,
@@ -1089,7 +1090,7 @@ def test_bot_wall_403_becomes_link_only_end_to_end(tmp_path, monkeypatch):
     # A bot wall is not retried: one request, no backoff.
     assert http.request.call_count == 1
 
-def test_revert_leaves_fields_absent_from_legacy_snapshot(tmp_path):
+def test_revert_leaves_fields_absent_from_an_older_snapshot(tmp_path):
     # pre_edit snapshots written before a field joined EDITABLE_FIELDS do
     # not contain its key. Treating that as NULL would silently wipe live
     # data on revert, so revert must skip keys it does not find.
@@ -2080,6 +2081,27 @@ def test_choice_preview_returns_the_report(tmp_path, monkeypatch):
     resp = client.post("/api/choice-preview", json={})
     assert resp.status_code == 200
     assert resp.get_json()["name"] == "Humble Choice: January 2031"
+
+
+def test_choice_preview_refuses_a_bad_body_before_fetching(tmp_path,
+                                                          monkeypatch):
+    # Issue #20: a malformed request reached fetch_choice, which builds a
+    # client from saved cookies -- a Playwright launch -- and answered 500
+    # wherever no browser is installed. The refusal has to come first.
+    from humble_catalog import choice_preview
+    calls = []
+    monkeypatch.setattr(choice_preview, "fetch_choice",
+                        lambda *a, **k: calls.append(1))
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    bad = [dict(json=[1, 2, 3]), dict(json="hello"),
+           dict(data="{not json", content_type="application/json"), dict()]
+    for kwargs in bad:
+        resp = client.post("/api/choice-preview", **kwargs)
+        assert resp.status_code == 400, kwargs
+        assert resp.get_json()["error"], kwargs
+    assert calls == []
 
 
 def test_choice_preview_answers_409_for_a_stale_session(tmp_path, monkeypatch):

@@ -1,17 +1,24 @@
 # Backlog
 
-Postponed features and ideas, consolidated from the design docs' "future
-extensions" / "out of scope" sections. When an item ships, move it to the
-**Done** list at the bottom with its version. When a new design doc defers
-something, record it here so the deferral has a home.
+Open work lives in GitHub Issues:
+<https://github.com/kjmikkel/Humble-Catalog/issues>. The open and
+out-of-scope entries that used to be listed here were migrated there on
+2026-09-18 (#1-#18). This file keeps what an issue is a poor home for:
+the privacy enforcement notes, and the long-form Done list.
 
-Last updated: 2026-08-01.
+When a design doc defers something, open an issue for it so the deferral
+has a home. When something is decided against rather than postponed,
+open the issue with its reasoning and close it as **not planned**
+(label `wontfix`) — the closed list is the record of what was rejected
+and why, and reopening one is how a decision gets revisited. When an
+item ships, close its issue; a Done entry below is still the place for
+the longer account of what shipped and why.
 
-Not every entry ships code. An entry whose content is a question can be
-closed by measuring it, and the answer "nothing needs building" is a
-result rather than an abandonment — the google_books 503 entry on the
-Done list is the worked example, and it closed against the hypothesis
-it was written to confirm.
+Not every issue ships code. One labelled `measurement` can be closed by
+measuring it, and the answer "nothing needs building" is a result rather
+than an abandonment — the google_books 503 entry on the Done list is the
+worked example, and it closed against the hypothesis it was written to
+confirm.
 
 ## Privacy
 
@@ -60,179 +67,18 @@ Two things that stay true regardless:
 - **Deleting a file does not unpublish it.** Anything already pushed
   should be treated as public, whatever HEAD says afterwards.
 
-## Open
+## Open, and explicitly out of scope
 
-Entries under **Next up** are taken before the rest. Everything below
-that heading is unordered — most of it is parked on data or on an
-external change, so ordering it would be pretending. Nothing is queued
-there today.
+Both moved to GitHub Issues on 2026-09-18:
 
-### Next up
+- Open: <https://github.com/kjmikkel/Humble-Catalog/issues>
+- Decided against, not merely postponed:
+  <https://github.com/kjmikkel/Humble-Catalog/issues?q=is%3Aissue+label%3Awontfix>
 
-_(empty)_
-
-### Bundle preview (deferred from `specs/2026-07-25-bundle-preview-design.md`)
-
-- **GOG/Epic OAuth instead of Heroic's caches** (deferred from
-  `specs/2026-07-25-game-library-ownership-design.md`) — talk to
-  `auth.gog.com` and `galaxy-library.gog.com` directly rather than
-  reading Heroic's on-disk JSON. Always fresh and drops the Heroic
-  dependency, at the cost of a stored refresh token to a purchasing
-  account and endpoint churn GOG has already made once. The importer
-  boundary means this is a backend swap, not a rewrite: it would fill the
-  same `games` table. Revisit if cache staleness or a Heroic format
-  change actually bites.
-
-### Harvest (identified 2026-07-26 while debugging resume)
-
-Surfaced by investigating a harvest that appeared to restart from
-scratch on every rerun. The two bugs behind that are fixed, and four
-entries have since shipped - quota budgeting, the retry spend, the
-worklist order, and the failure recording that has now returned its
-verdict; these are what is left.
-
-- **Shorten the google_books worklist** — it is fetched for every type,
-  so its list is roughly twice the size of any other source's, which is
-  why its small daily quota takes so many days to work through. Dropping
-  it from a type's `SOURCE_ORDER` would fix that, but it changes which
-  candidates every affected item can ever match against, so it is a
-  matching-quality decision and wants its own measurement. Split out of
-  the quota-budget entry (now shipped) precisely so the two effects stay
-  measurable apart.
-  **Its premise weakened on 2026-08-01** and the entry should not be
-  acted on without re-checking it. "Its small daily quota takes so many
-  days" was true while the budget was the binding constraint; the run of
-  2026-08-01 spent 524 live requests of ~1,000 and did not hit the wall,
-  so the list being long is no longer what is costing days — the 503
-  rate is (599 of 1,524 live attempts across the two runs, 39.3%).
-  Shortening the worklist would still shorten the walk, but
-  it would be buying a resource that is currently not scarce, at a
-  matching-quality price. Re-read `harvest_run.quota_died` before
-  starting: if it is back to 1 on recent runs, the original motivation
-  has returned.
-- **Run tally shipped alongside it (2026-07-31)** — `harvest_run` records
-  what each run cost per source: titles answered, live fetches, failures,
-  and whether the budget died in that run. It measures the *rate* and
-  whether the rate is moving; it does not decide the
-  transient-versus-deterministic question, which `source_failure`
-  answers. Built because two facts decay: `last_failed_at` is
-  overwritten, so failures-per-run can be counted once and never again,
-  and `quota.blocked` cannot separate a run that exhausted the budget
-  from one that began with it already spent. Capped at the newest 500
-  runs by `runs.record`; `harvest --forget-runs` clears it. See
-  `specs/2026-07-31-harvest-run-tally-design.md`.
-  **Half discharged as of 2026-08-01.** Its contribution to the
-  transient-versus-deterministic question is spent — it supplied the
-  denominator without which `source_failure` reads exactly backwards,
-  and that question is now answered on the Done list. Its own question,
-  whether the rate is *moving*, is not: two runs give 361/1000 = 36.1%
-  and 238/524 = 45.4%, which is one difference and not a trend. Stays
-  open for that reason alone. It closes when several more runs either
-  hold a flat rate — nothing to do — or show a rising one, which would
-  mean the load explanation is decaying into something else and the
-  question reopens with new evidence rather than the old guess.
-- **Google's own comment now overstates the budget** —
-  `sources/google_books.py` says "the budget - not the clock - is what
-  decides how far a run gets", which the run tally contradicts as of
-  2026-08-01 (524 live requests of ~1,000, quota never hit). Left as a
-  flag rather than a fix on purpose: that comment is the stated
-  justification for `retry_server_errors = False`, so editing it means
-  re-deciding the retry policy, which is a code change this measurement
-  deliberately stopped short of. Take the two together or neither.
-- **A rate-limited source still walks its whole list** — after the
-  quota dies the pool keeps going so cached titles still count, which
-  is the point, but it does so with one cache lookup per remaining
-  title. Cheap per title and correct; worth revisiting only if the
-  catalog grows enough for the walk itself to be noticeable.
-
-### Other
-
-- **Standalone Android viewer app** — a read-only catalog viewer for
-  phone use. Referenced as a "separately recorded gap" in
-  `specs/2026-07-18-android-apk-items-design.md`; this entry is that
-  record.
-- **Goodreads ratings** — enrichment source, blocked on Goodreads
-  reopening an official API (deferred from v1,
-  `specs/2026-07-17-humblebundle-catalog-design.md`).
-
-## Explicitly out of scope (decided against, not merely postponed)
-
-- Downloading the actual book/audio files — the catalog links to them.
-- Desktop game downloads and Steam/GOG keys as catalog items — keys
-  stay in `external_keys`. Still true after the bundle preview began
-  *reading* that table for ownership: it matches against keys, it does not
-  promote them to `items` rows. The unredeemed key report under **Open**
-  is the same bargain — reporting on keys is in scope, and a report is not
-  a promotion.
-- **Past or arbitrary Humble Choice months** (decided 2026-08-04, with
-  `choice`). The subscriber hub serves the current month and only that;
-  addressing an arbitrary month is a different fetch answering a question
-  that was explicitly not wanted — the decision `choice` exists for is
-  "buy this month or skip it", and a month already gone cannot be bought.
-- **Choice-specific history or a Choice view.** Past Choice months
-  already harvest as ordinary orders, and their games already count as
-  owned through `external_keys` — so `choice` and `bundle` both credit
-  them today. Labelling those orders as Choice months would add a view,
-  not an answer.
-- **MSRP and value arithmetic in the Choice report.** The blob carries
-  `msrp|money` per game and it is deliberately not printed, for the same
-  reason the bundle report has no price-per-new-item column: it is
-  arithmetic the reader can do, and a large "value" figure invites
-  reading it as "worth buying" — the misjudgement the report exists to
-  correct.
-- Game-metadata enrichment sources (Google Play/IGDB) for Android
-  items — Humble's own data is all we store.
-- Tracking non-book HumbleBundle purchases beyond the above.
-- Any cloud/hosted component — everything runs locally.
-- **Ordering the harvest worklist by newest purchase first** — measured
-  2026-07-30 and rejected, not postponed. It looks like the right answer
-  under a starved quota, but order only decides anything while the
-  uncached remainder exceeds the daily budget: a cache hit costs no
-  request, so if every uncached title fits in one day's quota they are all
-  fetched today whatever position they hold. At ~2,300 eligible items and
-  ~1,000 requests/day that window is days wide and closing, and reopening
-  it would need one day's purchases to leave more than ~1,000 titles
-  uncached when the largest bundle in the catalog is ~150 items. It is
-  also a *superset* of the shipped sort rather than an alternative:
-  `purchased_at` lives on `bundles`, so a large bundle gives up to ~150
-  identical keys and a content tiebreak is needed underneath it anyway.
-  Its two edge cases — a bundle with no date, an item in no bundle — exist
-  nowhere in the catalog, so they would be defensive branches no test
-  could exercise. Revisit only if the quota tightens or a single day's
-  purchases can outrun a day's budget.
-- **Past/expired bundles as a gap-finder** — running the preview against
-  bundles that have closed, to see what was missed. Measured 2026-07-31
-  and rejected for want of data, not for want of value: there is nowhere
-  to get a closed bundle's contents from. Three probes, each closing one
-  route.
-  A closed bundle does **not** 404, which is what this entry used to
-  claim, and it does not redirect either — `fetch_bundle`'s error text
-  said "redirects to the storefront" and was wrong about the mechanism.
-  It serves its own URL with its own `<title>` and ~530 KB of marketing
-  shell, carrying `main-js`, `base-webpack-json-data` and
-  `overpage-json-data` but not `webpack-bundle-page-data`. The blob the
-  parser reads is not merely truncated; nothing of the bundle survives,
-  down to the `machine_name`, so there is not even an id left to look
-  the contents up by. The shipped parser is fine — four live bundles
-  still carry the blob.
-  The Wayback Machine does not have it. All 11 archived captures of one
-  sampled closed book bundle top out at 43 KB against a live page's
-  ~610 KB, including captures taken while it was still selling, and none
-  contains the blob. A crawler gets the shell.
-  And there is no JSON endpoint to ask instead: `/api/v1/bundle/<mn>`,
-  `/bundle/<mn>`, `/api/v1/bundles/<mn>` and `/store/api/bundle/<mn>`
-  all 404 even for a **live** bundle, given the `machine_name` read out
-  of that bundle's own blob. The order API this project already uses
-  answers for orders, which are purchases — the opposite of the set this
-  entry wanted.
-  So the data exists only while a bundle is selling, which makes any
-  real gap-finder *prospective*: it would have to snapshot live bundles
-  and report over the ones that later closed, answering nothing about
-  the past and starting from the day it is first run. That is a
-  different feature from the one this entry described, and it was not
-  wanted enough to build. Reopens if Humble publishes bundle contents,
-  or if an archive turns up that captured the blob rather than the
-  shell — one grep for `webpack-bundle-page-data` settles either.
+Before pasting anything into an issue, apply the same rule as for
+committed text: `harvest --failures` and the repeat block at the end of
+a `harvest` print real owned titles, and nothing scans an issue.
+`harvest --runs` is safe to paste.
 
 ## Done (formerly on this list)
 
@@ -1128,7 +974,7 @@ verdict; these are what is left.
   non-adversarial but must not trip FIPS mode or a security scan; the
   12-hex suffix also keeps Windows case-collisions and reserved names
   (`con`, `nul`) from ever producing a bad filename. A one-time
-  `user_version` 3→4 migration renames legacy cover files, guarded to
+  `user_version` 3→4 migration renames old-style cover files, guarded to
   tolerate partial `items` tables. Gated behind a typed `RESET` with no
   `--yes`, and EOF at the prompt aborts cleanly rather than tracebacking.
 
@@ -1192,7 +1038,7 @@ verdict; these are what is left.
   `superpowers/specs/2026-07-20-filter-aware-export-design.md`.
   The viewer's export now sends the rows it is showing, as an ordered id
   list, and `write_csv` grew one optional argument to honour it — one CSV
-  writer, two row sources, so the CSV spec's "no divergence possible"
+  writer, two row sources, so the CSV spec's guarantee that the two cannot drift apart
   survived. The row set could not be recomputed server-side: `visible()`
   owns fuzzy scoring, eight chip filters and the sort mode, so the
   browser is the only thing that knows the answer. Ids travel in a POST
