@@ -121,8 +121,10 @@ $("#theme-toggle").addEventListener("click", () => {
   syncThemeButton();
 });
 
-// Boot. The mode has to be known before the first paint, or the LAN
-// viewer would flash editing controls it cannot use.
+// Boot. The mode is read before the catalog is drawn, so no row, card or
+// panel ever renders with editing controls the LAN viewer cannot use. The
+// static tab bar in index.html is visible until /api/status answers,
+// though, so the write tabs can show briefly on a slow connection.
 async function boot() {
   let status = {};
   try {
@@ -151,7 +153,17 @@ async function pollAll() {
 // rotated to landscape.
 if (typeof matchMedia === "function")
   matchMedia(NARROW_QUERY).addEventListener("change", () => render());
-boot();
-pollAll();
-setInterval(pollAll, 5000);
+// Polling waits for boot(): until /api/status has answered, READ_ONLY is
+// still false, and a first poll would ask the LAN app for /api/jobs.
+async function start() {
+  try {
+    await boot();
+  } catch (err) {
+    // Polling still starts: the header banner must keep working.
+    console.error("boot() failed:", err);
+  }
+  pollAll();
+  setInterval(pollAll, 5000);
+}
+start();
 syncThemeButton();

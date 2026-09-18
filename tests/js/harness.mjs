@@ -148,6 +148,7 @@ const publish = `
   sortValue, renderExportButton, downloadExport,
   statusSelect, READ_STATUS_ORDER,
   statusCell, nameExtras, applyMode, sectionAllowed, READ_ONLY_SECTIONS,
+  start,
   renderCards, isNarrow, NARROW_QUERY,
   setReadOnly: (v) => { READ_ONLY = v; },
   getReadOnly: () => READ_ONLY,

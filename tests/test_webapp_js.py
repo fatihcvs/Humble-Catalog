@@ -1923,6 +1923,27 @@ def test_read_only_load_does_not_ask_for_write_only_data():
     assert "/api/jobs" not in urls
 
 
+def test_polling_starts_only_once_the_mode_is_known():
+    # Before boot() has read /api/status, READ_ONLY is still false, so a
+    # poll started alongside boot() asked the LAN app for /api/jobs.
+    result = eval_js("""(async () => {
+        const seen = [], intervals = [];
+        globalThis.setInterval = (fn, ms) => { intervals.push(ms); return 1; };
+        app.setFetch((url) => { seen.push(url); return Promise.resolve({
+          json: () => Promise.resolve(
+            url === "/api/status" ? {read_only: true, runs: []} :
+            url === "/api/items" ? {items: []} :
+            url === "/api/stats" ? {total: 0, sections: []} :
+            url === "/api/keys"  ? {rows: []} : {})}); });
+        await app.start();
+        return {seen, intervals, readOnly: app.getReadOnly()};
+      })()""")
+    assert result["readOnly"] is True
+    assert result["seen"][0] == "/api/status"
+    assert "/api/jobs" not in result["seen"]
+    assert result["intervals"] == [5000]
+
+
 def test_read_only_keys_have_no_hide_button():
     # _with_keys (defined earlier in this file) loads the standard key
     # payload; the panel is rendered again once read-only mode is on.
