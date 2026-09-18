@@ -787,7 +787,8 @@ function renderStats() {
     const rows = shown.map((r) => statRow(s.key, r, genre)).join("");
     const more = genre && !genresShowAll && s.rows.length > GENRE_PREVIEW
       ? `<button class="stat-show-all">Show all ${s.rows.length}</button>` : "";
-    const edit = genre
+    // The LAN viewer has no tag routes: its panel offers nothing to edit.
+    const edit = genre && !READ_ONLY
       ? `<button class="stat-edit-tags">${tagEditMode ? "Done" : "Edit tags"}</button>`
       : "";
     return `<section class="stat-block stat-${s.key}">
@@ -808,7 +809,7 @@ function statRow(key, row, genre) {
     ? `<button class="stat-jump" data-section="${esc(key)}"
         data-row="${esc(row.label)}">${row.count}</button>`
     : `<span class="stat-zero">0</span>`;
-  const manage = genre && tagEditMode
+  const manage = genre && tagEditMode && !READ_ONLY
     ? `<td><input class="genre-rename-input" placeholder="rename to..." size="18">
         <button class="genre-rename" data-tag="${esc(row.label)}">Rename</button>
         <button class="genre-delete" data-tag="${esc(row.label)}">Delete</button></td>`

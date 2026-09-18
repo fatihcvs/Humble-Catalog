@@ -948,6 +948,33 @@ def test_edit_tags_toggle_reveals_the_rename_controls():
     assert "genre-delete" in editing
 
 
+def _stats_panel(read_only, tag_edit_mode):
+    payload = _stats_payload([_section("genre", "Genres", [("Fantasy", 2)])])
+    return eval_js(
+        """(async () => {
+             app.setReadOnly(%s);
+             app.setFetch(() => Promise.resolve(
+               {json: () => Promise.resolve(%s)}));
+             await app.refreshStats();
+             app.setTagEditMode(%s);
+             app.renderStats();
+             return dom.writes["#stats-panel"];
+           })()""" % ("true" if read_only else "false", json.dumps(payload),
+                      "true" if tag_edit_mode else "false"))
+
+
+def test_read_only_stats_have_no_tag_editing_controls():
+    # The LAN app has no tag routes, so the controls would only fail.
+    # Even with edit mode left on, nothing to rename or delete is drawn.
+    for edit_mode in (False, True):
+        html = _stats_panel(True, edit_mode)
+        assert "Fantasy" in html
+        for marker in ("stat-edit-tags", "genre-rename", "genre-delete"):
+            assert marker not in html, (edit_mode, marker)
+    assert "stat-edit-tags" in _stats_panel(False, False)
+    assert "genre-rename" in _stats_panel(False, True)
+
+
 def test_render_stats_before_any_fetch_draws_nothing():
     # renderStats is re-run on a toggle, so it must cope with no data yet
     # rather than throwing and blanking the panel
