@@ -147,6 +147,10 @@ async function pollAll() {
     console.error("pollJobs() failed:", err);
   }
 }
+// Re-render when the width crosses the card breakpoint, e.g. a phone
+// rotated to landscape.
+if (typeof matchMedia === "function")
+  matchMedia(NARROW_QUERY).addEventListener("change", () => render());
 boot();
 pollAll();
 setInterval(pollAll, 5000);

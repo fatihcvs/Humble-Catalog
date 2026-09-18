@@ -1903,3 +1903,48 @@ def test_read_only_keys_have_no_hide_button():
         '(app.setReadOnly(true), app.renderKeys(), dom.writes["#keys-panel"])')
     assert "Amber Hollow" in html              # the rows still render
     assert "key-hide" not in html
+
+
+def test_cards_carry_the_title_series_and_download_link():
+    item = json.dumps(_item(
+        name="The Quiet Harbor: A Novel", series="Harbor Tales", series_number=2,
+        my_rating=4, formats=["epub", "pdf"],
+        bundles=[{"name": "Bundle One", "url": "https://www.humblebundle.com/downloads?key=k1",
+                  "purchased_at": "2020-01-01"}]))
+    html = eval_js(f"app.renderCards([{item}])")
+    assert html.count('<article class="card"') == 1
+    assert "The Quiet Harbor: A Novel" in html
+    assert "Harbor Tales #2" in html
+    assert 'class="card-link" href="https://www.humblebundle.com/downloads?key=k1"' in html
+    assert "★★★★" in html and "epub, pdf" in html
+
+
+def test_cards_survive_missing_fields():
+    # Same tolerance tagBadges and person have: an older server or a partial
+    # payload must not blank the page.
+    item = json.dumps(_item(bundles=None, authors=None, user_tags=None,
+                            formats=None, read_status=None))
+    assert eval_js(f"app.renderCards([{item}])").count('<article class="card"') == 1
+
+
+def test_a_narrow_screen_renders_cards_instead_of_the_table():
+    result = eval_js("""(() => {
+        globalThis.matchMedia = () => ({matches: true, addEventListener() {}});
+        app.setItems([%s]); dom.reset(); app.render();
+        return {cards: dom.writes["#card-list"] || "",
+                table: dom.writes["#catalog tbody"] || "",
+                tableHidden: document.querySelector("#table-wrap").hidden,
+                cardsHidden: document.querySelector("#card-list").hidden};
+      })()""" % json.dumps(_item()))
+    assert '<article class="card"' in result["cards"]
+    assert result["table"] == ""
+    assert result["tableHidden"] is True and result["cardsHidden"] is False
+
+
+def test_a_wide_screen_keeps_the_table():
+    result = eval_js("""(() => {
+        app.setItems([%s]); dom.reset(); app.render();
+        return {table: dom.writes["#catalog tbody"] || "",
+                cardsHidden: document.querySelector("#card-list").hidden};
+      })()""" % json.dumps(_item()))
+    assert "<tr>" in result["table"] and result["cardsHidden"] is True

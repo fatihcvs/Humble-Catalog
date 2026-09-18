@@ -488,4 +488,25 @@ body[data-mode="read-only"] #bulk-bar,
 body[data-mode="read-only"] #export,
 body[data-mode="read-only"] #export-format,
 body[data-mode="read-only"] #column-picker { display: none; }
+
+/* Card list (below 600 px). :not([hidden]) because a display rule would
+   otherwise override the hidden attribute. */
+#card-list:not([hidden]) { display: grid; gap: .6rem; padding: .5rem 0; }
+.card { display: flex; gap: .7rem; background: var(--surface);
+        border: 1px solid var(--border); border-radius: 6px; padding: .6rem; }
+.card-cover { width: 56px; flex: none; border-radius: 3px; }
+.card-body { flex: 1; min-width: 0; }
+.card-title { display: block; overflow-wrap: anywhere; }
+.card-meta { font-size: .85rem; color: var(--muted); margin-top: .2rem; }
+.card-links { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+/* 44 px: the smallest comfortable touch target. */
+.card-link { display: inline-flex; align-items: center; min-height: 44px;
+             box-sizing: border-box; padding: .4rem .7rem; border-radius: 4px;
+             background: var(--surface-alt); color: var(--accent);
+             text-decoration: none; }
+@media (max-width: 600px) {
+  /* Measured at 375 px: Bundles was cut in half and Tasks off-screen. */
+  #tabs { overflow-x: auto; }
+  #tabs a { flex: none; white-space: nowrap; }
+}
 .star-text { color: var(--star); }

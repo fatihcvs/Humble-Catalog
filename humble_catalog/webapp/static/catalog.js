@@ -595,12 +595,53 @@ function nameExtras(i) {
       i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}` + editions;
 }
 
+// Below this width the 22-column table is unusable (measured at 375 px:
+// 1,477 px wide, bundle links off-screen), so each row becomes a card.
+const NARROW_QUERY = "(max-width: 600px)";
+const isNarrow = () =>
+  typeof matchMedia === "function" && matchMedia(NARROW_QUERY).matches;
+
+// Display-only on every viewer: editing needs the table's width. Every
+// field is guarded the way tagBadges and person are, so a partial payload
+// renders a thinner card instead of throwing.
+function renderCards(rows) {
+  return rows.map((i) => {
+    const status = READ_STATUS_LABEL[i.read_status || "unread"] || "";
+    const series = i.series
+      ? ` · ${esc(i.series)}${i.series_number ? " #" + i.series_number : ""}` : "";
+    const rating = i.my_rating ? ` · ${"★".repeat(i.my_rating)}` : "";
+    const tags = (i.user_tags || []).length ? ` · ${esc(i.user_tags.join(", "))}` : "";
+    return `<article class="card">
+    ${i.cover_path
+      ? `<img class="card-cover" src="/${i.cover_path}" alt="" loading="lazy">`
+      : `<div class="card-cover"></div>`}
+    <div class="card-body">
+      <strong class="card-title">${highlight(i.name, matchSpans.get(i.id))}</strong>
+      <div class="card-meta">${esc((i.authors || []).join(", "))}${series}</div>
+      <div class="card-meta"><span class="tag">${esc(i.type)}</span> ${esc((i.formats || []).join(", "))}</div>
+      <div class="card-meta">${status}${rating}${tags}</div>
+      <div class="card-links">${(i.bundles || []).map((b) =>
+        `<a class="card-link" href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.name)}</a>`
+      ).join("")}</div>
+    </div>
+  </article>`;
+  }).join("");
+}
+
 function render() {
   renderActiveFilters();
   const rows = visible();
   $("#count").textContent = `${rows.length} / ${items.length} items`
     + (relevanceActive() ? " · by relevance" : "");
-  $("#catalog tbody").innerHTML = rows.map(i => i.id === editingId ? `<tr>
+  const narrow = isNarrow();
+  $("#table-wrap").hidden = narrow;
+  $("#card-list").hidden = !narrow;
+  if (narrow) {
+    $("#catalog tbody").innerHTML = "";
+    $("#card-list").innerHTML = renderCards(rows);
+  } else {
+    $("#card-list").innerHTML = "";
+    $("#catalog tbody").innerHTML = rows.map(i => i.id === editingId ? `<tr>
     <td>${i.cover_path ? `<img src="/${i.cover_path}" alt="" loading="lazy">` : ""}</td>
     <td><strong>${esc(i.name)}</strong><br>
       <input class="edit-field edit-url" data-f="source_url" type="url"
@@ -642,6 +683,7 @@ function render() {
     <td>${tagBadges(i.user_tags)}</td>
     <td class="user-comment">${esc(i.user_comment)}</td>
   </tr>`).join("");
+  }
   wireTagInputs();
   renderBulkBar();
   renderExportButton();
