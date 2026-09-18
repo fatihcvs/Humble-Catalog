@@ -499,8 +499,9 @@ The pairing link is a password to your catalog: never paste it anywhere.
 Everything `--lan` keeps is in a `lan/` folder next to `catalog.db`;
 delete that folder to start over, then run `--setup` again and reinstall
 the certificate. Use `--lan-host` if the address it picks is wrong and
-`--lan-port` if the port is taken. Editing needs the full viewer on the
-PC in a window wider than 600 px.
+`--lan-port` if the port is taken. The server certificate lasts 30 days,
+so restart a `serve --lan` left running longer than that. Editing needs
+the full viewer on the PC in a window wider than 600 px.
 
 ### The viewer's exposure
 

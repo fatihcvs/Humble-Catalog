@@ -258,7 +258,8 @@ No test binds a real socket or touches the network.
   edited on purpose. The existing loopback tests show the full app is
   unchanged.
 - **Pairing.** The right token sets a cookie with `Secure`, `HttpOnly`
-  and `SameSite=Strict` and redirects to `/`. A wrong or missing token
+  and `SameSite=Strict` and answers a page that refreshes itself to
+  `/`. A wrong or missing token
   gets a 403. Every LAN route refuses a request without the cookie (a
   class test over all rules). Rotating the token invalidates an existing
   cookie.
