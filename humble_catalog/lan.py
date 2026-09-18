@@ -94,19 +94,64 @@ def _write_key(path, key):
         serialization.NoEncryption()))
 
 
+def _public_bytes(public_key):
+    return public_key.public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def private_address(ip):
+    """`ip` as an address the authority can vouch for, or LanStateError."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        addr = None
+    if not isinstance(addr, ipaddress.IPv4Address):
+        raise LanStateError(
+            f"{ip!r} is not an IPv4 address -- pass this machine's LAN "
+            "address with --lan-host, e.g. --lan-host 192.168.1.20")
+    if not any(addr in n for n in PRIVATE_NETWORKS):
+        raise LanStateError(
+            f"{ip} is not a private address; the certificate authority can "
+            "only vouch for 10.x, 172.16-31.x and 192.168.x -- pass one "
+            "with --lan-host")
+    return addr
+
+
+def check_port(port, flag):
+    """Refuse a port number no socket can bind, naming the flag to change."""
+    if not 1 <= port <= 65535:
+        raise LanStateError(
+            f"port {port} is out of range -- pass a port from 1 to 65535 "
+            f"with {flag}")
+
+
 def ensure_ca(lan_dir):
     """(key, certificate) of the private authority, created on first use."""
     lan_dir = Path(lan_dir)
     key_path, crt_path = lan_dir / "ca.key", lan_dir / "ca.crt"
+    start_over = ("delete that folder and run `serve --lan --setup` again, "
+                  "then reinstall the certificate on the phone")
     if key_path.exists() != crt_path.exists():
         raise LanStateError(
             f"{lan_dir} holds only half of its certificate authority -- "
-            "delete that folder and run `serve --lan --setup` again, then "
-            "reinstall the certificate on the phone")
+            + start_over)
     if key_path.exists():
-        key = serialization.load_pem_private_key(key_path.read_bytes(),
-                                                 password=None)
-        return key, x509.load_pem_x509_certificate(crt_path.read_bytes())
+        try:
+            key = serialization.load_pem_private_key(key_path.read_bytes(),
+                                                     password=None)
+            cert = x509.load_pem_x509_certificate(crt_path.read_bytes())
+        except (OSError, ValueError, TypeError) as exc:
+            raise LanStateError(
+                f"cannot read the certificate authority in {lan_dir} "
+                f"({exc}) -- " + start_over) from exc
+        if _public_bytes(key.public_key()) != _public_bytes(cert.public_key()):
+            # Such a key signs server certificates that no phone trusting
+            # ca.crt would accept.
+            raise LanStateError(
+                f"ca.key and ca.crt in {lan_dir} belong to different "
+                "authorities -- " + start_over)
+        return key, cert
 
     lan_dir.mkdir(parents=True, exist_ok=True)
     key = ec.generate_private_key(ec.SECP256R1())
@@ -145,12 +190,7 @@ def issue_server_cert(lan_dir, ip):
     Reissued on every start rather than reused, so a DHCP address change
     never leaves a certificate naming the old address.
     """
-    addr = ipaddress.ip_address(ip)
-    if not any(addr in n for n in PRIVATE_NETWORKS):
-        raise LanStateError(
-            f"{ip} is not a private address; the certificate authority can "
-            "only vouch for 10.x, 172.16-31.x and 192.168.x -- pass one "
-            "with --lan-host")
+    addr = private_address(ip)
     ca_key, ca_cert = ensure_ca(lan_dir)
     key = ec.generate_private_key(ec.SECP256R1())
     now = _now()
@@ -273,8 +313,10 @@ def _print_qr(url):
         print("(this console cannot draw the QR code; use the link)")
 
 
-def print_instructions(url, *, ca_url=None, fingerprint=None):
+def print_instructions(url, *, viewer_url=None, ca_url=None, fingerprint=None):
     """What `serve --lan` prints. The pairing link is a credential."""
+    if viewer_url:
+        print(f"Viewer on this PC: {viewer_url}\n")
     if ca_url:
         print("One-time setup: install this certificate on the phone.")
         print(f"  {ca_url}")

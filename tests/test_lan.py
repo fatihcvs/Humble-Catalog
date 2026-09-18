@@ -203,3 +203,35 @@ def test_a_phone_expecting_another_address_refuses_the_server(tmp_path):
     crt, key = lan.issue_server_cert(d, "192.168.1.20")
     with pytest.raises(ssl.SSLCertVerificationError, match="mismatch"):
         _handshake(lan.ssl_context(crt, key), _phone_context(d), "192.168.1.21")
+
+
+def test_a_malformed_address_is_a_lan_error_not_a_traceback(tmp_path):
+    with pytest.raises(lan.LanStateError, match="--lan-host"):
+        lan.issue_server_cert(tmp_path / "lan", "abc")
+
+
+def test_a_corrupt_authority_key_is_refused_not_replaced(tmp_path):
+    d = tmp_path / "lan"
+    lan.ensure_ca(d)
+    (d / "ca.key").write_bytes(b"not a key at all")
+    with pytest.raises(lan.LanStateError, match="--setup"):
+        lan.ensure_ca(d)
+
+
+def test_a_corrupt_authority_certificate_is_refused_not_replaced(tmp_path):
+    d = tmp_path / "lan"
+    lan.ensure_ca(d)
+    (d / "ca.crt").write_bytes(b"not a certificate either")
+    with pytest.raises(lan.LanStateError, match="--setup"):
+        lan.ensure_ca(d)
+
+
+def test_a_key_from_another_authority_is_refused(tmp_path):
+    # A key that does not match the certificate would sign server
+    # certificates no phone trusting ca.crt could ever accept.
+    d, other = tmp_path / "lan", tmp_path / "other"
+    lan.ensure_ca(d)
+    lan.ensure_ca(other)
+    (d / "ca.key").write_bytes((other / "ca.key").read_bytes())
+    with pytest.raises(lan.LanStateError, match="--setup"):
+        lan.ensure_ca(d)
