@@ -90,6 +90,23 @@ def test_only_the_table_scrolls_sideways():
     assert "max-height: 50%" not in css
     assert 'section[id^="section-"]' in css
 
+def test_the_card_list_is_its_own_scroller():
+    # body is overflow: hidden, so the only vertical scroll in the Library
+    # is the scroller the content sits in. On a narrow screen render() hides
+    # #table-wrap and shows #card-list in its place, so the card list has to
+    # take that role too -- without it the cards were clipped at the bottom
+    # of the screen and could not be scrolled at all.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    rule = css[css.index("#card-list:not([hidden]) {"):]
+    rule = rule[:rule.index("}")]
+    for decl in ("flex: 1", "min-height: 0", "overflow-y: auto",
+                 # a grid in a fixed-height scroller stretches its rows to
+                 # fill it: one search result became a card 448 px tall
+                 "align-content: start"):
+        assert decl in rule, decl
+
+
 def test_app_wires_every_registered_chip_filter():
     js = _viewer_js()
     for field in ("genre", "series", "authors", "narrator", "publisher",
