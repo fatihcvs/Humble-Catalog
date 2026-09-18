@@ -117,7 +117,7 @@ a `harvest` print real owned titles, and nothing scans an issue.
   `test_the_run_status_guard_uses_the_cli_spelling`.
 
   Still outstanding: Phase 2, the terminal handoff for `login`, `reset`
-  and `restore`.
+  and `restore` (#8).
 
 - **`clean_title`'s series-number hint understood the wrong spelling** —
   `docs/superpowers/specs/2026-08-01-series-number-fill-design.md`.
