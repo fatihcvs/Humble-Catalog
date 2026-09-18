@@ -17,7 +17,7 @@
 - Never pipe `leak_check.py` into a commit (`… | tail && git commit`): the pipe hides its exit code.
 - Use `.venv/Scripts/python -m pip`, never `.venv/Scripts/pip` (the shim is broken).
 - **Installing packages downloads files: ask the owner before running any `pip install`.**
-- One branch for the whole plan, `feat/lan-viewer`, from `main`.
+- One branch for the whole plan, `feat/lan-viewer`, from `main` **after** the spec and this plan (branch `docs/lan-viewer-spec`) are merged. Tasks 3 and 4 amend the spec, so it must already be on `main`.
 - Without `--lan`, `serve` must behave exactly as today. The existing tests `test_serve_uses_default_port` and `test_serve_accepts_a_port` pin this and must pass unchanged.
 - The LAN app never gains a POST route. Task 4's class test enforces it.
 - Commit messages end with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
@@ -70,6 +70,12 @@ A pure refactor plus one new response field. Every existing test must still pass
   - `GET /api/status` now returns `{"runs": [...], "read_only": <bool>}`.
 
 - [ ] **Step 1: Create the branch**
+
+Check that the spec is on `main` first. If this prints nothing, stop: the spec and plan are not merged yet.
+
+```bash
+git ls-tree --name-only main docs/superpowers/specs/2026-09-18-lan-viewer-design.md
+```
 
 ```bash
 git switch -c feat/lan-viewer main
