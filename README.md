@@ -477,6 +477,31 @@ while `leak_check.py` reports `SKIPPED` for want of a catalog and only
 proves the gate still executes on a fresh clone. The term check that
 means something is the local one, before you commit.
 
+### Viewing on your phone
+
+`python -m humble_catalog serve --lan` also serves a **read-only** copy of
+the viewer to your home network, over HTTPS. Phones see Library and Keys,
+can search and filter, and can follow each item's bundle link to its
+Humble download page. Nothing can be edited from the phone, and on a
+narrow screen each item is a card rather than a table row.
+
+**Once:** run `serve --lan --setup`. It prints a link and a QR code for a
+certificate. Open it on the phone, then install it under Settings →
+Security → Encryption & credentials → Install a certificate → CA
+certificate. Compare the SHA-256 fingerprint shown under Trusted
+credentials → User with the one printed in the terminal.
+
+**Each device:** open the pairing link `serve --lan` prints (or scan its
+QR code). The phone stays paired until you run
+`serve --lan --new-token`, which unpairs every device.
+
+The pairing link is a password to your catalog: never paste it anywhere.
+Everything `--lan` keeps is in a `lan/` folder next to `catalog.db`;
+delete that folder to start over, then run `--setup` again and reinstall
+the certificate. Use `--lan-host` if the address it picks is wrong and
+`--lan-port` if the port is taken. Editing needs the full viewer on the
+PC in a window wider than 600 px.
+
 ### The viewer's exposure
 
 `serve` binds `127.0.0.1` only, so nothing on your network can reach it,
@@ -510,6 +535,16 @@ require a word typed at an interactive terminal.
 
 Note that any process on your own machine can still reach the port —
 worth knowing if the machine is shared.
+
+`serve --lan` adds a second server on your LAN address. It is bounded by
+four things. It is a separate app that **has** no write routes, rather
+than one that refuses them, and a test pins the exact list it serves. It
+answers only requests addressed to its own LAN address, which refuses DNS
+rebinding the same way the loopback check does. Every request needs the
+pairing cookie. And it is HTTPS from a certificate authority that is
+constrained to private addresses, so even a leaked `lan/ca.key` could not
+impersonate a real website. A paired device can read the whole catalog,
+order keys included, for as long as `--lan` runs.
 
 ## License
 
