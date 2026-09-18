@@ -26,15 +26,30 @@ const SECTIONS = [
   {id: "tasks",       label: "Tasks"},
 ];
 
+// What the LAN viewer shows. Maintenance and Tasks are writes; Bundles is
+// hidden too, because both previews are credentialed POSTs the LAN app
+// does not have.
+const READ_ONLY_SECTIONS = ["library", "keys"];
+const sectionAllowed = (id) => !READ_ONLY || READ_ONLY_SECTIONS.includes(id);
+
+function applyMode(readOnly) {
+  READ_ONLY = readOnly === true;
+  if (document.body) document.body.dataset.mode = READ_ONLY ? "read-only" : "full";
+  for (const s of SECTIONS) {
+    const tab = $(`#tab-${s.id}`);
+    if (tab) tab.hidden = !sectionAllowed(s.id);
+  }
+}
+
 const currentSection = () => {
   const name = (location.hash || "").replace(/^#\//, "");
-  return SECTIONS.some((s) => s.id === name) ? name : "library";
+  return SECTIONS.some((s) => s.id === name && sectionAllowed(s.id)) ? name : "library";
 };
 
 // An unknown hash falls back to Library WITHOUT rewriting the URL: a
 // silent rewrite would erase the evidence that a bookmark went stale.
 function showSection(name) {
-  const active = SECTIONS.some((s) => s.id === name) ? name : "library";
+  const active = SECTIONS.some((s) => s.id === name && sectionAllowed(s.id)) ? name : "library";
   for (const s of SECTIONS) {
     const el = $(`#section-${s.id}`);
     if (el) el.hidden = s.id !== active;
@@ -106,22 +121,33 @@ $("#theme-toggle").addEventListener("click", () => {
   syncThemeButton();
 });
 
-// Boot. load() runs every section's loader, so it cannot run until every
-// section's script has. The section is chosen before load() so the first
-// paint lands in the right place rather than flashing Library first.
-showSection(currentSection());
-load();
+// Boot. The mode has to be known before the first paint, or the LAN
+// viewer would flash editing controls it cannot use.
+async function boot() {
+  let status = {};
+  try {
+    status = await (await fetch("/api/status")).json();
+  } catch (err) {
+    console.error("could not read /api/status:", err);
+  }
+  applyMode(status.read_only);
+  showSection(currentSection());
+  await load();
+}
 // One interval for both. pollStatus draws the header banner (which must
 // keep working for a run started in a terminal); pollJobs draws the Tasks
-// panel, which knows only about jobs this viewer started.
+// panel, which knows only about jobs this viewer started -- and which the
+// LAN viewer does not have.
 async function pollAll() {
   await pollStatus();
+  if (READ_ONLY) return;
   try {
     await pollJobs();
   } catch (err) {
     console.error("pollJobs() failed:", err);
   }
 }
+boot();
 pollAll();
 setInterval(pollAll, 5000);
 syncThemeButton();

@@ -175,7 +175,17 @@ function statusSelect(i) {
     + "</select>";
 }
 
+// The status cell: a control on the full viewer, text on the LAN one.
+function statusCell(i) {
+  if (!READ_ONLY) return statusSelect(i);
+  const cur = i.read_status || "unread";
+  return `<span class="rs-text rs-${cur}">${READ_STATUS_LABEL[cur]}</span>`;
+}
+
 function stars(item) {
+  // Read-only: plain text, with no data-id for the click handler to act on.
+  if (READ_ONLY)
+    return item.my_rating ? `<span class="star-text">${"★".repeat(item.my_rating)}</span>` : "";
   let html = "";
   for (let n = 1; n <= 5; n++)
     html += `<span class="star ${item.my_rating >= n ? "on" : ""}" `
@@ -550,6 +560,41 @@ function renderActiveFilters() {
   box.innerHTML = out.join("");
 }
 
+// Everything after the title in the name cell. Read-only keeps only what
+// navigates -- the source link and the edition jumps -- and drops the
+// badges and buttons that exist to drive enrichment.
+function nameExtras(i) {
+  const src = i.source_url
+    ? ` <a class="src-link" href="${esc(i.source_url)}" target="_blank"
+             rel="noopener" title="Open source page">&#x2197;</a>` : "";
+  // The key is absent on nearly every row, so the || [] is
+  // load-bearing rather than defensive.
+  const editions = (i.editions || []).map(o => ` <button class="badge edition edition-jump"
+              data-name="${esc(o.name)}"
+              title="The same work is in your library as ${esc(o.type)} -- click to go to it"
+              >also as ${esc(o.type)}</button>`).join("");
+  if (READ_ONLY) return src + editions;
+  return src + `${
+      i.status === "low_confidence" || i.status === "unmatched"
+        ? ' <span class="badge">review</span>' : ""}${
+      i.status === "matched" || i.status === "manually_fixed"
+        ? ` <button class="redo" data-id="${i.id}" title="Redo this match">&#x27F3;</button>` : ""}
+      <button class="edit" data-id="${i.id}" title="Edit fields">&#x270E;</button>${
+      i.edited
+        ? ` <span class="badge edited">edited</span>
+            <button class="revert" data-id="${i.id}"
+                    title="Revert to the enriched values">&#x21A9;</button>
+            <button class="override" data-id="${i.id}"
+                    title="${i.override
+                      ? "Cancel the queued re-enrichment"
+                      : "Let the next enrich run update this row"}">&#x21BB;</button>` : ""}${
+      i.re_enriched
+        ? ` <span class="badge">re-enriched</span>
+            <button class="revert" data-id="${i.id}"
+                    title="Revert to your edited values">&#x21A9;</button>` : ""}${
+      i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}` + editions;
+}
+
 function render() {
   renderActiveFilters();
   const rows = visible();
@@ -581,35 +626,9 @@ function render() {
                   placeholder="Notes...">${esc(i.user_comment)}</textarea></td>
   </tr>` : `<tr>
     <td>${i.cover_path ? `<img src="/${i.cover_path}" alt="" loading="lazy">` : ""}</td>
-    <td><strong>${highlight(i.name, matchSpans.get(i.id))}</strong>${i.source_url
-        ? ` <a class="src-link" href="${esc(i.source_url)}" target="_blank"
-             rel="noopener" title="Open source page">&#x2197;</a>` : ""}${
-      i.status === "low_confidence" || i.status === "unmatched"
-        ? ' <span class="badge">review</span>' : ""}${
-      i.status === "matched" || i.status === "manually_fixed"
-        ? ` <button class="redo" data-id="${i.id}" title="Redo this match">&#x27F3;</button>` : ""}
-      <button class="edit" data-id="${i.id}" title="Edit fields">&#x270E;</button>${
-      i.edited
-        ? ` <span class="badge edited">edited</span>
-            <button class="revert" data-id="${i.id}"
-                    title="Revert to the enriched values">&#x21A9;</button>
-            <button class="override" data-id="${i.id}"
-                    title="${i.override
-                      ? "Cancel the queued re-enrichment"
-                      : "Let the next enrich run update this row"}">&#x21BB;</button>` : ""}${
-      i.re_enriched
-        ? ` <span class="badge">re-enriched</span>
-            <button class="revert" data-id="${i.id}"
-                    title="Revert to your edited values">&#x21A9;</button>` : ""}${
-      i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}${
-      // The key is absent on nearly every row, so the || [] is
-      // load-bearing rather than defensive.
-      (i.editions || []).map(o => ` <button class="badge edition edition-jump"
-              data-name="${esc(o.name)}"
-              title="The same work is in your library as ${esc(o.type)} -- click to go to it"
-              >also as ${esc(o.type)}</button>`).join("")}</td>
+    <td><strong>${highlight(i.name, matchSpans.get(i.id))}</strong>${nameExtras(i)}</td>
     <td>${i.type}</td>
-    <td>${statusSelect(i)}</td>
+    <td>${statusCell(i)}</td>
     <td>${tagBadges(i.genre)}</td>
     <td>${esc(i.series)}${i.series_number ? " #" + i.series_number : ""}</td>
     <td>${tagBadges(i.authors)}</td>

@@ -1833,3 +1833,73 @@ def test_job_panel_survives_a_running_job_with_no_progress_row_yet():
     assert eval_js_error("""renderJobPanel({
       running: {command: "check", started_at: "t"},
       progress: [], log: [], last: null})""") is None
+
+
+# --- Read-only mode (the LAN viewer) ------------------------------------
+
+def _render_row(read_only, **overrides):
+    item = json.dumps(_item(
+        status="matched", edited=True, source_url="https://example.com/b",
+        bundles=[{"name": "Bundle One", "url": "https://www.humblebundle.com/downloads?key=k1",
+                  "purchased_at": "2020-01-01"}], **overrides))
+    return eval_js(
+        """(() => { app.setReadOnly(%s); app.setItems([%s]); dom.reset();
+                    app.render(); return dom.writes["#catalog tbody"]; })()"""
+        % ("true" if read_only else "false", item))
+
+
+def test_read_only_rows_have_no_editing_controls():
+    html = _render_row(True)
+    assert "<select" not in html
+    # data-n marks the clickable star widget; read-only stars are plain
+    # text (class "star-text"), so matching on a class prefix would not do.
+    for marker in ('class="edit"', 'class="redo"', 'class="revert"',
+                   'class="override"', 'data-n="'):
+        assert marker not in html, marker
+    assert "★★★★" in html                      # the rating, as text
+    assert "downloads?key=k1" in html          # the download link stays
+    assert "Unread" in html                    # status as text
+
+
+def test_the_full_viewer_still_renders_its_controls():
+    html = _render_row(False)
+    assert "<select" in html and 'class="edit"' in html
+
+
+def test_read_only_mode_hides_the_write_sections():
+    result = eval_js("""(() => {
+        app.applyMode(true);
+        return ["library", "maintenance", "keys", "bundles", "tasks"]
+          .map((id) => document.querySelector("#tab-" + id).hidden);
+      })()""")
+    assert result == [False, True, False, True, True]
+
+
+def test_a_bookmark_to_a_hidden_section_lands_on_library():
+    assert eval_js("""(() => { app.applyMode(true);
+        location.hash = "#/tasks"; return app.currentSection(); })()""") == "library"
+
+
+def test_read_only_load_does_not_ask_for_write_only_data():
+    urls = eval_js("""(async () => {
+        const seen = [];
+        app.setReadOnly(true);
+        app.setFetch((url) => { seen.push(url); return Promise.resolve({
+          json: () => Promise.resolve(
+            url === "/api/items" ? {items: []} :
+            url === "/api/stats" ? {total: 0, sections: []} :
+            url === "/api/keys"  ? {rows: []} : {})}); });
+        await app.load();
+        return seen;
+      })()""")
+    assert "/api/review" not in urls and "/api/duplicates" not in urls
+    assert "/api/jobs" not in urls
+
+
+def test_read_only_keys_have_no_hide_button():
+    # _with_keys (defined earlier in this file) loads the standard key
+    # payload; the panel is rendered again once read-only mode is on.
+    html = _with_keys(
+        '(app.setReadOnly(true), app.renderKeys(), dom.writes["#keys-panel"])')
+    assert "Amber Hollow" in html              # the rows still render
+    assert "key-hide" not in html
