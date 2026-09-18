@@ -107,6 +107,36 @@ def test_the_card_list_is_its_own_scroller():
         assert decl in rule, decl
 
 
+def _css_rule(css, selector):
+    body = css[css.index(selector + " {"):]
+    return body[:body.index("}")]
+
+
+def test_a_card_cover_keeps_its_proportions_and_text_flows_around_it():
+    # The card was a flexbox, and a flex item stretches to the row's height:
+    # the cover, given only a width, was pulled to the card's full height
+    # and distorted. It floats now, at its own proportions, with the text
+    # wrapping round it -- which needs the card to contain the float and
+    # the text block NOT to be a flex or formatting-context box, or the
+    # text would sit beside the cover in a column instead of flowing.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    card = _css_rule(css, ".card")
+    cover = _css_rule(css, ".card-cover")
+    assert "display: flow-root" in card and "flex" not in card
+    for decl in ("float: left", "height: auto"):
+        assert decl in cover, decl
+    # The link row too: a flex row cannot wrap round a float, so the whole
+    # row was pushed beside a tall cover and its links squeezed into a
+    # narrow column. As a plain block, each link wraps like a word.
+    assert "flex" not in _css_rule(css, ".card-links")
+    # .card-body needs no rule of its own; if one returns, it must not
+    # turn the text into a column beside the cover.
+    if ".card-body {" in css:
+        body = _css_rule(css, ".card-body")
+        assert "flex" not in body and "overflow" not in body
+
+
 def test_app_wires_every_registered_chip_filter():
     js = _viewer_js()
     for field in ("genre", "series", "authors", "narrator", "publisher",

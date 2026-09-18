@@ -630,7 +630,7 @@ function renderCards(rows) {
     return `<article class="card">
     ${i.cover_path
       ? `<img class="card-cover" src="/${i.cover_path}" alt="" loading="lazy">`
-      : `<div class="card-cover"></div>`}
+      : ""}
     <div class="card-body">
       <strong class="card-title">${highlight(i.name, matchSpans.get(i.id))}</strong>
       <div class="card-meta">${esc((i.authors || []).join(", "))}${series}</div>

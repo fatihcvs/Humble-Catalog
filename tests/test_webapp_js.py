@@ -2013,6 +2013,16 @@ def test_cards_carry_the_title_series_and_download_link():
     assert "★★★★" in html and "epub, pdf" in html
 
 
+def test_a_card_without_a_cover_draws_no_cover_box():
+    # An empty placeholder reserved a blank column on every coverless card;
+    # with the cover floated, no cover should mean full-width text.
+    html = eval_js(f"app.renderCards([{json.dumps(_item(cover_path=None))}])")
+    assert "card-cover" not in html
+    with_cover = eval_js(
+        f"app.renderCards([{json.dumps(_item(cover_path='covers/1.jpg'))}])")
+    assert '<img class="card-cover" src="/covers/1.jpg"' in with_cover
+
+
 def test_cards_survive_missing_fields():
     # Same tolerance tagBadges and person have: an older server or a partial
     # payload must not blank the page.
