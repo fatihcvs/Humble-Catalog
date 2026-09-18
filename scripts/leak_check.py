@@ -99,6 +99,17 @@ ALLOWED = {t.lower() for t in [
     # it too.
     "STUFF",
     #
+    # Added 2026-09-18. Ordinary vocabulary that became catalog terms as
+    # the library grew, each already a whole word in 15 files (132 hits)
+    # and in history pushed that day, which cannot be reworded:
+    # "convergence" is the jeffy loop's own term ("never counts toward
+    # convergence") and returns with every run; "legacy" names old-schema
+    # databases in the migration tests and the db-schema probe; and
+    # "divergence" is the CSV spec's "no divergence possible". A
+    # one-word title like these is indistinguishable from the prose, so
+    # the blindness this buys is one the check already had.
+    "Convergence", "Divergence", "Legacy",
+    #
     # House examples. "The Murderbot Diaries" is the article-carrying
     # variant of an entry already here, which the catalog stores in full.
     # Dune is famous public fiction used exactly as All Systems Red is —
