@@ -163,8 +163,13 @@ and a QR code.
 `GET /pair?token=…`:
 
 - compares the token with `hmac.compare_digest`;
-- on a match, sets the cookie and redirects to `/`, so the token leaves
-  the address bar and is never sent as a referrer;
+- on a match, sets the cookie and answers a short page that refreshes
+  itself to `/`, with `Referrer-Policy: no-referrer`. The token leaves
+  the address bar and is never sent as a referrer. A page rather than a
+  303: a link opened from a QR-scanner app has no initiating site, and
+  Chrome may withhold a `SameSite=Strict` cookie on the redirected
+  request, while a same-origin refresh is an ordinary same-site
+  navigation;
 - otherwise answers 403 and prints the failed attempt, with the client
   address, on the console.
 

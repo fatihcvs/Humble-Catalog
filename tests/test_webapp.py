@@ -8,7 +8,7 @@ import requests
 from unittest.mock import Mock
 from openpyxl import load_workbook
 from humble_catalog import db, export, stats
-from humble_catalog.webapp import create_app
+from humble_catalog.webapp import create_app, create_lan_app
 
 
 def _viewer_js():
@@ -2419,3 +2419,101 @@ def test_status_reports_the_loopback_app_is_not_read_only(tmp_path):
     body = client.get("/api/status").get_json()
     assert body["read_only"] is False
     assert body["runs"] == []
+
+
+LAN_HOST, LAN_PORT, TOKEN = "192.168.1.20", 8088, "t" * 43
+LAN_BASE = f"https://{LAN_HOST}:{LAN_PORT}"
+# What the LAN app may serve. Adding a route to the read group fails this
+# test until the list is edited on purpose -- which is the point.
+LAN_RULES = {"/", "/static/<path:filename>", "/covers/<path:filename>",
+             "/api/items", "/api/stats", "/api/keys", "/api/status", "/pair"}
+
+
+def _lan_client(tmp_path, token=TOKEN):
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    app = create_lan_app(db_path=str(dbp), host=LAN_HOST, port=LAN_PORT,
+                         token=token)
+    return app, app.test_client()
+
+
+def _paired(client):
+    return client.get(f"/pair?token={TOKEN}", base_url=LAN_BASE)
+
+
+def test_lan_app_serves_only_the_pinned_read_routes(tmp_path):
+    app, _client = _lan_client(tmp_path)
+    rules = list(app.url_map.iter_rules())
+    assert {r.rule for r in rules} == LAN_RULES
+    for r in rules:
+        assert r.methods <= {"GET", "HEAD", "OPTIONS"}, (r.rule, r.methods)
+
+
+def test_every_lan_route_refuses_an_unpaired_request(tmp_path):
+    app, client = _lan_client(tmp_path)
+    for rule in app.url_map.iter_rules():
+        if rule.rule == "/pair":
+            continue
+        path = rule.rule.replace("<path:filename>", "x")
+        resp = client.get(path, base_url=LAN_BASE)
+        assert resp.status_code == 403, rule.rule
+        assert b"Not paired" in resp.data, rule.rule
+
+
+def test_pairing_sets_a_strict_secure_cookie_and_leaves_the_token_behind(tmp_path):
+    _app, client = _lan_client(tmp_path)
+    resp = _paired(client)
+    assert resp.status_code == 200
+    cookie = resp.headers["Set-Cookie"]
+    for part in ("hc_lan=" + TOKEN, "Secure", "HttpOnly", "SameSite=Strict",
+                 "Max-Age=34560000", "Path=/"):
+        assert part in cookie, part
+    assert resp.headers["Referrer-Policy"] == "no-referrer"
+    # A page that refreshes to /, not a 303: the next navigation is then
+    # same-origin, so a Strict cookie is sent even when the link came from
+    # a QR-scanner app. The token must not ride along.
+    assert b'http-equiv="refresh" content="0;url=/"' in resp.data
+    assert TOKEN.encode() not in resp.data
+
+
+def test_a_paired_phone_can_read_the_catalog(tmp_path):
+    _app, client = _lan_client(tmp_path)
+    _paired(client)
+    items = client.get("/api/items", base_url=LAN_BASE).get_json()["items"]
+    assert items[0]["name"] == "All Systems Red"
+    assert client.get("/api/status", base_url=LAN_BASE).get_json()[
+        "read_only"] is True
+
+
+def test_a_wrong_token_does_not_pair(tmp_path, capsys):
+    _app, client = _lan_client(tmp_path)
+    resp = client.get("/pair?token=wrong", base_url=LAN_BASE)
+    assert resp.status_code == 403
+    assert "Set-Cookie" not in resp.headers
+    assert "refused a pairing attempt" in capsys.readouterr().out
+
+
+def test_a_rotated_token_unpairs_an_old_cookie(tmp_path):
+    _app, client = _lan_client(tmp_path, token="n" * 43)
+    resp = client.get("/api/items", base_url=LAN_BASE,
+                      headers={"Cookie": f"hc_lan={TOKEN}"})
+    assert resp.status_code == 403
+
+
+def test_the_lan_app_refuses_a_foreign_host(tmp_path):
+    # DNS rebinding, LAN edition: evil.example re-pointed at the LAN IP
+    # still arrives with its own name in Host.
+    _app, client = _lan_client(tmp_path)
+    _paired(client)
+    resp = client.get("/api/items", base_url="https://evil.example:8088",
+                      headers={"Cookie": f"hc_lan={TOKEN}"})
+    assert resp.status_code == 403
+    assert b"Not paired" not in resp.data
+
+
+def test_the_lan_app_has_no_write_route_to_reach(tmp_path):
+    _app, client = _lan_client(tmp_path)
+    _paired(client)
+    resp = client.post("/api/items/1/rating", json={"rating": 5},
+                       base_url=LAN_BASE)
+    assert resp.status_code in (404, 405)

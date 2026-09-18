@@ -1,6 +1,7 @@
 import base64
 import binascii
 import datetime as dt
+import hmac
 import io
 import json
 import shutil
@@ -882,6 +883,64 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     _register_read_routes(app)
     _register_write_routes(app)
+    return app
+
+PAIR_COOKIE = "hc_lan"
+# Chrome caps cookie lifetime at 400 days; asking for more buys nothing.
+PAIR_MAX_AGE = 400 * 24 * 3600
+NOT_PAIRED = ("Not paired: open the pairing link that "
+              "`python -m humble_catalog serve --lan` prints.\n")
+# A page, not a 303. A link opened from a QR-scanner app has no initiating
+# site, and Chrome may withhold a SameSite=Strict cookie on the redirected
+# request; a same-origin refresh is an ordinary same-site navigation.
+PAIRED_PAGE = """<!doctype html><meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url=/">
+<title>Paired</title><p>Paired. <a href="/">Open the catalog</a>.</p>"""
+
+
+def _same_token(given, token):
+    # Bytes, because compare_digest refuses a str with non-ASCII in it,
+    # and a hostile query string is exactly where that would arrive.
+    return hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8"))
+
+
+def create_lan_app(db_path="catalog.db", covers_dir="covers", *, host, port,
+                   token):
+    """The read-only viewer a paired phone reaches over the LAN.
+
+    Registers the read group and nothing else, so a write route here is not
+    blocked, it is absent. Every request must name this app's own address
+    in Host (the LAN counterpart of refuse_foreign_hosts) and carry the
+    pairing cookie, except /pair, which is how the cookie is obtained.
+    """
+    app = _new_app(db_path, covers_dir, read_only=True)
+    authority = f"{host}:{port}".lower()
+
+    @app.before_request
+    def guard():
+        if (request.headers.get("Host") or "").strip().lower() != authority:
+            return Response(
+                "Refused: this viewer only answers requests addressed to "
+                f"{authority}.\n", status=403, mimetype="text/plain")
+        if request.path == "/pair":
+            return None
+        if not _same_token(request.cookies.get(PAIR_COOKIE, ""), token):
+            return Response(NOT_PAIRED, status=403, mimetype="text/plain")
+        return None
+
+    @app.get("/pair")
+    def pair():
+        if not _same_token(request.args.get("token", ""), token):
+            print(f"serve --lan: refused a pairing attempt from "
+                  f"{request.remote_addr}")
+            return Response(NOT_PAIRED, status=403, mimetype="text/plain")
+        resp = Response(PAIRED_PAGE, mimetype="text/html")
+        resp.set_cookie(PAIR_COOKIE, token, max_age=PAIR_MAX_AGE, path="/",
+                        secure=True, httponly=True, samesite="Strict")
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        return resp
+
+    _register_read_routes(app)
     return app
 
 def serve(db_path="catalog.db", port=8087):
