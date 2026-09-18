@@ -126,10 +126,13 @@ Generated with `cryptography` (a new dependency):
 - `BasicConstraints(ca=True, path_length=0)`, and key usage limited to
   certificate signing.
 - **Name constraints** permitting only `10.0.0.0/8`, `172.16.0.0/12` and
-  `192.168.0.0/16`. An installed authority can normally vouch for any
-  site, so a leaked `ca.key` would let someone impersonate any website to
-  that phone. With the constraints, which Chrome enforces, it can vouch
-  only for private addresses.
+  `192.168.0.0/16`, plus the DNS name `invalid`. An installed authority
+  can normally vouch for any site, so a leaked `ca.key` would let someone
+  impersonate any website to that phone. With the constraints, which
+  Chrome enforces, it can vouch only for private addresses. The DNS entry
+  is needed because RFC 5280 leaves a name type unconstrained when no
+  subtree of that type is listed; `invalid` is a reserved TLD, so
+  permitting only it permits no real name.
 
 The server certificate is signed by the authority, carries the LAN IP as
 a `subjectAltName` IP entry, has extended key usage `serverAuth`, and is
@@ -256,10 +259,10 @@ No test binds a real socket or touches the network.
   cookie.
 - **LAN host check.** A request with a foreign Host header gets a 403.
 - **Certificates** (inspected with `cryptography`). The authority has
-  `CA:true` and name constraints of exactly the three private ranges.
-  The server certificate carries the IP, chains to the authority,
-  expires in 30 days, and has `serverAuth`. A lone `ca.crt` or `ca.key`
-  raises the error above.
+  `CA:true` and name constraints of exactly the three private ranges and
+  the DNS name `invalid`. The server certificate carries the IP, chains
+  to the authority, expires in 30 days, and has `serverAuth`. A lone
+  `ca.crt` or `ca.key` raises the error above.
 - **`/api/status`** reports `read_only` correctly on both apps.
 - **Front end** (existing JS harness). Read-only mode renders no status
   `<select>` and no edit icons, and hides Maintenance, Bundles and Tasks.

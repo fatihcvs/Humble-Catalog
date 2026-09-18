@@ -15,6 +15,8 @@ RUNTIME_DEPENDENCIES = {
     "playwright": "playwright",
     "rapidfuzz": "rapidfuzz",
     "openpyxl": "openpyxl",
+    "cryptography": "cryptography",
+    "qrcode": "qrcode",
 }
 
 
