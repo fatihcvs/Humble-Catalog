@@ -2529,6 +2529,7 @@ def _stub_servers(monkeypatch):
         def __init__(self, host, port, app, **kw):
             self.host, self.port, self.app = host, port, app
             self.ssl_context = kw.get("ssl_context")
+            self.kw = kw
             built.append(self)
         def server_close(self): pass
 
@@ -2576,7 +2577,7 @@ def test_serve_lan_new_token_replaces_the_token(tmp_path, monkeypatch):
     assert (tmp_path / "lan" / "token").read_text().strip() != old
 
 
-def test_a_busy_port_closes_what_was_opened_and_says_which(tmp_path, monkeypatch):
+def _busy_on_8088(monkeypatch, fail):
     closed = []
 
     class FakeServer:
@@ -2584,13 +2585,110 @@ def test_a_busy_port_closes_what_was_opened_and_says_which(tmp_path, monkeypatch
 
     def make(host, port, app, **kw):
         if port == 8088:
-            raise OSError("address in use")
+            fail()
         return FakeServer()
 
     monkeypatch.setattr(webmod, "make_server", make)
     monkeypatch.setattr(lanmod, "lan_address", lambda: "192.168.1.20")
+    return closed
+
+
+def _werkzeug_bind_failure():
+    # What Werkzeug 3.1 really does when bind() fails: it catches the
+    # OSError itself, prints a line to stderr and calls sys.exit(1).
+    sys.exit(1)
+
+
+def _raw_bind_failure():
+    raise OSError("address in use")
+
+
+@pytest.mark.parametrize("fail", [_werkzeug_bind_failure, _raw_bind_failure])
+def test_a_busy_port_closes_what_was_opened_and_says_which(tmp_path, monkeypatch, fail):
+    closed = _busy_on_8088(monkeypatch, fail)
     dbp = tmp_path / "catalog.db"
     _seed(dbp)
-    with pytest.raises(lanmod.LanStateError, match="8088.*--lan-port"):
+    with pytest.raises(lanmod.LanStateError, match="192.168.1.20:8088.*--lan-port"):
         webmod.serve(db_path=str(dbp), lan=lanmod.LanOptions())
     assert len(closed) == 1           # the loopback server, opened first
+
+
+@pytest.mark.parametrize("options, match", [
+    (dict(host="abc"), "--lan-host"),
+    (dict(host="8.8.8.8"), "--lan-host"),
+    (dict(host="fd00::1"), "--lan-host"),
+    (dict(port=0), "--lan-port"),
+    (dict(port=70000), "--lan-port"),
+    (dict(port=65535, setup=True), "--lan-port"),
+])
+def test_a_bad_lan_address_or_port_is_refused_before_anything_is_written(
+        tmp_path, monkeypatch, options, match):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    with pytest.raises(lanmod.LanStateError, match=match):
+        webmod.serve(db_path=str(dbp), lan=lanmod.LanOptions(**options))
+    assert built == []
+    assert not (tmp_path / "lan").exists()
+
+
+def test_a_viewer_port_with_no_room_above_it_is_refused(tmp_path, monkeypatch):
+    # --lan-port defaults to --port + 1, which here is not a port at all.
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    with pytest.raises(lanmod.LanStateError, match="--lan-port"):
+        webmod.serve(db_path=str(dbp), port=65535, lan=lanmod.LanOptions())
+    assert built == [] and not (tmp_path / "lan").exists()
+
+
+def test_serve_lan_says_where_the_viewer_on_this_pc_is(tmp_path, monkeypatch, capsys):
+    _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087, lan=lanmod.LanOptions())
+    assert "Viewer on this PC: http://127.0.0.1:8087/" in capsys.readouterr().out
+
+
+def test_the_lan_app_refuses_an_empty_token(tmp_path):
+    # Fails closed: an empty token would match an absent cookie.
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    for token in ("", None):
+        with pytest.raises(ValueError):
+            create_lan_app(db_path=str(dbp), host=LAN_HOST, port=LAN_PORT,
+                           token=token)
+
+
+def _logged_line(handler_cls, path, requestline):
+    h = handler_cls.__new__(handler_cls)
+    h.command, h.request_version = "GET", "HTTP/1.1"
+    if path is not None:
+        h.path = path
+    h.requestline = requestline
+    lines = []
+    h.log = lambda _type, message, *args: lines.append(message % args)
+    h.log_request(200, 123)
+    return h, lines[0]
+
+
+def test_the_lan_access_log_leaves_the_pairing_token_out():
+    secret = "s3cr3t-pairing-value"
+    h, line = _logged_line(webmod.LanRequestHandler, f"/pair?token={secret}",
+                           f"GET /pair?token={secret} HTTP/1.1")
+    assert secret not in line and "GET /pair HTTP/1.1" in line
+    assert h.path == f"/pair?token={secret}"      # only the log line changes
+    # A request line too malformed to parse is logged whole; still no query.
+    _h, line = _logged_line(webmod.LanRequestHandler, None,
+                            f"GET /pair?token={secret} HTTP/9")
+    assert secret not in line
+
+
+def test_serve_lan_builds_the_lan_server_with_the_quiet_handler(tmp_path, monkeypatch):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087, lan=lanmod.LanOptions())
+    loop, lan_srv = built
+    assert lan_srv.kw["request_handler"] is webmod.LanRequestHandler
+    assert "request_handler" not in loop.kw

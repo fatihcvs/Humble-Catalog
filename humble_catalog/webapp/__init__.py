@@ -4,6 +4,7 @@ import datetime as dt
 import hmac
 import io
 import json
+import re
 import shutil
 import tempfile
 import threading
@@ -13,7 +14,7 @@ from pathlib import Path
 import requests
 from flask import (Flask, Response, current_app, g, jsonify, request,
                    send_from_directory)
-from werkzeug.serving import make_server
+from werkzeug.serving import WSGIRequestHandler, make_server
 from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
                             editions, export, humble_api, jobs, keys, stats,
                             url_import)
@@ -916,6 +917,9 @@ def create_lan_app(db_path="catalog.db", covers_dir="covers", *, host, port,
     in Host (the LAN counterpart of refuse_foreign_hosts) and carry the
     pairing cookie, except /pair, which is how the cookie is obtained.
     """
+    if not token:
+        # Fails closed: an empty token would match an absent cookie.
+        raise ValueError("the LAN app needs a non-empty pairing token")
     app = _new_app(db_path, covers_dir, read_only=True)
     authority = f"{host}:{port}".lower()
 
@@ -945,6 +949,28 @@ def create_lan_app(db_path="catalog.db", covers_dir="covers", *, host, port,
 
     _register_read_routes(app)
     return app
+
+_QUERY = re.compile(r"\?[^\s#]*")
+
+
+class LanRequestHandler(WSGIRequestHandler):
+    """Werkzeug's handler, minus the query string in the access log.
+
+    /pair?token=... would otherwise print the pairing token again for
+    every attempt, right or wrong. Only the logged line changes; the
+    request itself is untouched.
+    """
+
+    def log_request(self, code="-", size="-"):
+        kept = {k: self.__dict__[k] for k in ("path", "requestline")
+                if k in self.__dict__}
+        for k, v in kept.items():
+            setattr(self, k, _QUERY.sub("", v))
+        try:
+            super().log_request(code, size)
+        finally:
+            self.__dict__.update(kept)
+
 
 def _run_all(servers):
     """Serve every server on its own thread until Ctrl-C, then stop all.
@@ -976,9 +1002,19 @@ def serve(db_path="catalog.db", port=8087, lan=None):
         return
 
     from humble_catalog import lan as lanmod
-    lan_dir = lanmod.lan_dir_for(db_path)
+    # Everything that can be refused is checked before any file under lan/
+    # is written: a typo must not rotate the token or mint an authority.
+    lanmod.check_port(port, "--port")
+    lan_port = lan.port if lan.port is not None else port + 1
+    lanmod.check_port(lan_port, "--lan-port")
+    if lan.setup:
+        # The certificate download listens one above the LAN viewer.
+        lanmod.check_port(lan_port + 1, "--lan-port (--setup also uses "
+                          "the port above it)")
     host = lan.host or lanmod.lan_address()
-    lan_port = lan.port or port + 1
+    lanmod.private_address(host)
+
+    lan_dir = lanmod.lan_dir_for(db_path)
     token = (lanmod.rotate_token(lan_dir) if lan.new_token
              else lanmod.load_or_create_token(lan_dir))
     _ca_key, ca_cert = lanmod.ensure_ca(lan_dir)
@@ -991,7 +1027,8 @@ def serve(db_path="catalog.db", port=8087, lan=None):
         ("127.0.0.1", port, create_app(db_path=db_path), {}),
         (host, lan_port,
          create_lan_app(db_path=db_path, host=host, port=lan_port, token=token),
-         {"ssl_context": lanmod.ssl_context(crt, key)}),
+         {"ssl_context": lanmod.ssl_context(crt, key),
+          "request_handler": LanRequestHandler}),
     ]
     if lan.setup:
         wanted.append((host, lan_port + 1, lanmod.ca_download_app(lan_dir), {}))
@@ -999,16 +1036,22 @@ def serve(db_path="catalog.db", port=8087, lan=None):
     for h, p, app, kw in wanted:
         try:
             servers.append(make_server(h, p, app, threaded=True, **kw))
-        except OSError as exc:
+        except (OSError, SystemExit) as exc:
+            # Werkzeug 3.1 catches the bind OSError itself, prints a line
+            # and calls sys.exit(1); a raw OSError is caught too, in case
+            # it ever stops doing that.
             for s in servers:
                 s.server_close()
+            detail = f" ({exc})" if isinstance(exc, OSError) else ""
             raise lanmod.LanStateError(
-                f"cannot listen on {h}:{p} ({exc}) -- choose another port "
+                f"cannot listen on {h}:{p}{detail} -- choose another port "
                 "with --lan-port (or --port for the viewer itself)") from exc
 
+    viewer_url = f"http://127.0.0.1:{port}/"
     lanmod.print_instructions(
         f"https://{host}:{lan_port}/pair?token={token}",
+        viewer_url=viewer_url,
         ca_url=f"http://{host}:{lan_port + 1}/ca.crt" if lan.setup else None,
         fingerprint=lanmod.ca_fingerprint(ca_cert) if lan.setup else None)
-    webbrowser.open(f"http://127.0.0.1:{port}/")
+    webbrowser.open(viewer_url)
     _run_all(servers)
