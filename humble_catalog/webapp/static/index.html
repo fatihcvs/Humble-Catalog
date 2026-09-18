@@ -30,6 +30,7 @@
     <a id="tab-maintenance" href="#/maintenance">Maintenance<span class="badge-count"></span></a>
     <a id="tab-keys" href="#/keys">Keys<span class="badge-count"></span></a>
     <a id="tab-bundles" href="#/bundles">Bundles<span class="badge-count"></span></a>
+    <a id="tab-tasks" href="#/tasks">Tasks<span class="badge-count"></span></a>
   </nav>
 </header>
 <main>
@@ -145,6 +146,16 @@
     </div>
     <div id="choice-panel" hidden></div>
   </section>
+
+  <section id="section-tasks" hidden>
+    <div id="job-panel" hidden></div>
+    <div id="task-message" role="status"></div>
+    <div id="task-upload">
+      <label for="sheet-file">Spreadsheet to import</label>
+      <input id="sheet-file" type="file" accept=".xlsx">
+    </div>
+    <div id="task-cards"></div>
+  </section>
 </main>
 <script src="/static/autocomplete.js"></script>
 <script src="/static/fuzzy.js"></script>
@@ -153,6 +164,7 @@
 <script src="/static/maintenance.js"></script>
 <script src="/static/keys.js"></script>
 <script src="/static/bundles.js"></script>
+<script src="/static/tasks.js"></script>
 <script src="/static/shell.js"></script>
 </body>
 </html>

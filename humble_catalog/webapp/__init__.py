@@ -1,12 +1,16 @@
+import base64
+import binascii
 import datetime as dt
 import io
 import json
+import shutil
+import tempfile
 import webbrowser
 from pathlib import Path
 import requests
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
-                            editions, export, humble_api, keys, stats,
+                            editions, export, humble_api, jobs, keys, stats,
                             url_import)
 from humble_catalog.enrich import EDITABLE_FIELDS, apply_candidate
 from humble_catalog.sources.base import candidate
@@ -19,6 +23,11 @@ from humble_catalog.sources.base import candidate
 # stops protecting the catalog. The browser keeps sending Host: evil.com,
 # so refusing unknown hosts closes it.
 LOOPBACK_AUTHORITIES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+# Large enough for any ratings workbook, small enough that a request
+# cannot spend the machine's memory. The body is base64, so the encoded
+# form is ~4/3 of this; the cap is checked on the DECODED bytes.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 def host_is_loopback(host_header):
@@ -117,6 +126,10 @@ def _url_from_body():
 def create_app(db_path="catalog.db", covers_dir="covers"):
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["DB_PATH"] = db_path
+    # One runner per app. Held in config rather than a module global so a
+    # test can swap in a stub, and so two apps in one process (the suite
+    # makes several) never share a job slot.
+    app.config["JOB_RUNNER"] = jobs.JobRunner(db_path=db_path)
     covers = Path(covers_dir).resolve()
 
     @app.before_request
@@ -733,6 +746,100 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
                      ".spreadsheetml.sheet",
             headers={"Content-Disposition":
                      "attachment; filename=catalog.xlsx"})
+
+    def _runner():
+        return app.config["JOB_RUNNER"]
+
+    @app.post("/api/jobs/start")
+    def start_job():
+        data = _json_object()
+        command = _text_field(data, "command")
+        options = data.get("options") or {}
+        if not command:
+            return jsonify({"error": "command required"}), 400
+        if not isinstance(options, dict):
+            return jsonify({"error": "options must be an object"}), 400
+        try:
+            # jobs.argv does the whitelisting, inside start(): an unknown
+            # command and a bad option value are the same class of refusal
+            # and must not be re-implemented here, or the two could drift.
+            job = _runner().start(command, options,
+                                  force=bool(data.get("force")))
+        except jobs.Busy as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(job), 202
+
+    @app.post("/api/jobs/cancel")
+    def cancel_job():
+        if not _runner().cancel():
+            return jsonify({"error": "nothing is running"}), 409
+        return jsonify({"ok": True}), 202
+
+    @app.post("/api/jobs/import-sheets")
+    def import_sheets_job():
+        """Upload one workbook and run import-sheets over it.
+
+        Base64 inside JSON rather than a multipart form, and that is a
+        security decision rather than a taste one: form-encoded and
+        multipart are exactly the body types a cross-origin HTML form can
+        send, and refusing them is what stops a page you visit driving
+        this API. Keeping "every write endpoint takes JSON only" true
+        without exceptions is worth an unglamorous encoding.
+        """
+        data = _json_object()
+        name = _text_field(data, "filename")
+        content = data.get("content_b64")
+        if not name or not isinstance(content, str):
+            return jsonify({"error": "filename and content_b64 required"}), 400
+        # The name is kept as given, so it must be a bare .xlsx file name:
+        # import-sheets decides ebooks-vs-audiobooks from the FILE NAME, so
+        # it cannot be sanitised away, which makes rejecting any path
+        # separator or traversal the only safe rule.
+        #
+        # The separators are spelled out rather than left to pathlib:
+        # Path(r"C:\evil.xlsx").name is "evil.xlsx" on Windows and the
+        # whole string on POSIX, so a check built on it would mean two
+        # different things on the two platforms -- and the weaker of the
+        # two is the one that lets a path through.
+        if not name.lower().endswith(".xlsx") or name.strip(".") == "" \
+                or any(sep in name for sep in ("/", "\\", ":")):
+            return jsonify({"error": "filename must be a plain .xlsx name"}), 400
+        try:
+            blob = base64.b64decode(content, validate=True)
+        except (binascii.Error, ValueError):
+            return jsonify({"error": "content_b64 is not valid base64"}), 400
+        if len(blob) > MAX_UPLOAD_BYTES:
+            return jsonify({"error": "file too large"}), 400
+        tmpdir = tempfile.mkdtemp(prefix="humble-import-")
+        path = Path(tmpdir) / name
+        path.write_bytes(blob)
+        try:
+            # cleanup runs after the CHILD exits, not here: the file has to
+            # outlive this request, and the runner is the only thing that
+            # knows when the import is done with it.
+            job = _runner().start(
+                "import_sheets", {}, args=[str(path)],
+                cleanup=lambda: shutil.rmtree(tmpdir, ignore_errors=True),
+                force=bool(data.get("force")))
+        except jobs.Busy as exc:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({**job, "path": str(path)}), 202
+
+    @app.get("/api/jobs")
+    def job_state():
+        state = _runner().state()
+        # The progress rows come from run_status, the same table
+        # /api/status reads, so the page never has two disagreeing
+        # accounts of how far a run has got.
+        state["progress"] = [dict(r) for r in conn().execute(
+            "SELECT * FROM run_status WHERE phase != 'done'")]
+        return jsonify(state)
 
     @app.get("/api/status")
     def status():

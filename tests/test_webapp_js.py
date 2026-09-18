@@ -1139,7 +1139,7 @@ def test_hash_selects_exactly_one_section():
         `#section-${s.id}`).hidden]);
     })()""")
     assert shown == [["library", True], ["maintenance", False],
-                     ["keys", True], ["bundles", True]]
+                     ["keys", True], ["bundles", True], ["tasks", True]]
 
 
 def test_unknown_hash_falls_back_to_library():
@@ -1744,3 +1744,92 @@ def test_choice_panel_shows_the_error_from_a_stale_session():
 
 def test_render_choice_preview_before_any_fetch_draws_nothing():
     assert eval_js_error("(async () => app.renderChoicePreview())()") is None
+
+
+def test_task_cards_cover_every_headless_command():
+    from humble_catalog import jobs
+    listed = set(eval_js("app.TASK_CARDS.map((c) => c.command)"))
+    assert listed == set(jobs.COMMANDS)
+
+
+def test_tasks_gets_no_badge_even_with_a_job_running():
+    # A badge means a queue you can empty, never an optional backlog, and
+    # "you could run a harvest" is the definition of an optional backlog.
+    assert eval_js("(app.setPending({tasks: 5}), app.badgeCount('tasks'))") == 0
+
+
+def test_render_tasks_groups_every_card_and_escapes_its_text():
+    html = eval_js("(app.renderTasks(), dom.writes['#task-cards'])")
+    for card in eval_js("app.TASK_CARDS"):
+        assert card["label"] in html or "&" in card["label"]
+    # Every group heading a card claims is actually rendered, so a typo in
+    # a card's group cannot silently drop it off the page.
+    for group in eval_js("app.TASK_CARDS.map((c) => c.group)"):
+        assert f"<h3>{group}</h3>" in html
+    # The options ride in an attribute, so a quote in the JSON would end
+    # the attribute early and put the rest in the markup.
+    assert "'{&quot;ignore_quota&quot;:true}'" in html
+
+
+def test_tasks_is_a_section_the_shell_knows_about():
+    assert "tasks" in eval_js("app.SECTIONS.map((s) => s.id)")
+    assert eval_js("(location.hash = '#/tasks', app.currentSection())") == "tasks"
+
+
+def test_job_panel_shows_progress_and_the_log():
+    html = eval_js("""renderJobPanel({
+      running: {command: "harvest", started_at: "2026-08-04T00:00:00+00:00"},
+      progress: [{command: "harvest", phase: "Source", done: 5, total: 9,
+                  current: "hardcover"}],
+      log: ["harvest  hardcover 5/9"], last: null})""")
+    assert "harvest" in html and "5" in html and "9" in html
+    assert "hardcover 5/9" in html
+    assert "job-cancel" in html          # a long run has to be stoppable
+
+
+def test_job_panel_reports_a_cancelled_job_as_cancelled_not_failed():
+    html = eval_js("""renderJobPanel({
+      running: null, progress: [], log: [],
+      last: {command: "harvest", state: "cancelled", exit_code: 2,
+             finished_at: "2026-08-04T00:01:00+00:00"}})""")
+    assert "cancelled" in html.lower()
+    assert "fail" not in html.lower()
+
+
+def test_job_panel_translates_an_expired_session():
+    # The one failure the page must turn into an action rather than show
+    # raw: the fix is a terminal command, and the page can only say so.
+    html = eval_js("""renderJobPanel({
+      running: null, progress: [],
+      log: ["HumbleBundle session expired -- run "
+            + "'python -m humble_catalog login', then try again."],
+      last: {command: "extract", state: "failed", exit_code: 1,
+             finished_at: "2026-08-04T00:01:00+00:00"}})""")
+    assert "session" in html.lower()
+    assert "humble_catalog login" in html
+
+
+def test_job_panel_hides_itself_when_nothing_has_ever_run():
+    hidden = eval_js("""(renderJobPanel({running: null, progress: [], log: [],
+                                         last: null}),
+                         document.querySelector("#job-panel").hidden)""")
+    assert hidden is True
+
+
+def test_job_panel_escapes_the_log():
+    # The log is the child's stdout, and it names owned titles verbatim.
+    html = eval_js("""renderJobPanel({
+      running: null, progress: [],
+      log: ["Row 1/2: <script>alert(1)</script>"],
+      last: null})""")
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_job_panel_survives_a_running_job_with_no_progress_row_yet():
+    # run_status is written by the CHILD, so there is a window after the
+    # spawn where the job is running and no row exists. Throwing here
+    # would blank the panel for the first few seconds of every job.
+    assert eval_js_error("""renderJobPanel({
+      running: {command: "check", started_at: "t"},
+      progress: [], log: [], last: null})""") is None

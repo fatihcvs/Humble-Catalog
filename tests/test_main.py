@@ -377,3 +377,20 @@ def test_choice_command_reports_a_dead_month_without_a_traceback(
     with pytest.raises(SystemExit):
         main()
     assert "no Humble Choice month on offer" in capsys.readouterr().err
+
+
+def test_extract_no_login_reports_an_expired_session_without_a_traceback(
+        monkeypatch, tmp_path, capsys):
+    from humble_catalog import extract, humble_api
+
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run(**kwargs):
+        assert kwargs["allow_login"] is False
+        raise humble_api.NotLoggedIn("expired")
+
+    monkeypatch.setattr(extract, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "extract", "--no-login"])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert "login" in str(exc.value)

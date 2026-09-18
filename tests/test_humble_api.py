@@ -116,3 +116,17 @@ def test_get_page_shares_the_rate_limit_with_the_json_path():
     client = HumbleClient({}, delay=0, http=http)
     client.get_page("/membership/home")
     assert client._last is not None
+
+
+def test_ensure_login_refuses_to_open_a_browser_when_not_allowed(monkeypatch):
+    from humble_catalog import humble_api
+
+    opened = []
+    monkeypatch.setattr(humble_api, "get_cookies", lambda profile_dir=None: {})
+    monkeypatch.setattr(humble_api.HumbleClient, "logged_in", lambda self: False)
+    monkeypatch.setattr(humble_api, "manual_login",
+                        lambda profile_dir=None: opened.append(profile_dir))
+
+    with pytest.raises(humble_api.NotLoggedIn):
+        humble_api.ensure_login(allow_login=False)
+    assert opened == []   # the whole point: no window was opened

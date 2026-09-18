@@ -1,6 +1,8 @@
 import io
 import json
 import re
+import sys
+import tempfile
 from pathlib import Path
 import requests
 from unittest.mock import Mock
@@ -2148,3 +2150,261 @@ def test_choice_preview_answers_502_for_an_upstream_failure(tmp_path,
     monkeypatch.setattr(choice_preview, "fetch_choice", boom)
     client = create_app(db_path=str(dbp)).test_client()
     assert client.post("/api/choice-preview", json={}).status_code == 502
+
+
+class _StubRunner:
+    """Stands in for JobRunner so no test spawns a real command."""
+
+    def __init__(self):
+        self.started = []
+        self.busy = False
+        self.cancelled = False
+
+    def start(self, command, options=None, args=(), cleanup=None, force=False):
+        from humble_catalog import jobs
+        jobs.argv(command, options)          # keep the whitelist in the path
+        if self.busy:
+            raise jobs.Busy("harvest is already running")
+        self.started.append((command, options, force))
+        return {"command": command, "options": options or {},
+                "started_at": "2026-08-04T00:00:00+00:00"}
+
+    def cancel(self):
+        self.cancelled = True
+        return True
+
+    def state(self):
+        return {"running": None, "log": ["Bundle 1/2: The Hollow Crypt"],
+                "last": {"command": "reparse", "state": "done",
+                         "exit_code": 0, "finished_at": "2026-08-04T00:00:01"}}
+
+
+def _job_client(tmp_path):
+    app = create_app(db_path=str(tmp_path / "catalog.db"))
+    runner = _StubRunner()
+    app.config["JOB_RUNNER"] = runner
+    return app.test_client(), runner
+
+
+def test_start_a_job(tmp_path):
+    client, runner = _job_client(tmp_path)
+    resp = client.post("/api/jobs/start",
+                       json={"command": "harvest",
+                             "options": {"ignore_quota": True}})
+    assert resp.status_code == 202
+    assert runner.started == [("harvest", {"ignore_quota": True}, False)]
+
+
+def test_start_refuses_a_command_outside_the_whitelist(tmp_path):
+    client, _ = _job_client(tmp_path)
+    # reset is a handoff command, never a background job.
+    for command in ("reset", "restore", "login", "rm -rf /"):
+        resp = client.post("/api/jobs/start", json={"command": command})
+        assert resp.status_code == 400, command
+
+
+def test_start_refuses_a_non_boolean_option(tmp_path):
+    client, _ = _job_client(tmp_path)
+    resp = client.post("/api/jobs/start",
+                       json={"command": "harvest",
+                             "options": {"ignore_quota": "yes"}})
+    assert resp.status_code == 400
+
+
+def test_start_answers_409_when_busy(tmp_path):
+    client, runner = _job_client(tmp_path)
+    runner.busy = True
+    resp = client.post("/api/jobs/start", json={"command": "harvest"})
+    assert resp.status_code == 409
+    assert "already running" in resp.get_json()["error"]
+
+
+def test_start_needs_a_command(tmp_path):
+    client, _ = _job_client(tmp_path)
+    assert client.post("/api/jobs/start", json={}).status_code == 400
+    assert client.post("/api/jobs/start", json=[]).status_code == 400
+
+
+def test_start_refuses_options_that_are_not_an_object(tmp_path):
+    client, _ = _job_client(tmp_path)
+    resp = client.post("/api/jobs/start",
+                       json={"command": "harvest", "options": ["--rm-rf"]})
+    assert resp.status_code == 400
+
+
+def test_start_passes_force_through(tmp_path):
+    client, runner = _job_client(tmp_path)
+    client.post("/api/jobs/start", json={"command": "reparse", "force": True})
+    assert runner.started == [("reparse", {}, True)]
+
+
+def test_cancel(tmp_path):
+    client, runner = _job_client(tmp_path)
+    assert client.post("/api/jobs/cancel").status_code == 202
+    assert runner.cancelled is True
+
+
+def test_get_jobs_reports_state_and_progress(tmp_path):
+    client, _ = _job_client(tmp_path)
+    conn = db.connect(str(tmp_path / "catalog.db"))
+    conn.execute("INSERT OR REPLACE INTO run_status "
+                 "(command, phase, done, total, current, started_at, updated_at)"
+                 " VALUES ('harvest','Source',5,9,'hardcover','t','t')")
+    conn.commit()
+    conn.close()
+    body = client.get("/api/jobs").get_json()
+    assert body["log"] == ["Bundle 1/2: The Hollow Crypt"]
+    assert body["last"]["state"] == "done"
+    # Every unfinished run_status row, whoever started it -- the same
+    # table /api/status reads, so the page cannot hold two disagreeing
+    # accounts of how far a run has got.
+    assert [r["command"] for r in body["progress"]] == ["harvest"]
+    assert body["progress"][0]["done"] == 5
+
+
+def _xlsx_bytes():
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.append(["Name"])
+    wb.active.append(["The Hollow Crypt"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_import_sheets_upload_starts_a_job_with_the_written_path(tmp_path):
+    import base64
+    client, runner = _job_client(tmp_path)
+    blob = _xlsx_bytes()
+    resp = client.post("/api/jobs/import-sheets", json={
+        "filename": "ratings-audiobooks.xlsx",
+        "content_b64": base64.b64encode(blob).decode()})
+    assert resp.status_code == 202
+    command, _options, _force = runner.started[0]
+    assert command == "import_sheets"
+    path = Path(resp.get_json()["path"])
+    assert path.exists() and path.read_bytes() == blob
+    # The name is preserved: import-sheets matches audiobooks by FILE NAME,
+    # so a renamed temp file would silently import against the wrong pool.
+    assert path.name == "ratings-audiobooks.xlsx"
+
+
+def test_import_sheets_upload_passes_the_path_as_a_positional_argument(tmp_path):
+    # The path is the one string the runner ever puts in argv, and it is
+    # one THIS route created -- never anything from the request body.
+    import base64
+    from humble_catalog import jobs
+    seen = {}
+    app = create_app(db_path=str(tmp_path / "catalog.db"))
+
+    class _ArgsRunner(_StubRunner):
+        def start(self, command, options=None, args=(), cleanup=None,
+                  force=False):
+            seen["args"] = list(args)
+            seen["cleanup"] = cleanup
+            return super().start(command, options, args, cleanup, force)
+
+    app.config["JOB_RUNNER"] = _ArgsRunner()
+    resp = app.test_client().post("/api/jobs/import-sheets", json={
+        "filename": "a.xlsx",
+        "content_b64": base64.b64encode(_xlsx_bytes()).decode()})
+    assert seen["args"] == [resp.get_json()["path"]]
+    assert jobs.argv("import_sheets", {}) + seen["args"] == [
+        sys.executable, "-m", "humble_catalog", "import-sheets",
+        resp.get_json()["path"]]
+    # The temp directory outlives the request; only the runner knows when
+    # the child is done with it.
+    assert Path(resp.get_json()["path"]).exists()
+    seen["cleanup"]()
+    assert not Path(resp.get_json()["path"]).exists()
+
+
+def test_import_sheets_upload_refuses_a_non_xlsx_name(tmp_path):
+    import base64
+    client, _ = _job_client(tmp_path)
+    # The separator cases are checked by hand rather than through
+    # pathlib: Path(r"C:\evil.xlsx").name is "evil.xlsx" on Windows and
+    # the whole string on POSIX, so a rule built on it would mean two
+    # different things on the two platforms.
+    for name in ("ratings.csv", "../evil.xlsx", "sub/dir.xlsx",
+                 r"..\evil.xlsx", r"C:\evil.xlsx"):
+        resp = client.post("/api/jobs/import-sheets", json={
+            "filename": name,
+            "content_b64": base64.b64encode(b"x").decode()})
+        assert resp.status_code == 400, name
+
+
+def test_import_sheets_upload_refuses_bad_base64(tmp_path):
+    client, _ = _job_client(tmp_path)
+    resp = client.post("/api/jobs/import-sheets",
+                       json={"filename": "a.xlsx", "content_b64": "not!base64"})
+    assert resp.status_code == 400
+
+
+def test_import_sheets_upload_needs_both_fields(tmp_path):
+    client, _ = _job_client(tmp_path)
+    assert client.post("/api/jobs/import-sheets",
+                       json={"filename": "a.xlsx"}).status_code == 400
+    assert client.post("/api/jobs/import-sheets",
+                       json={"content_b64": "eA=="}).status_code == 400
+
+
+def test_import_sheets_upload_enforces_the_size_cap(tmp_path):
+    import base64
+    from humble_catalog import webapp
+    client, _ = _job_client(tmp_path)
+    big = b"x" * (webapp.MAX_UPLOAD_BYTES + 1)
+    resp = client.post("/api/jobs/import-sheets", json={
+        "filename": "a.xlsx", "content_b64": base64.b64encode(big).decode()})
+    assert resp.status_code == 400
+    assert "too large" in resp.get_json()["error"]
+
+
+def test_import_sheets_upload_leaves_no_file_behind_when_busy(tmp_path):
+    import base64
+    client, runner = _job_client(tmp_path)
+    runner.busy = True
+    resp = client.post("/api/jobs/import-sheets", json={
+        "filename": "a.xlsx",
+        "content_b64": base64.b64encode(_xlsx_bytes()).decode()})
+    assert resp.status_code == 409
+    # No job will ever run, so nothing else would clean the workbook up.
+    assert not list(Path(tempfile.gettempdir()).glob("humble-import-*/a.xlsx"))
+
+
+def test_index_has_a_tasks_tab_and_section():
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    assert '<a id="tab-tasks" href="#/tasks">' in html
+    assert '<section id="section-tasks"' in html
+    assert '<script src="/static/tasks.js"></script>' in html
+
+
+def test_tasks_tab_offers_no_terminal_only_command():
+    # reset, restore and login are terminal handoffs. A card that posted
+    # them to /api/jobs/start would 400, which is a dead button.
+    js = _viewer_js()
+    for command in ("reset", "restore", "login"):
+        assert f'command: "{command}"' not in js
+
+
+def _readme():
+    return (Path(__file__).parent.parent / "README.md").read_text(
+        encoding="utf-8")
+
+
+def test_readme_documents_the_viewer_s_new_reach():
+    exposure = _readme().split("### The viewer's exposure")[1]
+    # The security note must not quietly go stale: the viewer can now
+    # start processes, and the section that describes its exposure is the
+    # one place a reader will look for that.
+    assert "start" in exposure and "job" in exposure.lower()
+
+
+def test_readme_does_not_still_claim_four_tabs():
+    # The count is stated twice and both were written when there were
+    # four. A section nobody has heard of is a section nobody opens.
+    readme = _readme()
+    assert "four sections" not in readme
+    assert "four tabs" not in readme
+    assert "**Tasks**" in readme

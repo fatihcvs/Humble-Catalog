@@ -14,7 +14,7 @@ async function pollStatus() {
 }
 
 // ---- Sections ---------------------------------------------------------
-// The four sections. Order here is tab order. `keys` ships empty on
+// The sections. Order here is tab order. `keys` ships empty on
 // purpose: the unredeemed key report is separate work, and a section
 // that is not the table exercises the shell before the feature that
 // needed it is built on top of it.
@@ -23,6 +23,7 @@ const SECTIONS = [
   {id: "maintenance", label: "Maintenance"},
   {id: "keys",        label: "Keys"},
   {id: "bundles",     label: "Bundles"},
+  {id: "tasks",       label: "Tasks"},
 ];
 
 const currentSection = () => {
@@ -50,7 +51,7 @@ if (typeof addEventListener === "function")
 // renderBadges(). One object rather than a call into each section, so a
 // section whose loader has not run yet counts as zero instead of
 // throwing during the first paint.
-let pending = {library: 0, maintenance: 0, keys: 0, bundles: 0};
+let pending = {library: 0, maintenance: 0, keys: 0, bundles: 0, tasks: 0};
 
 // Which pending counts are worth a badge.
 //
@@ -64,8 +65,13 @@ let pending = {library: 0, maintenance: 0, keys: 0, bundles: 0};
 // So Library stays silent, and the sections that badge are the ones
 // whose count is a queue that can be emptied. To change the policy,
 // change this function; nothing else reads `pending`.
+//
+// Tasks is silent for the same reason: its only candidate count is "jobs
+// you could run", which is an optional backlog by definition and would
+// light the badge forever.
 function badgeCount(section) {
-  return section === "library" ? 0 : (pending[section] || 0);
+  return (section === "library" || section === "tasks")
+    ? 0 : (pending[section] || 0);
 }
 
 function renderBadges() {
@@ -105,6 +111,17 @@ $("#theme-toggle").addEventListener("click", () => {
 // paint lands in the right place rather than flashing Library first.
 showSection(currentSection());
 load();
-pollStatus();
-setInterval(pollStatus, 5000);
+// One interval for both. pollStatus draws the header banner (which must
+// keep working for a run started in a terminal); pollJobs draws the Tasks
+// panel, which knows only about jobs this viewer started.
+async function pollAll() {
+  await pollStatus();
+  try {
+    await pollJobs();
+  } catch (err) {
+    console.error("pollJobs() failed:", err);
+  }
+}
+pollAll();
+setInterval(pollAll, 5000);
 syncThemeButton();

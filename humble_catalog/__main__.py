@@ -76,6 +76,10 @@ def main():
     p_extract = sub.add_parser("extract", help="Fetch owned bundles from HumbleBundle")
     p_extract.add_argument("--refetch", action="store_true",
                            help="Re-fetch all bundles, refreshing the cache")
+    p_extract.add_argument("--no-login", action="store_true",
+                           help="Fail if the saved session has expired "
+                                "instead of opening a login window (used by "
+                                "the viewer, which cannot show one)")
     sub.add_parser("login", help="Open a browser to (re)log in to HumbleBundle")
     sub.add_parser("reparse", help="Re-classify items from the local cache (no network)")
     p_harvest = sub.add_parser(
@@ -228,8 +232,16 @@ def main():
     # stdlib-only, and it is how you find the command names to begin with.
     check_dependencies()
     if args.command == "extract":
-        from humble_catalog import extract
-        extract.run(refetch=args.refetch)
+        from humble_catalog import extract, humble_api
+        try:
+            extract.run(refetch=args.refetch, allow_login=not args.no_login)
+        except humble_api.NotLoggedIn:
+            # A message and a non-zero exit, not a traceback: the viewer
+            # shows the last log lines verbatim, and this is the one
+            # failure it must translate into an action the user can take.
+            raise SystemExit("HumbleBundle session expired -- run "
+                             "'python -m humble_catalog login', then "
+                             "try again.")
     elif args.command == "login":
         from humble_catalog import humble_api
         humble_api.ensure_login()

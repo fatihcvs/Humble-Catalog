@@ -33,7 +33,8 @@ async function load() {
   // with a missing field threw here and left the table AND all three
   // panels empty, with nothing on screen to say why. Failures are now
   // contained and reported, so the rest of the page still comes up.
-  for (const step of [render, loadReview, loadDupes, refreshStats, loadKeys]) {
+  for (const step of [render, loadReview, loadDupes, refreshStats, loadKeys,
+                      renderTasks]) {
     try {
       await step();
     } catch (err) {
@@ -51,6 +52,9 @@ async function load() {
     // is exactly the always-lit badge that policy rules out.
     keys: keysExpiring(),
     bundles: 0,
+    // Never badged -- see badgeCount in shell.js. Carried so the shape
+    // of `pending` matches SECTIONS rather than quietly omitting one.
+    tasks: 0,
   };
   renderBadges();
 }

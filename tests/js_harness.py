@@ -23,7 +23,8 @@ _STATIC = _ROOT / "humble_catalog" / "webapp" / "static"
 # Appending here is the whole cost of adding a viewer script.
 VIEWER_JS = [_STATIC / "app.js", _STATIC / "catalog.js",
              _STATIC / "maintenance.js", _STATIC / "keys.js",
-             _STATIC / "bundles.js", _STATIC / "shell.js"]
+             _STATIC / "bundles.js", _STATIC / "tasks.js",
+             _STATIC / "shell.js"]
 
 
 def eval_js(expression):
