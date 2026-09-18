@@ -1,13 +1,16 @@
 import io
 import json
 import re
+import ssl as _ssl
 import sys
 import tempfile
 from pathlib import Path
+import pytest
 import requests
 from unittest.mock import Mock
 from openpyxl import load_workbook
 from humble_catalog import db, export, stats
+from humble_catalog import lan as lanmod, webapp as webmod
 from humble_catalog.webapp import create_app, create_lan_app
 
 
@@ -2517,3 +2520,77 @@ def test_the_lan_app_has_no_write_route_to_reach(tmp_path):
     resp = client.post("/api/items/1/rating", json={"rating": 5},
                        base_url=LAN_BASE)
     assert resp.status_code in (404, 405)
+
+
+def _stub_servers(monkeypatch):
+    built = []
+
+    class FakeServer:
+        def __init__(self, host, port, app, **kw):
+            self.host, self.port, self.app = host, port, app
+            self.ssl_context = kw.get("ssl_context")
+            built.append(self)
+        def server_close(self): pass
+
+    monkeypatch.setattr(webmod, "make_server",
+                        lambda host, port, app, **kw: FakeServer(host, port, app, **kw))
+    monkeypatch.setattr(webmod, "_run_all", lambda servers: None)
+    monkeypatch.setattr(webmod.webbrowser, "open", lambda url: None)
+    monkeypatch.setattr(lanmod, "lan_address", lambda: "192.168.1.20")
+    return built
+
+
+def test_serve_lan_runs_the_loopback_and_lan_servers(tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087, lan=lanmod.LanOptions())
+    loop, lan_srv = built
+    assert (loop.host, loop.port) == ("127.0.0.1", 8087)
+    assert loop.app.config["READ_ONLY"] is False and loop.ssl_context is None
+    assert (lan_srv.host, lan_srv.port) == ("192.168.1.20", 8088)
+    assert lan_srv.app.config["READ_ONLY"] is True
+    assert isinstance(lan_srv.ssl_context, _ssl.SSLContext)
+    token = (tmp_path / "lan" / "token").read_text().strip()
+    assert f"https://192.168.1.20:8088/pair?token={token}" in capsys.readouterr().out
+
+
+def test_serve_lan_setup_adds_the_certificate_download(tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087,
+                 lan=lanmod.LanOptions(setup=True, port=9000))
+    assert [(s.host, s.port) for s in built] == [
+        ("127.0.0.1", 8087), ("192.168.1.20", 9000), ("192.168.1.20", 9001)]
+    out = capsys.readouterr().out
+    assert "http://192.168.1.20:9001/ca.crt" in out and "SHA-256" in out
+
+
+def test_serve_lan_new_token_replaces_the_token(tmp_path, monkeypatch):
+    _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    old = lanmod.load_or_create_token(tmp_path / "lan")
+    webmod.serve(db_path=str(dbp), lan=lanmod.LanOptions(new_token=True))
+    assert (tmp_path / "lan" / "token").read_text().strip() != old
+
+
+def test_a_busy_port_closes_what_was_opened_and_says_which(tmp_path, monkeypatch):
+    closed = []
+
+    class FakeServer:
+        def server_close(self): closed.append(self)
+
+    def make(host, port, app, **kw):
+        if port == 8088:
+            raise OSError("address in use")
+        return FakeServer()
+
+    monkeypatch.setattr(webmod, "make_server", make)
+    monkeypatch.setattr(lanmod, "lan_address", lambda: "192.168.1.20")
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    with pytest.raises(lanmod.LanStateError, match="8088.*--lan-port"):
+        webmod.serve(db_path=str(dbp), lan=lanmod.LanOptions())
+    assert len(closed) == 1           # the loopback server, opened first

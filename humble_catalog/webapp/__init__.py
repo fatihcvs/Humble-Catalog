@@ -6,11 +6,14 @@ import io
 import json
 import shutil
 import tempfile
+import threading
+import time
 import webbrowser
 from pathlib import Path
 import requests
 from flask import (Flask, Response, current_app, g, jsonify, request,
                    send_from_directory)
+from werkzeug.serving import make_server
 from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
                             editions, export, humble_api, jobs, keys, stats,
                             url_import)
@@ -943,7 +946,69 @@ def create_lan_app(db_path="catalog.db", covers_dir="covers", *, host, port,
     _register_read_routes(app)
     return app
 
-def serve(db_path="catalog.db", port=8087):
-    app = create_app(db_path=db_path)
+def _run_all(servers):
+    """Serve every server on its own thread until Ctrl-C, then stop all.
+
+    Polled with sleep() rather than join(): on Windows a bare join() is not
+    interrupted by Ctrl-C, so the process would ignore it.
+    """
+    threads = [threading.Thread(target=s.serve_forever, daemon=True)
+               for s in servers]
+    for t in threads:
+        t.start()
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for s in servers:
+            s.shutdown()
+            s.server_close()
+
+
+def serve(db_path="catalog.db", port=8087, lan=None):
+    if lan is None:
+        # Unchanged from before --lan existed.
+        app = create_app(db_path=db_path)
+        webbrowser.open(f"http://127.0.0.1:{port}/")
+        app.run(host="127.0.0.1", port=port)
+        return
+
+    from humble_catalog import lan as lanmod
+    lan_dir = lanmod.lan_dir_for(db_path)
+    host = lan.host or lanmod.lan_address()
+    lan_port = lan.port or port + 1
+    token = (lanmod.rotate_token(lan_dir) if lan.new_token
+             else lanmod.load_or_create_token(lan_dir))
+    _ca_key, ca_cert = lanmod.ensure_ca(lan_dir)
+    crt, key = lanmod.issue_server_cert(lan_dir, host)
+
+    # Every server is built -- and so every port bound -- before any
+    # starts, so a busy port stops the whole command rather than leaving
+    # half of it running.
+    wanted = [
+        ("127.0.0.1", port, create_app(db_path=db_path), {}),
+        (host, lan_port,
+         create_lan_app(db_path=db_path, host=host, port=lan_port, token=token),
+         {"ssl_context": lanmod.ssl_context(crt, key)}),
+    ]
+    if lan.setup:
+        wanted.append((host, lan_port + 1, lanmod.ca_download_app(lan_dir), {}))
+    servers = []
+    for h, p, app, kw in wanted:
+        try:
+            servers.append(make_server(h, p, app, threaded=True, **kw))
+        except OSError as exc:
+            for s in servers:
+                s.server_close()
+            raise lanmod.LanStateError(
+                f"cannot listen on {h}:{p} ({exc}) -- choose another port "
+                "with --lan-port (or --port for the viewer itself)") from exc
+
+    lanmod.print_instructions(
+        f"https://{host}:{lan_port}/pair?token={token}",
+        ca_url=f"http://{host}:{lan_port + 1}/ca.crt" if lan.setup else None,
+        fingerprint=lanmod.ca_fingerprint(ca_cert) if lan.setup else None)
     webbrowser.open(f"http://127.0.0.1:{port}/")
-    app.run(host="127.0.0.1", port=port)
+    _run_all(servers)

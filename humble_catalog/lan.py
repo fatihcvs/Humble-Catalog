@@ -10,9 +10,12 @@ resets the whole feature.
 See docs/superpowers/specs/2026-09-18-lan-viewer-design.md.
 """
 import datetime as dt
+import io
 import ipaddress
 import secrets
+import socket
 import ssl
+from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography import x509
@@ -186,3 +189,98 @@ def ssl_context(crt_path, key_path):
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(str(crt_path), str(key_path))
     return ctx
+
+
+@dataclass
+class LanOptions:
+    """What `serve --lan` was asked for. None means "work it out"."""
+    host: str | None = None
+    port: int | None = None
+    setup: bool = False
+    new_token: bool = False
+
+
+def _private(ip):
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in n for n in PRIVATE_NETWORKS)
+
+
+def lan_address():
+    """This machine's address on the home network.
+
+    Asks the OS which interface its default route leaves by. connect() on a
+    UDP socket only picks a route; no packet is sent. 192.0.2.1 is a
+    documentation address (RFC 5737), so nothing real is ever named.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))
+        ip = s.getsockname()[0]
+    except OSError:
+        ip = None
+    finally:
+        s.close()
+    if ip and _private(ip):
+        return ip
+    try:
+        found = sorted({info[4][0] for info in socket.getaddrinfo(
+            socket.gethostname(), None, socket.AF_INET)})
+    except OSError:
+        found = []
+    private = [a for a in found if _private(a)]
+    listed = ", ".join(private) or "none"
+    raise LanStateError(
+        f"could not tell which address is this machine's LAN address "
+        f"(private addresses found: {listed}) -- pass one with --lan-host")
+
+
+def ca_download_app(lan_dir):
+    """The plain-HTTP app `--setup` runs: exactly one route, /ca.crt.
+
+    The certificate is public; what matters is that it is not swapped in
+    transit, which comparing fingerprints catches.
+    """
+    from flask import Flask, send_file
+    crt = Path(lan_dir).resolve() / "ca.crt"
+    app = Flask(__name__, static_folder=None)
+
+    @app.get("/ca.crt")
+    def ca_crt():
+        return send_file(crt, mimetype="application/x-x509-ca-cert",
+                         as_attachment=True,
+                         download_name="humble-catalog-lan-ca.crt")
+
+    return app
+
+
+def _print_qr(url):
+    import qrcode
+    qr = qrcode.QRCode(border=1)
+    qr.add_data(url)
+    qr.make(fit=True)
+    buf = io.StringIO()
+    qr.print_ascii(out=buf, invert=True)
+    try:
+        print(buf.getvalue())
+    except UnicodeEncodeError:
+        # A console that cannot draw block characters still gets the link.
+        print("(this console cannot draw the QR code; use the link)")
+
+
+def print_instructions(url, *, ca_url=None, fingerprint=None):
+    """What `serve --lan` prints. The pairing link is a credential."""
+    if ca_url:
+        print("One-time setup: install this certificate on the phone.")
+        print(f"  {ca_url}")
+        _print_qr(ca_url)
+        print("  Settings > Security > Encryption & credentials > "
+              "Install a certificate > CA certificate")
+        print(f"  Check its SHA-256 under Trusted credentials > User:\n"
+              f"  {fingerprint}\n")
+    print("Pair a phone by opening this link (keep it private -- it grants "
+          "access to your catalog):")
+    print(f"  {url}")
+    _print_qr(url)

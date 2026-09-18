@@ -1,6 +1,7 @@
 import datetime as dt
 import importlib.util
 import ipaddress
+import socket
 import ssl
 import subprocess
 from pathlib import Path
@@ -123,3 +124,38 @@ def test_the_ssl_context_loads_the_issued_pair(tmp_path):
     ctx = lan.ssl_context(crt, key)
     assert isinstance(ctx, ssl.SSLContext)
     assert ctx.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+
+def test_the_lan_address_comes_from_the_default_route(monkeypatch):
+    class FakeSocket:
+        def __init__(self, *a): pass
+        def connect(self, addr): self.addr = addr
+        def getsockname(self): return ("192.168.1.20", 50000)
+        def close(self): pass
+    monkeypatch.setattr(lan.socket, "socket", FakeSocket)
+    assert lan.lan_address() == "192.168.1.20"
+
+
+def test_a_public_or_missing_route_address_is_an_error(monkeypatch):
+    class FakeSocket:
+        def __init__(self, *a): pass
+        def connect(self, addr): pass
+        def getsockname(self): return ("8.8.4.4", 50000)
+        def close(self): pass
+    monkeypatch.setattr(lan.socket, "socket", FakeSocket)
+    monkeypatch.setattr(lan.socket, "getaddrinfo",
+                        lambda *a, **k: [(None, None, None, None, ("10.0.0.7", 0)),
+                                         (None, None, None, None, ("172.20.0.1", 0))])
+    with pytest.raises(lan.LanStateError) as exc:
+        lan.lan_address()
+    assert "10.0.0.7" in str(exc.value) and "--lan-host" in str(exc.value)
+
+
+def test_the_setup_app_serves_only_the_ca_certificate(tmp_path):
+    lan.ensure_ca(tmp_path / "lan")
+    app = lan.ca_download_app(tmp_path / "lan")
+    assert {r.rule for r in app.url_map.iter_rules()} == {"/ca.crt"}
+    resp = app.test_client().get("/ca.crt")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/x-x509-ca-cert"
+    assert resp.data.startswith(b"-----BEGIN CERTIFICATE-----")
