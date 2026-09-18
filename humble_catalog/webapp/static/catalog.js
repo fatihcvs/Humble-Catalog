@@ -515,14 +515,30 @@ const sidebarCollapsed = () =>
   (typeof localStorage !== "undefined")
   && localStorage.getItem("hc-sidebar") === "1";
 
+// Two behaviours, split at the width where style.css stops showing the
+// sidebar by default. Wider, the button collapses the sidebar and the choice
+// is saved. Narrower, the sidebar starts hidden and the button opens it
+// (.expanded) for this page only: saved, an open panel would push the cards
+// off a phone screen on every visit. The saved collapse is not applied
+// there, because .collapsed hides the filters outright and would stop the
+// button ever opening them.
+const SIDEBAR_NARROW_QUERY = "(max-width: 900px)";
+const sidebarNarrow = () =>
+  typeof matchMedia === "function" && matchMedia(SIDEBAR_NARROW_QUERY).matches;
+let sidebarOpenNarrow = false;
+
 function applySidebar() {
-  const on = sidebarCollapsed();
-  $("#library-layout")?.classList.toggle("collapsed", on);
-  $("#sidebar-toggle")?.setAttribute("aria-expanded", String(!on));
+  const narrow = sidebarNarrow();
+  const collapsed = sidebarCollapsed();
+  $("#library-layout")?.classList.toggle("collapsed", !narrow && collapsed);
+  $("#library-layout")?.classList.toggle("expanded", narrow && sidebarOpenNarrow);
+  const shown = narrow ? sidebarOpenNarrow : !collapsed;
+  $("#sidebar-toggle")?.setAttribute("aria-expanded", String(shown));
 }
 
 function toggleSidebar() {
-  if (typeof localStorage !== "undefined")
+  if (sidebarNarrow()) sidebarOpenNarrow = !sidebarOpenNarrow;
+  else if (typeof localStorage !== "undefined")
     localStorage.setItem("hc-sidebar", sidebarCollapsed() ? "0" : "1");
   applySidebar();
 }

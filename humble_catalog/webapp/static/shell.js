@@ -153,6 +153,10 @@ async function pollAll() {
 // rotated to landscape.
 if (typeof matchMedia === "function")
   matchMedia(NARROW_QUERY).addEventListener("change", () => render());
+// And re-apply the sidebar when crossing its breakpoint, whose two sides
+// use different classes (see applySidebar).
+if (typeof matchMedia === "function")
+  matchMedia(SIDEBAR_NARROW_QUERY).addEventListener("change", () => applySidebar());
 // Polling waits for boot(): until /api/status has answered, READ_ONLY is
 // still false, and a first poll would ask the LAN app for /api/jobs.
 async function start() {

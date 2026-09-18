@@ -37,7 +37,22 @@ function makeEl(selector) {
     value: "",
     hidden: false,
     dataset: {},
-    classList: { contains: () => false, add() {}, remove() {}, toggle() {} },
+    // Classes are RECORDED, like attributes below. A stub that dropped them
+    // left the sidebar toggle untestable: on a phone it flipped a class the
+    // CSS did not look at, and no test could see that nothing opened.
+    classList: (() => {
+      const set = new Set();
+      return {
+        contains: (c) => set.has(c),
+        add: (...cs) => { for (const c of cs) set.add(c); },
+        remove: (...cs) => { for (const c of cs) set.delete(c); },
+        toggle(c, force) {
+          const on = force === undefined ? !set.has(c) : Boolean(force);
+          if (on) set.add(c); else set.delete(c);
+          return on;
+        },
+      };
+    })(),
     addEventListener() {},
     removeEventListener() {},
     insertAdjacentHTML() {},

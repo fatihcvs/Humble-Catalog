@@ -1225,6 +1225,52 @@ def test_sidebar_collapse_persists():
     assert stored == ["1", True]
 
 
+# A phone-width screen, as matchMedia reports it: every query the viewer
+# asks about (the 900 px sidebar and the 600 px cards) matches.
+_PHONE = "globalThis.matchMedia = () => ({matches: true, addEventListener() {}});"
+
+
+def test_on_a_phone_the_filters_button_opens_the_filters():
+    # Below 900 px style.css hides the filters unless #library-layout is
+    # .expanded, and the button used to toggle only .collapsed -- so on a
+    # phone every click left them hidden while aria-expanded said "true".
+    result = eval_js("""(() => {
+      %s
+      const layout = document.querySelector("#library-layout");
+      const btn = document.querySelector("#sidebar-toggle");
+      const state = () => [layout.classList.contains("expanded"),
+                           btn.getAttribute("aria-expanded")];
+      app.applySidebar();
+      const closed = state();
+      app.toggleSidebar();
+      const opened = state();
+      app.toggleSidebar();
+      return {closed, opened, reclosed: state(),
+              stored: globalThis.localStorage.getItem("hc-sidebar")};
+    })()""" % _PHONE)
+    assert result["closed"] == [False, "false"]     # starts hidden on a phone
+    assert result["opened"] == [True, "true"]
+    assert result["reclosed"] == [False, "false"]
+    # Opening them on a phone is for this page only; the saved desktop
+    # choice is untouched.
+    assert result["stored"] is None
+
+
+def test_a_desktop_collapse_does_not_trap_the_phone_filters():
+    # .collapsed hides the filters outright, so a collapse saved on the PC
+    # must not be applied on a phone, or the button could never open them.
+    result = eval_js("""(() => {
+      app.setStored("hc-sidebar", "1");
+      %s
+      const layout = document.querySelector("#library-layout");
+      app.applySidebar();
+      const collapsed = layout.classList.contains("collapsed");
+      app.toggleSidebar();
+      return [collapsed, layout.classList.contains("expanded")];
+    })()""" % _PHONE)
+    assert result == [False, True]
+
+
 def test_active_filters_are_summarised_outside_the_sidebar():
     # The summary is what makes collapsing safe, so it must name every
     # kind of filter, not only the chips.
