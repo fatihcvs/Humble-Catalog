@@ -50,12 +50,25 @@ def _sorted_candidates(raw):
     cands.sort(key=lambda c: c.get("confidence", 0), reverse=True)
     return cands
 
+def _json_object_or_none():
+    """The request's JSON body when it is an object, else None.
+
+    For a route that reads no field but must still refuse a malformed
+    request before doing any work (`/api/choice-preview`, issue #20).
+    `_json_object` cannot answer that: it folds every non-object into
+    `{}`, which is exactly the body a legitimate caller sends.
+    """
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else None
+
+
 def _json_object():
     """The request's JSON body when it is an object, else an empty dict.
 
-    The single place this app reads a request body, so no route can
-    disagree with another about what a usable one is. `grep -n "get_json"`
-    over this file returns exactly one site, which is the line below.
+    Every route reads its body through here or through
+    `_json_object_or_none`, which this wraps, so no route can disagree
+    with another about what a usable one is. `grep -n "get_json"` over
+    this file returns exactly one site, which is in that helper.
 
     `or {}` was the idiom here and is NOT a type check: it substitutes the
     default only for a FALSY body, so `{}` and `null` were handled while a
@@ -68,8 +81,8 @@ def _json_object():
     same JSON error object as every other refusal rather than Werkzeug's
     HTML 400 page, which the viewer's JS cannot parse.
     """
-    body = request.get_json(silent=True)
-    return body if isinstance(body, dict) else {}
+    body = _json_object_or_none()
+    return {} if body is None else body
 
 
 def _text_field(data, key):
@@ -618,10 +631,15 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
 
     @app.post("/api/choice-preview")
     def choice_preview_route():
-        # Takes no body: Choice is always "this month". POST rather than
+        # Reads no field: Choice is always "this month". POST rather than
         # GET because this is a credentialed network action whose response
         # is a fact about what the owner holds -- neither belongs in a
         # query string that reaches access logs and browser history.
+        #
+        # It still requires an object, and checks before fetching: a
+        # malformed request must not start a browser or a network call.
+        if _json_object_or_none() is None:
+            return jsonify({"error": "JSON object required"}), 400
         try:
             hub = choice_preview.fetch_choice()
         except humble_api.NotLoggedIn:
