@@ -8,7 +8,8 @@ import tempfile
 import webbrowser
 from pathlib import Path
 import requests
-from flask import Flask, Response, g, jsonify, request, send_from_directory
+from flask import (Flask, Response, current_app, g, jsonify, request,
+                   send_from_directory)
 from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
                             editions, export, humble_api, jobs, keys, stats,
                             url_import)
@@ -123,29 +124,24 @@ def _url_from_body():
     url = _json_object().get("url")
     return url.strip() if isinstance(url, str) else None
 
-def create_app(db_path="catalog.db", covers_dir="covers"):
+def _conn():
+    """The request's catalog connection, opened on first use.
+
+    Module-level rather than a closure inside create_app, so the read and
+    write route groups -- registered by separate functions, and on two
+    different apps -- share one definition of "the connection".
+    """
+    if "conn" not in g:
+        g.conn = db.connect(current_app.config["DB_PATH"])
+    return g.conn
+
+
+def _new_app(db_path, covers_dir, read_only):
+    """A bare app: config and connection teardown, no routes, no guards."""
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["DB_PATH"] = db_path
-    # One runner per app. Held in config rather than a module global so a
-    # test can swap in a stub, and so two apps in one process (the suite
-    # makes several) never share a job slot.
-    app.config["JOB_RUNNER"] = jobs.JobRunner(db_path=db_path)
-    covers = Path(covers_dir).resolve()
-
-    @app.before_request
-    def refuse_foreign_hosts():
-        # Before routing, so a foreign caller cannot reach any handler --
-        # not even by getting the content type right on a write.
-        if not host_is_loopback(request.headers.get("Host")):
-            return Response(
-                "Refused: the catalog viewer only answers requests "
-                "addressed to localhost.\n",
-                status=403, mimetype="text/plain")
-
-    def conn():
-        if "conn" not in g:
-            g.conn = db.connect(app.config["DB_PATH"])
-        return g.conn
+    app.config["COVERS_DIR"] = Path(covers_dir).resolve()
+    app.config["READ_ONLY"] = read_only
 
     @app.teardown_appcontext
     def close(_exc):
@@ -153,6 +149,20 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         if c is not None:
             c.close()
 
+    return app
+
+
+def _register_read_routes(app):
+    """The routes a read-only viewer needs, and nothing else.
+
+    This is the whole of what the LAN app serves (create_lan_app), so a
+    route belongs here only if it reads and a paired phone should reach
+    it. The maintenance reads (/api/review, /api/duplicates) are
+    deliberately NOT here: they are only useful beside the writes they
+    feed. test_lan_app_serves_only_the_pinned_read_routes pins this list.
+    """
+    conn = _conn
+    covers = app.config["COVERS_DIR"]
     @app.get("/")
     def index():
         return send_from_directory(app.static_folder, "index.html")
@@ -202,6 +212,18 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         # always the whole key set, so there is nothing to pass, and
         # nothing about the library reaches a query string.
         return jsonify(keys.report(conn()))
+
+    @app.get("/api/status")
+    def status():
+        rows = conn().execute("SELECT * FROM run_status WHERE phase != 'done'").fetchall()
+        return jsonify({"runs": [dict(r) for r in rows],
+                        "read_only": app.config["READ_ONLY"]})
+
+
+def _register_write_routes(app):
+    """Every route that writes, runs a job, reaches the network, or feeds one
+    of those. Registered only by create_app, never on the LAN app."""
+    conn = _conn
 
     def _key_ref():
         """(gamekey, machine_name) from the request body, or (None, None).
@@ -841,11 +863,25 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
             "SELECT * FROM run_status WHERE phase != 'done'")]
         return jsonify(state)
 
-    @app.get("/api/status")
-    def status():
-        rows = conn().execute("SELECT * FROM run_status WHERE phase != 'done'").fetchall()
-        return jsonify({"runs": [dict(r) for r in rows]})
+def create_app(db_path="catalog.db", covers_dir="covers"):
+    app = _new_app(db_path, covers_dir, read_only=False)
+    # One runner per app. Held in config rather than a module global so a
+    # test can swap in a stub, and so two apps in one process (the suite
+    # makes several) never share a job slot.
+    app.config["JOB_RUNNER"] = jobs.JobRunner(db_path=db_path)
 
+    @app.before_request
+    def refuse_foreign_hosts():
+        # Before routing, so a foreign caller cannot reach any handler --
+        # not even by getting the content type right on a write.
+        if not host_is_loopback(request.headers.get("Host")):
+            return Response(
+                "Refused: the catalog viewer only answers requests "
+                "addressed to localhost.\n",
+                status=403, mimetype="text/plain")
+
+    _register_read_routes(app)
+    _register_write_routes(app)
     return app
 
 def serve(db_path="catalog.db", port=8087):

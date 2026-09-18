@@ -280,7 +280,7 @@ def test_type_override_and_status(tmp_path):
     assert client.post(f"/api/items/{item_id}/type",
                        json={"type": "comic"}).status_code == 200
     assert client.get("/api/items").get_json()["items"][0]["type"] == "comic"
-    assert client.get("/api/status").get_json() == {"runs": []}
+    assert client.get("/api/status").get_json() == {"runs": [], "read_only": False}
 
 
 # The write routes below answer a malformed body or an unknown item the way
@@ -2408,3 +2408,14 @@ def test_readme_does_not_still_claim_four_tabs():
     assert "four sections" not in readme
     assert "four tabs" not in readme
     assert "**Tasks**" in readme
+
+
+def test_status_reports_the_loopback_app_is_not_read_only(tmp_path):
+    # The front end decides whether to render editing controls from this
+    # flag, so the full viewer must say false, explicitly.
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    body = client.get("/api/status").get_json()
+    assert body["read_only"] is False
+    assert body["runs"] == []
