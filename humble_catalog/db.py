@@ -81,9 +81,11 @@ CREATE TABLE IF NOT EXISTS source_failure (
   PRIMARY KEY (source, title));
 CREATE TABLE IF NOT EXISTS harvest_run (
   started_at TEXT NOT NULL, source TEXT NOT NULL, ended_at TEXT NOT NULL,
-  answered INTEGER NOT NULL, succeeded INTEGER NOT NULL,
+  answered INTEGER, succeeded INTEGER NOT NULL,
   failed INTEGER NOT NULL, quota_died INTEGER NOT NULL,
+  interrupted INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (started_at, source));
+CREATE TABLE IF NOT EXISTS harvest_open (started_at TEXT PRIMARY KEY);
 """
 
 # The four multi-value enrichment fields. Stored as JSON arrays in TEXT
@@ -356,17 +358,22 @@ def merge_items(conn, keep_id, drop_id):
     conn.commit()
     return True
 
-def cached_since(conn, source, since):
-    """How many rows `source` cached at or after `since` (an ISO string).
+def cached_since(conn, source, since, until=None):
+    """How many rows `source` cached at or after `since` (an ISO string),
+    and at or before `until` when given.
 
     A live fetch is a cache write, so for a run that began at `since`
-    this is that source's successful request count. Lives here because
-    this module owns source_cache's schema, and one home for the query
-    means one place to change if the cache ever changes shape.
+    this is that source's successful request count. `until` is for a run
+    counted after it died: enrich and the viewer's url import write the
+    cache too, and without an end the window would take their rows as
+    the run's. Lives here because this module owns source_cache's schema,
+    and one home for the query means one place to change if the cache
+    ever changes shape.
     """
     return conn.execute(
-        "SELECT COUNT(*) FROM source_cache WHERE source=? AND fetched_at >= ?",
-        (source, since)).fetchone()[0]
+        "SELECT COUNT(*) FROM source_cache WHERE source=? AND fetched_at >= ? "
+        "AND fetched_at <= COALESCE(?, fetched_at)",
+        (source, since, until)).fetchone()[0]
 
 def connect(path="catalog.db"):
     conn = sqlite3.connect(str(path), check_same_thread=False)
@@ -491,6 +498,32 @@ def _migrate(conn):
         _migrate_external_keys_to_machine_name(conn)
         conn.execute("PRAGMA user_version = 12")
         conn.commit()
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 13:
+        # harvest_run gains `interrupted` and lets `answered` be NULL, for
+        # a run rebuilt after it died; harvest_open, the marker that makes
+        # that possible, was created by executescript(SCHEMA) above. SQLite
+        # cannot drop a NOT NULL in place, so the table is rebuilt.
+        _migrate_harvest_run_interrupted(conn)
+        conn.execute("PRAGMA user_version = 13")
+        conn.commit()
+
+def _migrate_harvest_run_interrupted(conn):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(harvest_run)")}
+    if "interrupted" in cols:
+        return  # created by SCHEMA in its current shape
+    conn.executescript("""
+        ALTER TABLE harvest_run RENAME TO harvest_run_v12;
+        CREATE TABLE harvest_run (
+          started_at TEXT NOT NULL, source TEXT NOT NULL, ended_at TEXT NOT NULL,
+          answered INTEGER, succeeded INTEGER NOT NULL,
+          failed INTEGER NOT NULL, quota_died INTEGER NOT NULL,
+          interrupted INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (started_at, source));
+        INSERT INTO harvest_run (started_at, source, ended_at, answered,
+          succeeded, failed, quota_died)
+        SELECT started_at, source, ended_at, answered, succeeded, failed,
+          quota_died FROM harvest_run_v12;
+        DROP TABLE harvest_run_v12;""")
 
 def _legacy_tags(value):
     """v1.4-era comma-joined string -> JSON-array string; None passes

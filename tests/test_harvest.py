@@ -483,3 +483,95 @@ def test_forget_runs_empties_the_history(tmp_path, capsys):
     harvest.forget_runs(_conn=conn)
     assert "Forgot 1 recorded run." in capsys.readouterr().out
     assert runs.history(conn) == []
+
+# An interrupted run: a marker left open, run_status's window, and the
+# rows the run wrote before it died. Recovery happens when the next
+# harvest starts.
+DIED_START = "2026-09-16T20:53:00+00:00"
+DIED_LAST = "2026-09-16T21:04:00+00:00"
+
+def _died(conn, progress_started=DIED_START.replace(":00+", ":01+")):
+    runs.open_run(conn, DIED_START)
+    conn.execute("INSERT OR REPLACE INTO run_status (command, phase, done, "
+                 "total, current, started_at, updated_at) "
+                 "VALUES ('harvest','Source',5,9,NULL,?,?)",
+                 (progress_started, DIED_LAST))
+    for i, at in enumerate(("2026-09-16T20:54:00+00:00",
+                            "2026-09-16T20:58:00+00:00",
+                            # the viewer's enrich, after the run died
+                            "2026-09-17T08:00:00+00:00")):
+        conn.execute("INSERT INTO source_cache (source, query, fetched_at, "
+                     "json) VALUES ('google_books', ?, ?, '{}')", (f"q{i}", at))
+    for i in range(3):
+        conn.execute("INSERT INTO source_failure (source, title, failures, "
+                     "first_failed_at, last_failed_at, last_error) "
+                     "VALUES ('google_books', ?, 1, ?, ?, '503')",
+                     (f"t{i}", "2026-09-16T20:55:00+00:00",
+                      "2026-09-16T20:55:00+00:00"))
+    conn.commit()
+
+def test_the_next_harvest_records_an_interrupted_run(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    _died(conn)
+    harvest.run(db_path=tmp_path / "t.db", sources={}, _conn=conn)
+    rows = [r for r in runs.history(conn) if r["started_at"] == DIED_START]
+    assert len(rows) == 1                  # only the source that did anything
+    r = rows[0]
+    assert r["source"] == "google_books"
+    assert (r["succeeded"], r["failed"]) == (2, 3)   # not the 09-17 write
+    assert r["answered"] is None
+    assert r["interrupted"] == 1
+    assert r["ended_at"] == DIED_LAST
+    assert runs.open_runs(conn) == []
+
+def test_a_run_that_died_before_its_progress_began_records_nothing(tmp_path):
+    # run_status still holds an OLDER harvest, so there is no window to
+    # count in, and nothing the dead run could have fetched.
+    conn = db.connect(tmp_path / "t.db")
+    _died(conn, progress_started="2026-09-01T10:00:00+00:00")
+    harvest.run(db_path=tmp_path / "t.db", sources={}, _conn=conn)
+    assert [r for r in runs.history(conn) if r["started_at"] == DIED_START] == []
+    assert runs.open_runs(conn) == []
+
+def test_a_finished_run_leaves_no_open_marker(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    _seed(conn, "Gray Waters", "ebook")
+    harvest.run(db_path=tmp_path / "t.db",
+                sources={"hardcover": _caching(conn, "hardcover", "Gray Waters")},
+                _conn=conn)
+    assert runs.open_runs(conn) == []
+    assert _run_rows(conn)[0]["interrupted"] == 0
+
+def test_report_runs_marks_an_interrupted_row(tmp_path, capsys):
+    conn = db.connect(tmp_path / "t.db")
+    runs.record(conn, DIED_START, DIED_LAST,
+                {"google_books": (None, 30, 95, False)}, interrupted=True)
+    harvest.report_runs(_conn=conn)
+    line = [l for l in capsys.readouterr().out.splitlines()
+            if "google_books" in l][0]
+    assert "?" in line                 # answered is unknown, not zero
+    assert "76%" in line
+    assert "interrupted" in line
+
+def test_report_runs_mentions_a_run_with_no_tally_yet(tmp_path, capsys):
+    # Read-only: it names the open run but does not record it, because it
+    # cannot tell a dead run from one still going in another window.
+    conn = db.connect(tmp_path / "t.db")
+    runs.open_run(conn, DIED_START)
+    harvest.report_runs(_conn=conn)
+    out = capsys.readouterr().out
+    assert "2026-09-16 20:53" in out
+    assert "next harvest" in out
+    assert runs.open_runs(conn) == [DIED_START]
+
+def test_a_later_run_s_progress_is_not_taken_as_the_dead_run_s_window(tmp_path):
+    # Two harvests overlapped and the later one replaced run_status. Its
+    # window would hand the dead run the later run's rows, so the dead
+    # run is dropped rather than counted wrongly.
+    conn = db.connect(tmp_path / "t.db")
+    _died(conn, progress_started="2026-09-16T21:30:01+00:00")
+    runs.record(conn, "2026-09-16T21:30:00+00:00", "2026-09-16T21:40:00+00:00",
+                {"hardcover": (1, 0, 0, False)})
+    harvest.run(db_path=tmp_path / "t.db", sources={}, _conn=conn)
+    assert [r for r in runs.history(conn) if r["started_at"] == DIED_START] == []
+    assert runs.open_runs(conn) == []

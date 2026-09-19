@@ -263,6 +263,15 @@ genuinely fetched seven titles without a failure. `harvest
 --forget-runs` clears the history, which is capped at the newest 500
 runs regardless.
 
+A harvest that is stopped partway through (Ctrl+C, a closed window, a
+job cancelled from the viewer) still gets a row, but only once the next
+harvest starts: that is when it can tell the run is over rather than
+still going somewhere else. Until then `--runs` names it at the top.
+Its rows are marked `interrupted` and show `?` under `titles`, a count
+that only ever lived in the stopped process. `live`, `failed` and `rate`
+are real, counted from what the run had already written, and bad runs
+are the ones most likely to be stopped, so they are worth keeping.
+
 In practice: read `--runs` after a harvest to see whether the failure
 rate is steady or climbing, and `--failures` once two or more runs have
 happened to see whether the same titles keep coming back. A steady rate
