@@ -309,6 +309,26 @@ a `harvest` print real owned titles, and nothing scans an issue.
   the first-attempt rate over several more runs, or a `failures` counter
   reaching 4 or 5 on titles that never cache. A repeat count on its own
   will not do it again.
+  **Follow-up, 2026-09-19 (#1): the rate moves, the way load does.** The
+  first half of that rule fired, and it was the wrong half to trust.
+  Seven runs on 2026-08-02, minutes apart, each attempted exactly the
+  previous run's failures (238, 134, 87, 48, 31, 14, 4) and ran near 55%
+  per pass, well clear of the 36-41% first-attempt readings. That is a
+  re-attempt rate pulling clear, and it meant nothing. The residual never
+  drifted toward 100% as it shrank; it drained to zero, and three titles
+  that failed in eight runs cached with the rest. A deterministic subset
+  cannot drain. The higher rate belongs to retries sent in a burst, not
+  to the titles. Then a real rise: 125 first attempts on 2026-09-16, new
+  titles from that day's extract, 95 failed, 76%, every one a `503`. The
+  retry settled it, which the rates alone could not: on 2026-09-19 all 95
+  answered on the first pass, with no failures, leaving the whole
+  google_books worklist (2433 titles) answered. So the rule narrows to
+  its second half. **Only titles that never cache reopen this.** A rate,
+  whether first-attempt or re-attempt, measures Google's afternoon.
+  The 09-16 run was interrupted and has no `harvest_run` row. It was
+  found through `source_failure.last_failed_at`, which is #29: the
+  tally's blind spot is the runs most likely to be abandoned, which are
+  the bad ones.
 
 - **Thirteen buttons kept the browser's default styling** — fixed
   2026-08-01 (no spec; one CSS rule). `#sidebar-toggle`, the column
