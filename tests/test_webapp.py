@@ -147,6 +147,23 @@ def test_the_tasks_section_is_its_own_scroller():
     assert "overflow-y: auto" in _css_rule(css, "#section-tasks")
 
 
+def test_task_cards_share_a_line_from_1080_px():
+    # At 1920 px a card was 1873 px wide around at most 662 px of text,
+    # with its Run button 1672 px from its label (#34). From 1080 px up
+    # each group lays its cards out in columns; below that, one per line.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    wide = css[css.index("@media (min-width: 1080px) {"):]
+    wide = wide[:wide.index("\n}")]
+    group = _css_rule(wide, ".task-group")
+    assert "display: grid" in group
+    assert "repeat(auto-fill, minmax(" in group
+    # the heading is a row of its own, not the first cell
+    assert "grid-column: 1 / -1" in _css_rule(wide, ".task-group h3")
+    # outside the query the groups stay plain blocks
+    assert "grid" not in _css_rule(css, ".task-group")
+
+
 def test_app_wires_every_registered_chip_filter():
     js = _viewer_js()
     for field in ("genre", "series", "authors", "narrator", "publisher",
