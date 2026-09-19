@@ -245,6 +245,13 @@ def _glyphs(stream):
         return _GLYPHS_ASCII
     return _GLYPHS_UNICODE
 
+# How often HarvestProgress shows and records its counts. A tick is one
+# title, and on a fully cached run titles go by in microseconds: painting
+# and committing each one made the commit (~1 ms under synchronous=FULL)
+# and the repaint most of a harvest that fetched nothing - 23s for 7575
+# titles. Four times a second is faster than anyone reads a counter.
+FLUSH_EVERY = 0.25
+
 class HarvestProgress:
     """Thread-safe per-source progress for the parallel harvest.
 
@@ -274,8 +281,14 @@ class HarvestProgress:
     Each source also carries a state mark, because the count alone is
     ambiguous: a source that stops at 40% may still be working or may
     have given up, and only the mark can say which.
+
+    Counts are kept on every tick but shown and written to run_status at
+    most every FLUSH_EVERY seconds; settle() and finish() always flush,
+    so a source's final count is exact on screen and in the table. The
+    first tick flushes at once, so the grid visibly starts moving.
+    `_clock` is for tests.
     """
-    def __init__(self, conn, totals, stream=None):
+    def __init__(self, conn, totals, stream=None, _clock=time.monotonic):
         self.conn, self.totals = conn, dict(totals)
         self.done = {name: 0 for name in totals}
         self.state = {name: "working" for name in totals}
@@ -290,6 +303,8 @@ class HarvestProgress:
         # call while already holding it. Nothing nests today; a plain Lock
         # would make the first caller who tries deadlock instead of work.
         self.lock = threading.RLock()
+        self._clock, self._flushed = _clock, None
+        self._last_line = None  # the plain-line path's last write
         self._display = LiveDisplay(stream)
         self._glyph = dict(zip(("working", "done", "failed", "paused"),
                                _glyphs(self._display.stream)))
@@ -326,19 +341,32 @@ class HarvestProgress:
     def tick(self, source):
         with self.lock:
             self.done[source] += 1
-            total_done = sum(self.done.values())
-            if self._display.live:
-                self._paint()
-            else:
-                line = " - ".join(
-                    f"{n} {self.done[n]}/{self.totals[n]}"
-                    + (" done" if self.done[n] >= self.totals[n] else "")
-                    for n in self.totals)
+            now = self._clock()
+            if self._flushed is None or now - self._flushed >= FLUSH_EVERY:
+                self._flush(source)
+
+    def _flush(self, source):
+        """Show the counts and write them to run_status. Caller holds lock.
+
+        On the plain-line path a line is only written when a count has
+        moved since the last one, so a settle straight after a flush does
+        not print the same line twice.
+        """
+        self._flushed = self._clock()
+        if self._display.live:
+            self._paint()
+        else:
+            line = " - ".join(
+                f"{n} {self.done[n]}/{self.totals[n]}"
+                + (" done" if self.done[n] >= self.totals[n] else "")
+                for n in self.totals)
+            if line != self._last_line:
+                self._last_line = line
                 self._display.write(f"harvest  {line}")
-            self.conn.execute(
-                "UPDATE run_status SET done=?, current=?, updated_at=? "
-                "WHERE command='harvest'", (total_done, source, _now()))
-            self.conn.commit()
+        self.conn.execute(
+            "UPDATE run_status SET done=?, current=?, updated_at=? "
+            "WHERE command='harvest'", (sum(self.done.values()), source, _now()))
+        self.conn.commit()
 
     def settle(self, source, failed):
         """Retire a source: its pool has stopped, cleanly or not.
@@ -349,8 +377,7 @@ class HarvestProgress:
         """
         with self.lock:
             self.state[source] = "failed" if failed else "done"
-            if self._display.live:
-                self._paint()
+            self._flush(source)  # its held ticks, and the new mark
 
     def finish(self, incomplete, paused=None, repeats=()):
         """Retire the run. `paused` maps a source name to when its rate
@@ -377,6 +404,8 @@ class HarvestProgress:
             for name in paused:
                 if name in self.state:
                     self.state[name] = "paused"
+            if not self._display.live:
+                self._flush(None)  # a count held since the last settle
             self._paint()
             self._display.detach()  # the grid is final; the summary goes below
             stalled = sorted(set(incomplete) - set(paused))
@@ -395,6 +424,6 @@ class HarvestProgress:
                 for line in repeats:
                     self._display.write(line)
             self.conn.execute(
-                "UPDATE run_status SET phase='done', updated_at=? "
-                "WHERE command='harvest'", (_now(),))
+                "UPDATE run_status SET phase='done', done=?, updated_at=? "
+                "WHERE command='harvest'", (sum(self.done.values()), _now()))
             self.conn.commit()

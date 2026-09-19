@@ -575,3 +575,18 @@ def test_a_later_run_s_progress_is_not_taken_as_the_dead_run_s_window(tmp_path):
     harvest.run(db_path=tmp_path / "t.db", sources={}, _conn=conn)
     assert [r for r in runs.history(conn) if r["started_at"] == DIED_START] == []
     assert runs.open_runs(conn) == []
+
+def test_recovery_counts_writes_made_after_the_last_progress_flush(tmp_path):
+    # run_status is flushed at most every FLUSH_EVERY seconds, so a run
+    # killed at a terminal may have written rows after its last updated_at.
+    from humble_catalog.progress import FLUSH_EVERY
+    conn = db.connect(tmp_path / "t.db")
+    _died(conn)
+    late = (datetime.fromisoformat(DIED_LAST)
+            + timedelta(seconds=FLUSH_EVERY / 2)).isoformat()
+    conn.execute("INSERT INTO source_cache (source, query, fetched_at, json) "
+                 "VALUES ('google_books', 'late', ?, '{}')", (late,))
+    conn.commit()
+    harvest.run(db_path=tmp_path / "t.db", sources={}, _conn=conn)
+    r = [r for r in runs.history(conn) if r["started_at"] == DIED_START][0]
+    assert r["succeeded"] == 3

@@ -1,4 +1,5 @@
 import io
+import itertools
 import threading
 from humble_catalog import db, failures
 from humble_catalog.progress import HarvestProgress
@@ -65,8 +66,12 @@ def test_harvest_progress_writes_under_the_caller_s_lock(tmp_path):
     was in which lock they took, not in what they wrote.
     """
     conn = db.connect(tmp_path / "t.db")
+    # A clock a second further on at every call, so every tick flushes and
+    # commits: throttled, ticks would rarely commit and the race this test
+    # exists for would go unexercised.
     prog = HarvestProgress(conn, {"google_books": WRITES},
-                           stream=io.StringIO())
+                           stream=io.StringIO(),
+                           _clock=itertools.count().__next__)
     errors = []
 
     def ticker():
