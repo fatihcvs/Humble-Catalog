@@ -2963,3 +2963,14 @@ def test_jobs_reports_no_handoff_without_a_serve_loop(tmp_path):
     h = client.get("/api/jobs").get_json()["handoff"]
     assert h == {"available": False, "generation": 0, "pending": None,
                  "last": None}
+
+
+def test_readme_explains_the_handoff_and_its_guard():
+    readme = _readme()
+    exposure = readme.split("### The viewer's exposure")[1]
+    # The destructive path's real guard is the typed word at the console.
+    # The exposure section must say a local process can now QUEUE a
+    # reset, and why that still cannot wipe anything unattended.
+    assert "hand" in exposure.lower()
+    assert "RESET" in exposure
+    assert "needed only for `login`, `reset` and `restore`" not in readme
