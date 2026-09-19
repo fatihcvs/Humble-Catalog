@@ -488,6 +488,19 @@ tr.key-is-hidden td { opacity: .6; }
 .task-picker select { max-width: 100%; }
 .task-danger { padding-top: 1rem; border-top: 1px solid var(--panel-warn-border); }
 .task-danger .task-card { border-color: var(--panel-warn-border); }
+/* One card per line left a 1920 px screen with cards 1873 px wide around
+   at most 662 px of text, the Run button 1672 px from its label, and
+   Danger below the fold (#34). From 1080 px each group sets its cards in
+   columns of at least 24rem: 2 at 1080, 3 at 1280, 4 at 1920. The groups
+   themselves stay stacked, so Danger keeps its own line and its border. */
+@media (min-width: 1080px) {
+  .task-group {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
+    gap: .4rem 1rem;
+  }
+  .task-group h3 { grid-column: 1 / -1; }
+  .task-group .task-card { margin-bottom: 0; }
+}
 /* The takeover covers the whole page: while it shows, nothing on the page
    can work -- the server behind it is gone until the terminal is done. */
 #handoff-screen {
