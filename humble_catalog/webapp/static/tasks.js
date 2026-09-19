@@ -144,6 +144,79 @@ if (typeof document !== "undefined" && document.addEventListener) {
 // avoid terminals needs to be told plainly which one.
 const EXPIRED = /session (expired|missing)/i;
 
+// --- The job log -------------------------------------------------------
+// The panel used to be rebuilt from innerHTML on every poll, which threw
+// away the <pre>'s scroll position (it came back at the top), the focus
+// on Cancel and any selected text. Now a poll patches the parts that
+// change, and the panel is only rebuilt when its SHAPE changes -- a job
+// starting or ending, a hint appearing -- because then the elements
+// themselves differ.
+
+// How close to the bottom still counts as "at the bottom". A wheel notch
+// or a rounded-up line height should not read as the user scrolling away.
+const FOLLOW_SLACK = 24;
+// Ticked on every page load, deliberately not remembered: a job you have
+// just started is one you are watching.
+let followLog = true;
+// What is on screen now: the shape signature, and the lines the <pre>
+// already holds.
+let jobShape = null;
+let shownLog = [];
+
+function atBottom(pre, slack = FOLLOW_SLACK) {
+  return pre.scrollHeight - pre.scrollTop - pre.clientHeight <= slack;
+}
+
+function logShift(prev, next) {
+  // How many lines fell off the top of `prev` to make `next`.
+  if (!prev.length) return 0;
+  for (let k = 0; k < prev.length; k++) {
+    const n = prev.length - k;
+    if (n > next.length) continue;
+    let same = true;
+    for (let i = 0; i < n; i++)
+      if (prev[k + i] !== next[i]) { same = false; break; }
+    if (same) return k;
+  }
+  return prev.length;   // nothing in common: a different run's log
+}
+
+function applyLog(pre, next, {follow = followLog, prev = shownLog} = {}) {
+  // Put `next` in the <pre>, keeping the reader where they were.
+  //
+  // Following means pinning to the bottom. Not following means the lines in
+  // view must not move, and keeping scrollTop is not enough for that: the
+  // page shows the last 200 lines, so lines leaving the top shift everything
+  // up by their height. That height cannot be measured from a single write
+  // (a write both trims the head and appends a tail), so the head is removed
+  // first, measured, and the tail added after.
+  //
+  if (!pre) return shownLog;
+  if (follow) {
+    pre.textContent = next.join("\n");
+    pre.scrollTop = pre.scrollHeight;
+  } else {
+    const top = pre.scrollTop, before = pre.scrollHeight;
+    const dropped = logShift(prev, next);
+    if (dropped) pre.textContent = prev.slice(dropped).join("\n");
+    const removed = dropped ? before - pre.scrollHeight : 0;
+    pre.textContent = next.join("\n");
+    pre.scrollTop = Math.max(0, top - removed);
+  }
+  shownLog = next.slice();
+  return shownLog;
+}
+
+function jobLogHtml(log) {
+  // esc() is not optional here: these lines are the child's stdout, which
+  // names owned titles verbatim and is nobody's idea of trusted markup.
+  return `<div class="job-log-head">
+      <label><input type="checkbox" id="job-follow"${followLog ? " checked" : ""}>
+        Follow output</label>
+    </div>
+    <pre class="job-log" id="job-log">${esc(log.slice(-200).join("\n"))}</pre>`;
+}
+
 function renderJobPanel(state) {
   const el = $("#job-panel");
   if (!el) return;
@@ -156,10 +229,10 @@ function renderJobPanel(state) {
   const parts = [];
   if (running) {
     const bar = row
-      ? `<progress value="${row.done}" max="${row.total || 1}"></progress>
-         <span class="job-count">${esc(row.phase)} ${row.done}/${row.total}</span>
-         <span class="job-current">${esc(row.current || "starting")}</span>`
-      : `<span class="job-count">starting</span>`;
+      ? `<progress id="job-bar" value="${row.done}" max="${row.total || 1}"></progress>
+         <span class="job-count" id="job-count">${esc(row.phase)} ${row.done}/${row.total}</span>
+         <span class="job-current" id="job-current">${esc(row.current || "starting")}</span>`
+      : `<span class="job-count" id="job-count">starting</span>`;
     parts.push(`<div class="job-head"><strong>${esc(running.command)}</strong>
                   ${bar}
                   <button id="job-cancel">Cancel</button></div>`);
@@ -183,19 +256,45 @@ function renderJobPanel(state) {
       ran in the terminal${handed.exit_code === null ? " and was interrupted"
         : ` (exit ${esc(handed.exit_code)})`}; the terminal shows what it did.</div>`);
   const log = state.log || [];
-  if (log.some((line) => EXPIRED.test(line)))
+  const hint = log.some((line) => EXPIRED.test(line));
+  if (hint)
     parts.push(`<div class="job-hint">Your HumbleBundle session has expired.
       <button class="task-go" data-command="login" data-handoff="1"
               data-options='{}'>Log in</button>
       (or run <code>python -m humble_catalog login</code> in the terminal
       running this viewer), then try again.</div>`);
-  // esc() is not optional here: these lines are the child's stdout, which
-  // names owned titles verbatim and is nobody's idea of trusted markup.
-  if (log.length)
-    parts.push(`<pre class="job-log">${esc(log.slice(-200).join("\n"))}</pre>`);
-  el.innerHTML = parts.join("");
-  el.hidden = parts.length === 0;
+  if (log.length) parts.push(jobLogHtml(log));
+  // Rebuild only when the panel's SHAPE changes; a poll during a run
+  // patches instead, so the log keeps its scroll position and Cancel
+  // keeps the focus. The signature holds what decides which elements
+  // exist, never the numbers that merely change.
+  const shape = JSON.stringify([running && running.command, Boolean(row),
+                                state.last && state.last.state, Boolean(handed),
+                                hint, log.length > 0]);
+  if (shape !== jobShape) {
+    jobShape = shape;
+    el.innerHTML = parts.join("");
+    el.hidden = parts.length === 0;
+    // The rebuild wrote the log as markup, so the <pre> already holds
+    // these lines; record them, then honour the follow state.
+    shownLog = log.slice(-200);
+    const fresh = $("#job-log");
+    if (fresh && followLog) fresh.scrollTop = fresh.scrollHeight;
+    return el.innerHTML;
+  }
+  patchJobPanel(row, log);
   return el.innerHTML;
+}
+
+function patchJobPanel(row, log) {
+  // The in-place path: only what a poll actually changes.
+  const bar = $("#job-bar"), count = $("#job-count"), current = $("#job-current");
+  if (row) {
+    if (bar) { bar.value = row.done; bar.max = row.total || 1; }
+    if (count) count.textContent = `${row.phase} ${row.done}/${row.total}`;
+    if (current) current.textContent = row.current || "starting";
+  }
+  if (log.length) applyLog($("#job-log"), log.slice(-200));
 }
 
 // undefined, not null: a catalog with no job history reports last: null,
@@ -330,5 +429,22 @@ if (typeof document !== "undefined" && document.addEventListener) {
   document.addEventListener("change", (ev) => {
     if (ev.target && ev.target.id === "sheet-file" && ev.target.files[0])
       uploadSheet(ev.target.files[0]);
+    if (ev.target && ev.target.id === "job-follow") {
+      followLog = Boolean(ev.target.checked);
+      const pre = $("#job-log");
+      if (pre && followLog) pre.scrollTop = pre.scrollHeight;
+    }
   });
+  // Capture, because a scroll event does not bubble. Scrolling away from
+  // the bottom unticks the box and scrolling back ticks it, so the box
+  // always says what the view is doing. The page's own scrollTop writes
+  // land where they should -- pinned to the bottom while following, away
+  // from it while not -- so neither flips the state by accident.
+  document.addEventListener("scroll", (ev) => {
+    const pre = ev.target;
+    if (!pre || pre.id !== "job-log") return;
+    followLog = atBottom(pre);
+    const box = $("#job-follow");
+    if (box) box.checked = followLog;
+  }, true);
 }

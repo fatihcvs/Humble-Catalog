@@ -2206,3 +2206,114 @@ def test_a_fired_button_gets_its_label_back():
         return [armed, el.textContent, Boolean(el.dataset.armed)];
       })()""")
     assert result == ["Click again to confirm", "Run", False]
+
+
+# --- Job log: follow, and hold still when not following (#36) -----------
+
+def test_log_shift_counts_the_lines_that_fell_off_the_top():
+    # The page shows the last 200 lines, so old lines drop off as new ones
+    # arrive. Holding the view still means knowing how many.
+    assert eval_js("logShift(['a','b','c'], ['a','b','c'])") == 0
+    assert eval_js("logShift(['a','b'], ['a','b','c'])") == 0      # appended
+    assert eval_js("logShift(['a','b','c'], ['c','d'])") == 2      # slid by 2
+    assert eval_js("logShift([], ['a'])") == 0
+    assert eval_js("logShift(['a','b'], ['x','y'])") == 2          # no overlap
+
+_FAKE_PRE = """
+  const pre = {
+    lines: [], top: 0, clientHeight: 100, lineHeight: 10,
+    get scrollHeight() { return this.lines.length * this.lineHeight; },
+    get scrollTop() { return this.top; },
+    set scrollTop(v) {
+      this.top = Math.max(0, Math.min(v, Math.max(0, this.scrollHeight - this.clientHeight)));
+    },
+    get textContent() { return this.lines.join("\\n"); },
+    set textContent(v) { this.lines = v === "" ? [] : v.split("\\n"); },
+  };
+"""
+
+def test_following_keeps_the_log_at_the_bottom():
+    top = eval_js("""(() => {
+      %s
+      const lines = Array.from({length: 30}, (_, i) => "line " + i);
+      applyLog(pre, lines, {follow: true, prev: []});
+      const first = pre.scrollTop;
+      applyLog(pre, lines.concat(["line 30"]), {follow: true, prev: lines});
+      return [first, pre.scrollTop, pre.scrollHeight - pre.clientHeight];
+    })()""" % _FAKE_PRE)
+    assert top[0] == 200                 # 30 lines * 10 - 100 viewport
+    assert top[1] == top[2] == 210       # still pinned after a new line
+
+
+def test_not_following_holds_the_same_lines_in_view_as_the_window_slides():
+    # Keeping scrollTop alone is not enough: three lines leaving the top
+    # shift everything up by their height, and the text slides under you.
+    result = eval_js("""(() => {
+      %s
+      const prev = Array.from({length: 40}, (_, i) => "line " + i);
+      applyLog(pre, prev, {follow: true, prev: []});
+      pre.scrollTop = 150;               // the user scrolled up to read
+      const next = prev.slice(3).concat(["line 40", "line 41", "line 42"]);
+      applyLog(pre, next, {follow: false, prev});
+      return pre.scrollTop;
+    })()""" % _FAKE_PRE)
+    assert result == 120                 # 150 - 3 dropped lines * 10
+
+
+def test_not_following_leaves_the_position_alone_when_only_appending():
+    result = eval_js("""(() => {
+      %s
+      const prev = Array.from({length: 40}, (_, i) => "line " + i);
+      applyLog(pre, prev, {follow: true, prev: []});
+      pre.scrollTop = 150;
+      applyLog(pre, prev.concat(["new"]), {follow: false, prev});
+      return pre.scrollTop;
+    })()""" % _FAKE_PRE)
+    assert result == 150
+
+
+def test_the_panel_offers_follow_output_ticked():
+    html = eval_js("""renderJobPanel({
+      running: {command: "enrich", started_at: "t"},
+      progress: [{command: "enrich", phase: "Item", done: 1, total: 9,
+                  current: "x"}],
+      log: ["Item 1/9"], last: null})""")
+    assert 'id="job-follow"' in html
+    assert "checked" in html            # on by default, every page load
+    assert "Follow output" in html
+
+
+def test_a_poll_during_a_run_updates_the_panel_instead_of_rebuilding_it():
+    # The rebuild is what threw away the scroll position, the focused
+    # Cancel button and any selected text.
+    result = eval_js("""(() => {
+      const state = (log, done) => ({
+        running: {command: "enrich", started_at: "t"},
+        progress: [{command: "enrich", phase: "Item", done, total: 9,
+                    current: "item " + done}],
+        log, last: null});
+      renderJobPanel(state(["Item 1/9"], 1));
+      const panel = document.querySelector("#job-panel");
+      panel.innerHTML = "SENTINEL";
+      renderJobPanel(state(["Item 1/9", "Item 2/9"], 2));
+      return [panel.innerHTML, dom.writes["#job-log:text"] || ""];
+    })()""")
+    assert result[0] == "SENTINEL"           # no rebuild
+    assert "Item 2/9" in result[1]           # the log still updated
+
+
+def test_a_job_finishing_does_rebuild_the_panel():
+    # The panel's shape changes then -- the bar and Cancel go, a verdict
+    # arrives -- so it must be rebuilt rather than patched.
+    result = eval_js("""(() => {
+      renderJobPanel({running: {command: "enrich", started_at: "t"},
+                      progress: [], log: ["Item 1/9"], last: null});
+      const panel = document.querySelector("#job-panel");
+      panel.innerHTML = "SENTINEL";
+      renderJobPanel({running: null, progress: [], log: ["Item 9/9"],
+        last: {command: "enrich", state: "done", exit_code: 0,
+               finished_at: "t2"}});
+      return panel.innerHTML;
+    })()""")
+    assert result != "SENTINEL"
+    assert "finished" in result
