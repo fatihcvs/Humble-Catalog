@@ -155,7 +155,7 @@ const publish = `
   setKeyRows: (v) => { keyRows = v; },
   previewBundle, renderBundlePreview, money,
   setBundlePreview: (v) => { bundlePreview = v; },
-  TASK_CARDS, TASK_GROUPS, renderTasks, startTask, taskMessage,
+  TASK_CARDS, TASK_GROUPS, TAKEOVER_TEXT, renderTasks, startTask, taskMessage,
   previewChoice, renderChoicePreview,
   setChoicePreview: (v) => { choicePreview = v; },
   setGenresShowAll: (v) => { genresShowAll = v; },

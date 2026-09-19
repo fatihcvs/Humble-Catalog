@@ -2430,13 +2430,10 @@ def test_index_has_a_tasks_tab_and_section():
     assert '<script src="/static/tasks.js"></script>' in html
 
 
-def test_tasks_tab_offers_no_terminal_only_command():
-    # reset, restore and login are terminal handoffs. A card that posted
-    # them to /api/jobs/start would 400, which is a dead button.
-    js = _viewer_js()
-    for command in ("reset", "restore", "login"):
-        assert f'command: "{command}"' not in js
-
+def test_index_has_the_takeover_screen():
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    assert '<div id="handoff-screen" hidden' in html
 
 def _readme():
     return (Path(__file__).parent.parent / "README.md").read_text(
