@@ -53,3 +53,48 @@ def test_forget_empties_the_table_and_counts_runs(tmp_path):
 def test_forget_on_an_empty_table_drops_nothing(tmp_path):
     conn = db.connect(tmp_path / "t.db")
     assert runs.forget(conn) == 0
+
+def test_an_interrupted_row_keeps_answered_unknown(tmp_path):
+    # `answered` lived only in the dead process; a guess would be a lie.
+    conn = db.connect(tmp_path / "t.db")
+    runs.record(conn, "2026-09-16T20:53:00+00:00", "2026-09-16T21:04:00+00:00",
+                _tally(google_books=(None, 30, 95, False)), interrupted=True)
+    row = runs.history(conn)[0]
+    assert row["answered"] is None
+    assert row["interrupted"] == 1
+
+def test_recording_a_run_closes_its_open_marker(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    runs.open_run(conn, "2026-07-30T21:00:00+00:00")
+    assert runs.open_runs(conn) == ["2026-07-30T21:00:00+00:00"]
+    runs.record(conn, "2026-07-30T21:00:00+00:00", "2026-07-30T22:00:00+00:00",
+                {})   # a run with no sources still closes its marker
+    assert runs.open_runs(conn) == []
+
+def test_forget_also_drops_open_markers(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    runs.open_run(conn, "2026-07-30T21:00:00+00:00")
+    runs.forget(conn)
+    assert runs.open_runs(conn) == []
+
+def test_an_old_harvest_run_table_is_rebuilt_keeping_its_rows(tmp_path):
+    import sqlite3
+    path = tmp_path / "t.db"
+    raw = sqlite3.connect(path)
+    raw.executescript("""
+        CREATE TABLE harvest_run (
+          started_at TEXT NOT NULL, source TEXT NOT NULL, ended_at TEXT NOT NULL,
+          answered INTEGER NOT NULL, succeeded INTEGER NOT NULL,
+          failed INTEGER NOT NULL, quota_died INTEGER NOT NULL,
+          PRIMARY KEY (started_at, source));
+        INSERT INTO harvest_run VALUES
+          ('2026-07-31T11:18:00+00:00', 'google_books',
+           '2026-07-31T12:00:00+00:00', 1784, 639, 361, 1);
+        PRAGMA user_version = 12;""")
+    raw.close()
+    conn = db.connect(path)
+    row = runs.history(conn)[0]
+    assert (row["answered"], row["failed"], row["interrupted"]) == (1784, 361, 0)
+    runs.record(conn, "2026-09-16T20:53:00+00:00", "2026-09-16T21:04:00+00:00",
+                _tally(google_books=(None, 30, 95, False)), interrupted=True)
+    assert runs.history(conn)[0]["answered"] is None

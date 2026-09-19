@@ -142,6 +142,60 @@ def _tally(conn, prog, started, names):
                          hit is not None and hit >= started)
     return tallies
 
+def _recover_interrupted(conn):
+    """Record a row for every run that began and never recorded one.
+
+    Its window runs from the marker to run_status's last update. For a
+    run killed at a terminal that is its last progress tick; for one the
+    viewer cancelled it is when jobs._finalize_row marked it done, at the
+    kill. Either way the window closes near the death, which matters:
+    enrich and the viewer's url import write the cache too, and counting
+    to "now" would hand the dead run their rows.
+
+    A run_status row older than the marker means the run died before its
+    progress began - before any thread started - so there is nothing to
+    count and the marker is simply dropped. So is one whose window holds
+    no activity at all: a row of zeros would read as a run that asked for
+    nothing.
+
+    Run before this run's own threads start, which is what keeps the
+    failure count exact (see failures.count_since). If another harvest is
+    in fact still running elsewhere, its marker is read as dead and it
+    gets a partial row - which that run's own `record` overwrites when it
+    finishes, since both write the same (started_at, source) keys. And a
+    dead run whose run_status a later harvest has already replaced has no
+    window left to count in, so it is dropped rather than credited with
+    that run's rows.
+    """
+    status = conn.execute("SELECT started_at, updated_at FROM run_status "
+                          "WHERE command='harvest'").fetchone()
+    for started in runs.open_runs(conn):
+        # run_status holds one harvest, the latest to start. It is this
+        # run's only if it began after this marker and before any later
+        # run did; otherwise its window would take in that run's rows.
+        later = conn.execute(
+            "SELECT MIN(s) FROM (SELECT started_at s FROM harvest_open "
+            "UNION SELECT started_at FROM harvest_run) WHERE s > ?",
+            (started,)).fetchone()[0]
+        if (status is None or status["started_at"] < started
+                or (later is not None and status["started_at"] >= later)):
+            runs.close(conn, started)
+            continue
+        until = status["updated_at"]
+        tallies = {}
+        for name in SOURCE_CLASSES:
+            hit = quota.hit_at(conn, name)
+            tally = (None,
+                     db.cached_since(conn, name, started, until),
+                     failures.count_since(conn, name, started, until),
+                     hit is not None and started <= hit.isoformat() <= until)
+            if any(tally[1:]):
+                tallies[name] = tally
+        if tallies:
+            runs.record(conn, started, until, tallies, interrupted=True)
+        else:
+            runs.close(conn, started)
+
 def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     """Fetch every relevant source for every eligible item into source_cache.
 
@@ -156,6 +210,8 @@ def run(db_path="catalog.db", sources=None, _conn=None, ignore_quota=False):
     """
     started = datetime.now(timezone.utc)
     conn = _conn or db.connect(db_path)
+    _recover_interrupted(conn)
+    runs.open_run(conn, started.isoformat())
     worklist = build_worklist(conn)
     if sources is None:
         sources = {name: SOURCE_CLASSES[name](db.connect(db_path))
@@ -249,7 +305,15 @@ def report_runs(db_path="catalog.db", _conn=None):
     """
     conn = _conn or db.connect(db_path)
     try:
-        rows = runs.history(conn)
+        rows, pending = runs.history(conn), runs.open_runs(conn)
+        # Named, not recorded: from here a dead run and one still going in
+        # another window look the same. The next harvest decides.
+        for started in pending:
+            print(f"A harvest started {started[:16].replace('T', ' ')} has "
+                  f"no tally yet: it is still running, or it was interrupted "
+                  f"and the next harvest will record it.")
+        if pending:
+            print()
         if not rows:
             print("No harvest runs recorded.")
             return
@@ -262,10 +326,15 @@ def report_runs(db_path="catalog.db", _conn=None):
             # A cache-only source has no rate at all; printing 0% would
             # claim it never fails.
             rate = f"{failed / (live + failed):.0%}" if live + failed else "-"
+            # An interrupted run's answered count died with it: "?" rather
+            # than a number nobody measured.
+            answered = "?" if r["answered"] is None else r["answered"]
+            notes = " ".join(n for n, on in (("spent", r["quota_died"]),
+                                             ("interrupted", r["interrupted"]))
+                             if on)
             print(f"{r['started_at'][:16].replace('T', ' '):<16}  "
-                  f"{r['source']:<{width}}  {r['answered']:>6}  "
-                  f"{live:>5}  {failed:>6}  {rate:>5}  "
-                  f"{'spent' if r['quota_died'] else ''}".rstrip())
+                  f"{r['source']:<{width}}  {answered:>6}  "
+                  f"{live:>5}  {failed:>6}  {rate:>5}  {notes}".rstrip())
     finally:
         if _conn is None:
             conn.close()

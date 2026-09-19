@@ -60,16 +60,19 @@ def error_kind(error):
     """
     return error.split(" for url:")[0].strip()
 
-def count_since(conn, source, since):
-    """How many of `source`'s titles failed at or after `since`.
+def count_since(conn, source, since, until=None):
+    """How many of `source`'s titles failed at or after `since`, and at or
+    before `until` when given.
 
     Exact for the run that just ended: a title fails at most once per run
     and that run stamps last_failed_at on every title that failed in it.
     Not exact for an older window, because last_failed_at moves - which
     is precisely why a run's count is written down rather than
-    recomputed later.
+    recomputed later. The one later recount is an interrupted run's, and
+    it happens as the next run starts, before that run can move a stamp.
     """
     return conn.execute(
         "SELECT COUNT(*) FROM source_failure "
-        "WHERE source=? AND last_failed_at >= ?",
-        (source, since)).fetchone()[0]
+        "WHERE source=? AND last_failed_at >= ? "
+        "AND last_failed_at <= COALESCE(?, last_failed_at)",
+        (source, since, until)).fetchone()[0]
