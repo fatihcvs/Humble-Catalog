@@ -188,3 +188,10 @@ def test_the_run_status_guard_uses_the_cli_spelling(monkeypatch, tmp_path):
     runner.start("import_sheets", force=True)
     runner.wait(timeout=30)
     assert _phase("import-sheets") == "done"
+
+
+def test_flags_is_the_shared_option_validator():
+    assert jobs.flags("harvest", {"ignore_quota": "--ignore-quota"},
+                      {"ignore_quota": True}) == ["--ignore-quota"]
+    with pytest.raises(ValueError, match="does not accept"):
+        jobs.flags("reparse", {}, {"x": True})
