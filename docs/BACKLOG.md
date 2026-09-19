@@ -832,6 +832,18 @@ a `harvest` print real owned titles, and nothing scans an issue.
   plus ~0.6s latency predicts 2.6s — one 5s backoff on the *median*
   request. The entry was left on the Open list by mistake and is recorded
   here on 2026-07-30.
+  **Follow-up, 2026-09-19 (#4): the policy stands, but for a different
+  reason.** The budget stopped binding. The quota has died once, on the
+  first tallied run, and the worklist is now fully answered (#3), so
+  "several days regardless" is no longer true. What holds instead is
+  timing: Google's 503s come in windows (76% of first attempts on
+  2026-09-16, and every one answered three days later, #1), and a 5-10s
+  backoff lands in the same window. That is also what the 7.6s median gap
+  above was showing. Retrying in-run would cost requests and thread time
+  to recover little, while the next run's retry demonstrably works. It
+  also keeps `harvest_run`'s rate per-request. The justification in
+  `google_books.py` and `_with_retries` now says this, and a test pins
+  the setting.
 
 - **Quota budgeting across harvest runs** —
   `docs/superpowers/specs/2026-07-26-harvest-quota-budget-design.md`.

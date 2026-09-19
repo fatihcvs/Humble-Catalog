@@ -132,3 +132,19 @@ def test_redact_covers_the_other_spellings_and_any_case():
 
 def test_redact_leaves_a_string_without_a_key_alone():
     assert base.redact("Connection aborted") == "Connection aborted"
+
+
+def test_google_books_asks_once_on_a_503(tmp_path, monkeypatch):
+    # Pins retry_server_errors = False. The reason is timing, not quota:
+    # Google's 503s come in windows, a retry 5-10s later lands in the same
+    # one, and the next run - which asks again anyway - is what succeeds.
+    # One request per visit also keeps harvest_run's rate per-request.
+    from humble_catalog import db
+    from humble_catalog.sources.google_books import GoogleBooks
+    monkeypatch.setattr(base.time, "sleep", lambda s: None)
+    conn = db.connect(tmp_path / "t.db")
+    http = Mock()
+    http.request.return_value = _resp(503)
+    with pytest.raises(requests.HTTPError):
+        GoogleBooks(conn, http=http, key="k").lookup("Gray Waters")
+    assert http.request.call_count == 1
