@@ -417,3 +417,12 @@ def test_lan_flags_need_lan(monkeypatch, capsys, flag):
     with pytest.raises(SystemExit):
         main()
     assert "needs --lan" in capsys.readouterr().err
+
+
+def test_login_dispatches_to_humble_api_login(monkeypatch):
+    from humble_catalog import humble_api
+    called = []
+    monkeypatch.setattr(humble_api, "login", lambda: called.append(True))
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "login"])
+    main()
+    assert called == [True]
