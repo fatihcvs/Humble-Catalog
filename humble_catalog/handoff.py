@@ -8,7 +8,10 @@ console, and that guard is kept, not reimplemented. So `serve` steps
 down, runs the command with the console's own stdin and stdout, and
 comes back when it exits.
 """
+import os
+import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from humble_catalog import jobs
@@ -64,3 +67,82 @@ def argv(command, options=None, snapshot=None, backups_dir="backups"):
     elif snapshot is not None:
         raise ValueError(f"{command} does not take a snapshot")
     return line + jobs.flags(command, COMMANDS[command], options)
+
+
+class HandoffSlot:
+    """The one handoff a route has asked for, and how the last one ended.
+
+    A route calls request(); the serve loop calls take() between polls,
+    runs the command, then finish(). `generation` counts finished
+    handoffs, and the page reloads once it has moved past the value its
+    request was answered with. That is how the page tells "the server is
+    back" from "the server has not gone down yet".
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pending = None
+        self._active = None
+        self.generation = 0
+        self.last = None
+
+    def request(self, command, line):
+        with self._lock:
+            held = self._pending or self._active
+            if held is not None:
+                raise jobs.Busy(f"{held['command']} is already being handed "
+                                "to the terminal")
+            self._pending = {"command": command, "argv": list(line)}
+            return self.generation
+
+    def busy(self):
+        with self._lock:
+            held = self._pending or self._active
+            return held["command"] if held else None
+
+    def take(self):
+        with self._lock:
+            req, self._pending = self._pending, None
+            if req is not None:
+                self._active = req
+            return req
+
+    def finish(self, exit_code):
+        with self._lock:
+            command = self._active["command"] if self._active else None
+            self.last = {"command": command, "exit_code": exit_code,
+                         "finished_at": jobs._now()}
+            self._active = None
+            self.generation += 1
+
+    def state(self):
+        with self._lock:
+            held = self._pending or self._active
+            return {"generation": self.generation,
+                    "pending": held["command"] if held else None,
+                    "last": dict(self.last) if self.last else None}
+
+
+def run_in_terminal(command, line, _run=subprocess.run):
+    """Run a handoff command in this console. Returns its exit code, or
+    None when it never finished (Ctrl-C, or it could not start).
+
+    Deliberately no stdin/stdout/stderr arguments: the child inherits the
+    console, which is the entire point. No creationflags either. The job
+    runner's CREATE_NEW_PROCESS_GROUP would detach it from Ctrl-C, and
+    here the user's Ctrl-C is meant for exactly this child.
+
+    Ctrl-C reaches the child and this process alike. It is caught here so
+    that it aborts the command and not the viewer. A second Ctrl-C, once
+    the viewer is back, quits `serve` as it always has.
+    """
+    print(f"\n--- The viewer handed `{command}` to this terminal. It comes "
+          "back when the command finishes. ---\n", flush=True)
+    try:
+        return _run(line, cwd=os.getcwd()).returncode
+    except KeyboardInterrupt:
+        print(f"\n`{command}` interrupted. Bringing the viewer back.")
+        return None
+    except OSError as exc:
+        print(f"Could not start `{command}`: {exc}")
+        return None

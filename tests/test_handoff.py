@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-from humble_catalog import handoff
+from humble_catalog import handoff, jobs
 
 
 def _snap(d, stamp, covers=False):
@@ -90,3 +90,61 @@ def test_list_backups_leaves_out_raw_copies_of_a_damaged_catalog(tmp_path):
 
 def test_list_backups_of_a_missing_directory_is_empty(tmp_path):
     assert handoff.list_backups(tmp_path / "nope") == []
+
+
+def test_a_slot_holds_one_handoff_until_it_is_finished():
+    slot = handoff.HandoffSlot()
+    assert slot.request("reset", ["x"]) == 0
+    with pytest.raises(jobs.Busy, match="reset"):
+        slot.request("login", ["y"])
+    assert slot.take() == {"command": "reset", "argv": ["x"]}
+    # Taken is not free: until the command has run and the viewer is back,
+    # a second request would queue a handoff nobody asked for twice.
+    assert slot.busy() == "reset"
+    with pytest.raises(jobs.Busy):
+        slot.request("login", ["y"])
+    slot.finish(0)
+    assert slot.busy() is None
+    assert slot.state()["generation"] == 1
+    assert slot.state()["last"]["command"] == "reset"
+    assert slot.state()["last"]["exit_code"] == 0
+
+
+def test_take_on_an_empty_slot_is_none():
+    assert handoff.HandoffSlot().take() is None
+
+
+def test_run_in_terminal_inherits_the_console(capsys):
+    seen = {}
+
+    class Done:
+        returncode = 3
+
+    def fake_run(line, **kw):
+        seen["line"], seen["kw"] = line, kw
+        return Done()
+
+    assert handoff.run_in_terminal("reset", ["a", "b"], _run=fake_run) == 3
+    assert seen["line"] == ["a", "b"]
+    # No stdio redirection and no shell: inheriting the console is what
+    # lets reset read RESET and puts the login window in front.
+    for key in ("stdin", "stdout", "stderr", "shell", "creationflags"):
+        assert key not in seen["kw"]
+    out = capsys.readouterr().out
+    assert "reset" in out and "viewer" in out.lower()
+
+
+def test_run_in_terminal_survives_ctrl_c(capsys):
+    def interrupted(line, **kw):
+        raise KeyboardInterrupt
+
+    assert handoff.run_in_terminal("login", ["a"], _run=interrupted) is None
+    assert "interrupted" in capsys.readouterr().out.lower()
+
+
+def test_run_in_terminal_survives_a_failed_spawn(capsys):
+    def missing(line, **kw):
+        raise FileNotFoundError("no python")
+
+    assert handoff.run_in_terminal("login", ["a"], _run=missing) is None
+    assert "could not start" in capsys.readouterr().out.lower()
