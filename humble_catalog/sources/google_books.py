@@ -8,16 +8,21 @@ class GoogleBooks(Source):
     name = "google_books"
     delay = 2.0
     secret_params = ("key",)
-    # The free quota is 1,000 requests a day and the worklist is ~2,300
-    # titles, so the budget - not the clock - is what decides how far a run
-    # gets. Google serves `503 backendFailed` often enough that retrying
-    # made the median title cost two to three requests, spending roughly
-    # half the day's allowance re-asking questions that already failed.
-    # A skipped title is not lost: it stays uncached, so the next run
-    # asks again when the walk reaches its place in the sorted worklist -
-    # ahead of every title the budget has not reached yet. Trading a
-    # same-run recovery for twice as many titles per day is the right way
-    # round when the source needs several days either way.
+    # A 503 is not asked again in the same run. The reason used to be the
+    # budget - 1,000 requests a day against a worklist that took days - and
+    # the run tally retired it: the quota has died once, on 2026-07-31,
+    # and the worklist is now fully answered, with new titles arriving a
+    # purchase at a time. What still holds is timing. Google's
+    # `503 backendFailed` comes in windows (76% of first attempts on
+    # 2026-09-16, and every one of those titles answered on the next run
+    # three days later), so a retry 5-10s on lands in the same window: the
+    # one measurement taken with retries on had the median title costing
+    # two to three requests. A skipped title is not lost - it stays
+    # uncached and the next run asks again, which is the retry that works.
+    # One request per visit also keeps harvest_run's rate a per-request
+    # rate, comparable with every run since the tally began.
+    # If the quota starts dying again the old reason returns on top.
+    # See #1, #3 and #4.
     retry_server_errors = False
 
     def __init__(self, conn, http=None, key=None, offline=False):

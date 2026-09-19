@@ -60,11 +60,13 @@ def _with_retries(send, retry_server_errors=True):
     the caller's fallback.
 
     `retry_server_errors=False` drops 5xx out of that set, for a source
-    whose quota is the binding constraint: a 5xx came *from* the provider,
-    so it was served and almost certainly counted, and asking three times
-    spends three of the day's budget to answer one question. Connection
-    errors and timeouts keep retrying either way - those may never have
-    reached the provider's quota system, so the same trade does not apply.
+    whose server errors come in windows longer than this backoff: a retry
+    5-10s on meets the same outage, costs a request (a 5xx came *from*
+    the provider, so it was almost certainly counted against any quota)
+    and holds the source's thread for the sleep, while the title stays
+    uncached for the next run to ask. Connection errors and timeouts keep
+    retrying either way - those are usually local and brief, and may
+    never have reached the provider at all.
 
     At three attempts this is numerically identical to the linear schedule
     it replaces; the exponential form states the intended policy so that
@@ -87,8 +89,9 @@ def _with_retries(send, retry_server_errors=True):
 class Source:
     name = "base"
     delay = 2.0
-    # Whether a 5xx is worth asking again. True everywhere except where a
-    # provider's daily quota is the binding constraint - see google_books.
+    # Whether a 5xx is worth asking again within the run. True everywhere
+    # except where a provider's outages outlast the backoff - see
+    # google_books.
     retry_server_errors = True
     # Query params that authenticate the request rather than describe it.
     # They are sent, but kept out of the cache key: keying on a credential
