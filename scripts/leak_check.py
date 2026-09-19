@@ -116,6 +116,19 @@ ALLOWED = {t.lower() for t in [
     # docs/TEST-DATA.md already lists "Dune (Audiobook)" as standing test
     # vocabulary — and owning it says nothing about anyone.
     "The Murderbot Diaries", "Frank Herbert", "Dune",
+    #
+    # Added 2026-09-20, after a harvest grew the term set by ~220. Two
+    # genre labels and one series name, all already whole words in
+    # committed text and in pushed history, which cannot be reworded.
+    # "Space" is the literal word in the title and dedupe normalizers
+    # ("Punctuation -> space"); "Science Fiction & Fantasy" is a genre in
+    # the PUBLIC hardcover fixture, alongside the Murderbot data already
+    # allowed here; and "The Way" matches ordinary prose throughout the
+    # source and docs ("three-quarters of the way in"), exactly as "The
+    # Outside" and "The Score" above do. A genre is a category rather
+    # than a possession, and a phrase this common is indistinguishable
+    # from the prose around it.
+    "Space", "Science Fiction & Fantasy", "The Way",
 ]}
 
 
