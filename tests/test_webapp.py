@@ -10,7 +10,7 @@ import requests
 from unittest.mock import Mock
 from openpyxl import load_workbook
 from humble_catalog import db, export, stats
-from humble_catalog import lan as lanmod, webapp as webmod
+from humble_catalog import handoff as handoffmod, lan as lanmod, webapp as webmod
 from humble_catalog.webapp import create_app, create_lan_app
 
 
@@ -2582,7 +2582,7 @@ def _stub_servers(monkeypatch):
 
     monkeypatch.setattr(webmod, "make_server",
                         lambda host, port, app, **kw: FakeServer(host, port, app, **kw))
-    monkeypatch.setattr(webmod, "_run_all", lambda servers: None)
+    monkeypatch.setattr(webmod, "_run_all", lambda servers, slot=None: None)
     monkeypatch.setattr(webmod.webbrowser, "open", lambda url: None)
     monkeypatch.setattr(lanmod, "lan_address", lambda: "192.168.1.20")
     return built
@@ -2739,3 +2739,113 @@ def test_serve_lan_builds_the_lan_server_with_the_quiet_handler(tmp_path, monkey
     loop, lan_srv = built
     assert lan_srv.kw["request_handler"] is webmod.LanRequestHandler
     assert "request_handler" not in loop.kw
+
+
+def test_create_app_alone_has_no_handoff(tmp_path):
+    # The demo server and launch.json call create_app().run(): no serve
+    # loop, so nothing could ever drain a handoff.
+    assert create_app(db_path=str(tmp_path / "c.db")).config["HANDOFF"] is None
+
+
+def test_serve_without_lan_goes_through_the_loop(tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087)
+    [loop] = built
+    assert (loop.host, loop.port) == ("127.0.0.1", 8087)
+    assert isinstance(loop.app.config["HANDOFF"], handoffmod.HandoffSlot)
+    assert "http://127.0.0.1:8087/" in capsys.readouterr().out
+
+
+def _handoff_once(monkeypatch, run_result):
+    """_run_all hands off once, then the user presses Ctrl-C."""
+    calls = []
+
+    def fake_run_all(servers, slot=None):
+        calls.append(servers)
+        if len(calls) == 1:
+            slot.request("reset", ["python", "-m", "humble_catalog", "reset"])
+            return slot.take()
+        return None
+
+    ran = []
+
+    def fake_terminal(command, line):
+        ran.append((command, line))
+        if isinstance(run_result, Exception):
+            raise run_result
+        return run_result
+
+    monkeypatch.setattr(webmod, "_run_all", fake_run_all)
+    monkeypatch.setattr(handoffmod, "run_in_terminal", fake_terminal)
+    return calls, ran
+
+
+@pytest.mark.parametrize("lan", [None, "lan"])
+def test_a_handoff_runs_the_command_then_rebinds_the_same_apps(
+        tmp_path, monkeypatch, lan):
+    built = _stub_servers(monkeypatch)
+    calls, ran = _handoff_once(monkeypatch, 0)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087,
+                 lan=lanmod.LanOptions() if lan else None)
+    assert [c for c, _ in ran] == ["reset"]
+    assert len(calls) == 2                       # served, handed off, served
+    per_round = len(built) // 2
+    first, second = built[:per_round], built[per_round:]
+    # The same app objects, so the job runner's history and the slot's
+    # generation survive the restart.
+    assert [s.app for s in first] == [s.app for s in second]
+    slot = first[0].app.config["HANDOFF"]
+    assert slot.state()["generation"] == 1
+    assert slot.state()["last"]["exit_code"] == 0
+    assert slot.busy() is None
+
+
+def test_a_crashing_handoff_still_brings_the_viewer_back(
+        tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    calls, _ran = _handoff_once(monkeypatch, RuntimeError("boom"))
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087)
+    assert len(calls) == 2 and len(built) == 2
+    slot = built[0].app.config["HANDOFF"]
+    assert slot.state()["last"]["exit_code"] is None
+    assert "boom" in capsys.readouterr().err
+
+
+def test_the_browser_opens_once_not_after_every_handoff(tmp_path, monkeypatch):
+    _stub_servers(monkeypatch)
+    opened = []
+    monkeypatch.setattr(webmod.webbrowser, "open", lambda url: opened.append(url))
+    _handoff_once(monkeypatch, 0)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087)
+    # The page reconnects by itself; a second open would be a second tab.
+    assert opened == ["http://127.0.0.1:8087/"]
+
+
+def test_run_all_stops_for_a_handoff_and_shuts_every_server():
+    import threading
+
+    class Server:
+        def __init__(self):
+            self.stop = threading.Event()
+            self.closed = False
+        def serve_forever(self):
+            self.stop.wait(5)
+        def shutdown(self):
+            self.stop.set()
+        def server_close(self):
+            self.closed = True
+
+    slot = handoffmod.HandoffSlot()
+    slot.request("login", ["x"])
+    servers = [Server(), Server()]
+    req = webmod._run_all(servers, slot)
+    assert req == {"command": "login", "argv": ["x"]}
+    assert all(s.stop.is_set() and s.closed for s in servers)
