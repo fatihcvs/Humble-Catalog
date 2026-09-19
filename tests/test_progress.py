@@ -170,3 +170,64 @@ def test_harvest_finish_names_a_paused_source_with_its_reset_time(tmp_path, monk
     tail = out.getvalue()
     assert "audible" in tail and "2026-07-27T08:00" in tail
     assert "out of quota" in tail
+
+class _Clock:
+    """A monotonic clock the test moves by hand."""
+    def __init__(self):
+        self.t = 1000.0
+    def __call__(self):
+        return self.t
+
+def _status(conn):
+    return conn.execute("SELECT done, updated_at FROM run_status "
+                        "WHERE command='harvest'").fetchone()
+
+def test_harvest_ticks_inside_the_interval_cost_no_commit(tmp_path):
+    # Per-title commits were ~1 ms each and made a fully cached harvest
+    # take 23s; nobody reads a counter that fast.
+    conn, clock = db.connect(tmp_path / "t.db"), _Clock()
+    prog = HarvestProgress(conn, {"oreilly": 500}, stream=io.StringIO(),
+                           _clock=clock)
+    prog.tick("oreilly")                    # the first tick shows at once
+    assert _status(conn)["done"] == 1
+    for _ in range(98):
+        prog.tick("oreilly")
+    assert _status(conn)["done"] == 1       # held: inside the interval
+    assert prog.done["oreilly"] == 99       # but counted
+    clock.t += 0.3
+    prog.tick("oreilly")
+    assert _status(conn)["done"] == 100     # the interval passed: flushed
+
+def test_harvest_falls_back_to_few_lines_not_one_per_title(tmp_path, capsys):
+    conn, clock = db.connect(tmp_path / "t.db"), _Clock()
+    prog = HarvestProgress(conn, {"oreilly": 300}, _clock=clock)
+    for _ in range(300):
+        prog.tick("oreilly")
+    prog.finish(set())
+    lines = [l for l in capsys.readouterr().out.splitlines()
+             if l.startswith("harvest  ")]
+    assert len(lines) <= 3
+    assert lines[-1] == "harvest  oreilly 300/300 done"
+
+def test_settle_flushes_a_held_count(tmp_path, monkeypatch):
+    # A source's last count must reach both the screen and run_status,
+    # however soon after the previous flush it finished.
+    monkeypatch.setattr("humble_catalog.progress._enable_ansi", lambda s: True)
+    conn, out, clock = db.connect(tmp_path / "t.db"), _Tty(), _Clock()
+    prog = HarvestProgress(conn, {"oreilly": 3, "audible": 3}, stream=out,
+                           _clock=clock)
+    for _ in range(3):
+        prog.tick("oreilly")
+    assert "oreilly 1/3" in _frame(out)     # two ticks held
+    prog.settle("oreilly", failed=False)
+    assert "oreilly 3/3 100% +" in _frame(out)
+    assert _status(conn)["done"] == 3
+
+def test_finish_records_the_final_count(tmp_path):
+    conn, clock = db.connect(tmp_path / "t.db"), _Clock()
+    prog = HarvestProgress(conn, {"oreilly": 5}, stream=io.StringIO(),
+                           _clock=clock)
+    for _ in range(5):
+        prog.tick("oreilly")
+    prog.finish(set())
+    assert _status(conn)["done"] == 5

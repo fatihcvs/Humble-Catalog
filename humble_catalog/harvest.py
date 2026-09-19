@@ -1,10 +1,10 @@
 import sys
 import threading
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from humble_catalog import db, failures, quota, runs, stats
 from humble_catalog.enrich import SOURCE_ORDER, SOURCE_CLASSES
-from humble_catalog.progress import HarvestProgress, duration
+from humble_catalog.progress import FLUSH_EVERY, HarvestProgress, duration
 from humble_catalog.sources.base import CacheMiss, redact
 from humble_catalog.titles import clean_title
 
@@ -146,7 +146,9 @@ def _recover_interrupted(conn):
     """Record a row for every run that began and never recorded one.
 
     Its window runs from the marker to run_status's last update. For a
-    run killed at a terminal that is its last progress tick; for one the
+    run killed at a terminal that is its last progress flush, which can
+    trail its last write by up to FLUSH_EVERY, so the window is held open
+    that much longer; for one the
     viewer cancelled it is when jobs._finalize_row marked it done, at the
     kill. Either way the window closes near the death, which matters:
     enrich and the viewer's url import write the cache too, and counting
@@ -181,7 +183,11 @@ def _recover_interrupted(conn):
                 or (later is not None and status["started_at"] >= later)):
             runs.close(conn, started)
             continue
-        until = status["updated_at"]
+        # run_status is flushed at most every FLUSH_EVERY, so a run killed
+        # at a terminal can have written rows just after its last stamp.
+        last = status["updated_at"]
+        until = (datetime.fromisoformat(last)
+                 + timedelta(seconds=FLUSH_EVERY)).isoformat()
         tallies = {}
         for name in SOURCE_CLASSES:
             hit = quota.hit_at(conn, name)
@@ -192,7 +198,7 @@ def _recover_interrupted(conn):
             if any(tally[1:]):
                 tallies[name] = tally
         if tallies:
-            runs.record(conn, started, until, tallies, interrupted=True)
+            runs.record(conn, started, last, tallies, interrupted=True)
         else:
             runs.close(conn, started)
 
