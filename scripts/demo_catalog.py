@@ -97,6 +97,29 @@ DEMO_ROWS = [
 ]
 
 
+# Each row's cover shape as (width, height), for make_demo_covers.py.
+# A spread for the layout: tall books and comics, square audiobooks and
+# albums, one wide banner (the floated cover's hardest case), and three
+# rows with no cover at all, so the coverless card and the "No cover"
+# filter stay visible. Merged into DEMO_ROWS as each row's `cover`.
+DEMO_COVERS = {
+    "widget_2e": (2, 3), "widget_2nd": (2, 3), "quiet_harbor": (2, 3),
+    "quiet_life": (2, 3), "cafe_clocks": (2, 3),
+    "axebearer": (1, 1), "starless_war": (1, 1),
+    "shadowhound_v1": (2, 3),
+    "cooltower_android": (16, 9),
+    "some_album": (1, 1),
+    # no cover: unrelated, moonfall_v1, cooltower_ost
+}
+for _row in DEMO_ROWS:
+    if _row["mn"] in DEMO_COVERS:
+        _row["cover"] = DEMO_COVERS[_row["mn"]]
+
+# The committed covers (see make_demo_covers.py). Served read-only as the
+# demo's covers_dir; never the real covers/.
+COVERS_DIR = Path(__file__).resolve().parent / "demo_covers"
+
+
 def seed(db_path):
     """Build a demo catalog at `db_path`, replacing any existing rows.
 
@@ -115,11 +138,15 @@ def seed(db_path):
     for row in DEMO_ROWS:
         cur = conn.execute(
             "INSERT INTO items (machine_name, name, type, publisher, "
-            "my_rating, user_tags, user_comment, read_status) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "my_rating, user_tags, user_comment, read_status, cover_path) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (row["mn"], row["name"], row["type"], row.get("publisher"),
              row.get("rating"), db.tags_to_json(row.get("tags")),
-             row.get("comment"), row.get("read_status", "unread")))
+             row.get("comment"), row.get("read_status", "unread"),
+             # The viewer draws /<cover_path> and serves /covers/<file>
+             # from covers_dir, so the prefix is covers/ whatever folder
+             # the files actually sit in.
+             f"covers/{row['mn']}.svg" if row.get("cover") else None))
         item_id = cur.lastrowid
         conn.execute("INSERT INTO item_bundles (item_id, gamekey) VALUES (?,?)",
                      (item_id, row["bundle"]))
@@ -150,11 +177,8 @@ def main():
     print(f"Demo catalog: {db_path}")
     print(f"Serving {len(DEMO_ROWS)} invented items on "
           f"http://127.0.0.1:{PORT}  (Ctrl+C to stop)")
-    # covers_dir points at a directory with no files, so every row draws
-    # its blank-cover state rather than reaching the real covers/.
-    create_app(db_path=str(db_path),
-               covers_dir=str(Path(tempfile.gettempdir()) /
-                              "humble-catalog-demo-covers")
+    # covers_dir is the committed invented covers, never the real covers/.
+    create_app(db_path=str(db_path), covers_dir=str(COVERS_DIR)
                ).run(host="127.0.0.1", port=PORT)
 
 

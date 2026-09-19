@@ -45,3 +45,73 @@ def test_every_row_lands_in_a_bundle(tmp_path):
     dbp = tmp_path / "demo.db"
     demo_catalog.seed(dbp)
     assert all(i["bundles"] for i in db.fetch_items(db.connect(dbp)))
+
+
+# ---- Demo covers ---------------------------------------------------------
+# Invented covers, committed as SVG so leak_check reads the titles inside
+# them like any other tracked text (a PNG would be pixels only a person
+# could review). They live in scripts/demo_covers/, never covers/, whose
+# real contents check_no_data_tracked.py refuses.
+import re                                              # noqa: E402
+
+import make_demo_covers                                # noqa: E402
+from humble_catalog.webapp import create_app           # noqa: E402
+
+COVERS = make_demo_covers.OUT_DIR
+
+
+def _size(svg_text):
+    w = re.search(r'<svg[^>]*\swidth="(\d+)"', svg_text).group(1)
+    h = re.search(r'<svg[^>]*\sheight="(\d+)"', svg_text).group(1)
+    return int(w), int(h)
+
+
+def test_every_named_cover_is_committed_at_its_ratio():
+    covered = [r for r in demo_catalog.DEMO_ROWS if r.get("cover")]
+    assert covered, "no demo row names a cover"
+    for row in covered:
+        w, h = _size((COVERS / f"{row['mn']}.svg").read_text(encoding="utf-8"))
+        rw, rh = row["cover"]
+        assert w * rh == h * rw, (row["mn"], (w, h), row["cover"])
+
+
+def test_the_covers_span_portrait_square_and_landscape():
+    # The point is to exercise the layout: a tall book, a square album
+    # and one wide banner, which is the float's hardest case.
+    shapes = {(1 if w > h else 0 if w == h else -1)
+              for w, h in (r["cover"] for r in demo_catalog.DEMO_ROWS
+                           if r.get("cover"))}
+    assert shapes == {-1, 0, 1}
+
+
+def test_some_rows_stay_coverless():
+    # The coverless card and the "No cover" filter are states to see too.
+    assert sum(1 for r in demo_catalog.DEMO_ROWS if not r.get("cover")) >= 2
+
+
+def test_committed_covers_match_the_generator():
+    # Regenerate with scripts/make_demo_covers.py after changing a row;
+    # this fails until the committed files catch up, and flags strays.
+    expected = make_demo_covers.render_all(demo_catalog.DEMO_ROWS)
+    on_disk = {p.name: p.read_text(encoding="utf-8")
+               for p in COVERS.glob("*.svg")}
+    assert on_disk == expected
+
+
+def test_seed_points_covered_rows_at_their_cover(tmp_path):
+    dbp = tmp_path / "demo.db"
+    demo_catalog.seed(dbp)
+    by_mn = {i["machine_name"]: i for i in db.fetch_items(db.connect(dbp))}
+    for row in demo_catalog.DEMO_ROWS:
+        want = f"covers/{row['mn']}.svg" if row.get("cover") else None
+        assert by_mn[row["mn"]]["cover_path"] == want, row["mn"]
+
+
+def test_the_viewer_serves_a_demo_cover(tmp_path):
+    dbp = tmp_path / "demo.db"
+    demo_catalog.seed(dbp)
+    row = next(r for r in demo_catalog.DEMO_ROWS if r.get("cover"))
+    client = create_app(db_path=str(dbp), covers_dir=str(COVERS)).test_client()
+    resp = client.get(f"/covers/{row['mn']}.svg")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/svg+xml"
