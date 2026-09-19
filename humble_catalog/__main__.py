@@ -15,6 +15,8 @@ RUNTIME_DEPENDENCIES = {
     "playwright": "playwright",
     "rapidfuzz": "rapidfuzz",
     "openpyxl": "openpyxl",
+    "cryptography": "cryptography",
+    "qrcode": "qrcode",
 }
 
 
@@ -142,6 +144,20 @@ def main():
     p_serve = sub.add_parser("serve", help="Open the searchable catalog")
     p_serve.add_argument("--port", type=int, default=8087,
                          help="Port to listen on (default: 8087)")
+    p_serve.add_argument("--lan", action="store_true",
+                         help="Also serve a read-only copy to paired devices "
+                              "on your home network, over HTTPS")
+    p_serve.add_argument("--lan-host", metavar="IP",
+                         help="The LAN address to listen on (default: "
+                              "detected)")
+    p_serve.add_argument("--lan-port", type=int, metavar="N",
+                         help="The LAN port (default: --port + 1)")
+    p_serve.add_argument("--setup", action="store_true",
+                         help="With --lan: also offer the certificate to "
+                              "install on a phone, once")
+    p_serve.add_argument("--new-token", action="store_true",
+                         help="With --lan: replace the pairing token, "
+                              "unpairing every device")
     p_export = sub.add_parser("export", help="Write the whole catalog to a "
                                              "CSV or XLSX file "
                                              "(Excel/Sheets-ready)")
@@ -289,7 +305,21 @@ def main():
             conn.close()
     elif args.command == "serve":
         from humble_catalog import webapp
-        webapp.serve(port=args.port)
+        needs_lan = [flag for flag, given in (
+            ("--lan-host", args.lan_host), ("--lan-port", args.lan_port),
+            ("--setup", args.setup), ("--new-token", args.new_token)) if given]
+        if needs_lan and not args.lan:
+            parser.error(f"{', '.join(needs_lan)} needs --lan")
+        if not args.lan:
+            webapp.serve(port=args.port)
+        else:
+            from humble_catalog.lan import LanOptions, LanStateError
+            try:
+                webapp.serve(port=args.port, lan=LanOptions(
+                    host=args.lan_host, port=args.lan_port,
+                    setup=args.setup, new_token=args.new_token))
+            except LanStateError as exc:
+                sys.exit(f"serve --lan: {exc}")
     elif args.command == "export":
         from humble_catalog import db, export
         # The suffix is the only format signal. A --format flag could only

@@ -111,11 +111,11 @@ function renderKeys() {
       <td>${r.revealed ? "yes" : "no"}</td>
       <td>${esc((KEY_STATES.find((s) => s.state === r.state) || {}).label
                 || r.state)}</td>
-      <td class="key-hide-cell">${
-        r.hidden_at ? esc(r.hidden_at.slice(0, 10)) + " " : ""}<button
+      <td class="key-actions-cell">${
+        r.hidden_at ? esc(r.hidden_at.slice(0, 10)) + " " : ""}${READ_ONLY ? "" : `<button
         class="key-hide" data-gamekey="${esc(r.gamekey)}"
         data-machine="${esc(r.machine_name)}">${
-        r.hidden_at ? "unhide" : "hide"}</button></td>
+        r.hidden_at ? "unhide" : "hide"}</button>`}</td>
     </tr>`).join("")}</tbody></table>
     </div>`;
 }

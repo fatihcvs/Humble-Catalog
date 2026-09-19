@@ -8,6 +8,11 @@
 // a script that ran earlier.
 let items = [];
 
+// True on the LAN viewer (serve --lan), set by shell.js from /api/status
+// before load() runs. Every write route is ABSENT there, not merely
+// refused, so this only decides what is worth drawing.
+let READ_ONLY = false;
+
 // The gap flags, defined once so the #f-flag filter (visible) cannot
 // disagree with what the Gaps section of the stats panel reports.
 // A gap is "a column is falsy". flag values match index.html's #f-flag
@@ -33,8 +38,12 @@ async function load() {
   // with a missing field threw here and left the table AND all three
   // panels empty, with nothing on screen to say why. Failures are now
   // contained and reported, so the rest of the page still comes up.
-  for (const step of [render, loadReview, loadDupes, refreshStats, loadKeys,
-                      renderTasks]) {
+  // The LAN viewer has no /api/review, /api/duplicates or /api/jobs, so
+  // their loaders would only log 404s.
+  const steps = READ_ONLY
+    ? [render, refreshStats, loadKeys]
+    : [render, loadReview, loadDupes, refreshStats, loadKeys, renderTasks];
+  for (const step of steps) {
     try {
       await step();
     } catch (err) {

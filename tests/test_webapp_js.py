@@ -948,6 +948,33 @@ def test_edit_tags_toggle_reveals_the_rename_controls():
     assert "genre-delete" in editing
 
 
+def _stats_panel(read_only, tag_edit_mode):
+    payload = _stats_payload([_section("genre", "Genres", [("Fantasy", 2)])])
+    return eval_js(
+        """(async () => {
+             app.setReadOnly(%s);
+             app.setFetch(() => Promise.resolve(
+               {json: () => Promise.resolve(%s)}));
+             await app.refreshStats();
+             app.setTagEditMode(%s);
+             app.renderStats();
+             return dom.writes["#stats-panel"];
+           })()""" % ("true" if read_only else "false", json.dumps(payload),
+                      "true" if tag_edit_mode else "false"))
+
+
+def test_read_only_stats_have_no_tag_editing_controls():
+    # The LAN app has no tag routes, so the controls would only fail.
+    # Even with edit mode left on, nothing to rename or delete is drawn.
+    for edit_mode in (False, True):
+        html = _stats_panel(True, edit_mode)
+        assert "Fantasy" in html
+        for marker in ("stat-edit-tags", "genre-rename", "genre-delete"):
+            assert marker not in html, (edit_mode, marker)
+    assert "stat-edit-tags" in _stats_panel(False, False)
+    assert "genre-rename" in _stats_panel(False, True)
+
+
 def test_render_stats_before_any_fetch_draws_nothing():
     # renderStats is re-run on a toggle, so it must cope with no data yet
     # rather than throwing and blanking the panel
@@ -1196,6 +1223,52 @@ def test_sidebar_collapse_persists():
               app.sidebarCollapsed()];
     })()""")
     assert stored == ["1", True]
+
+
+# A phone-width screen, as matchMedia reports it: every query the viewer
+# asks about (the 900 px sidebar and the 600 px cards) matches.
+_PHONE = "globalThis.matchMedia = () => ({matches: true, addEventListener() {}});"
+
+
+def test_on_a_phone_the_filters_button_opens_the_filters():
+    # Below 900 px style.css hides the filters unless #library-layout is
+    # .expanded, and the button used to toggle only .collapsed -- so on a
+    # phone every click left them hidden while aria-expanded said "true".
+    result = eval_js("""(() => {
+      %s
+      const layout = document.querySelector("#library-layout");
+      const btn = document.querySelector("#sidebar-toggle");
+      const state = () => [layout.classList.contains("expanded"),
+                           btn.getAttribute("aria-expanded")];
+      app.applySidebar();
+      const closed = state();
+      app.toggleSidebar();
+      const opened = state();
+      app.toggleSidebar();
+      return {closed, opened, reclosed: state(),
+              stored: globalThis.localStorage.getItem("hc-sidebar")};
+    })()""" % _PHONE)
+    assert result["closed"] == [False, "false"]     # starts hidden on a phone
+    assert result["opened"] == [True, "true"]
+    assert result["reclosed"] == [False, "false"]
+    # Opening them on a phone is for this page only; the saved desktop
+    # choice is untouched.
+    assert result["stored"] is None
+
+
+def test_a_desktop_collapse_does_not_trap_the_phone_filters():
+    # .collapsed hides the filters outright, so a collapse saved on the PC
+    # must not be applied on a phone, or the button could never open them.
+    result = eval_js("""(() => {
+      app.setStored("hc-sidebar", "1");
+      %s
+      const layout = document.querySelector("#library-layout");
+      app.applySidebar();
+      const collapsed = layout.classList.contains("collapsed");
+      app.toggleSidebar();
+      return [collapsed, layout.classList.contains("expanded")];
+    })()""" % _PHONE)
+    assert result == [False, True]
 
 
 def test_active_filters_are_summarised_outside_the_sidebar():
@@ -1833,3 +1906,149 @@ def test_job_panel_survives_a_running_job_with_no_progress_row_yet():
     assert eval_js_error("""renderJobPanel({
       running: {command: "check", started_at: "t"},
       progress: [], log: [], last: null})""") is None
+
+
+# --- Read-only mode (the LAN viewer) ------------------------------------
+
+def _render_row(read_only, **overrides):
+    item = json.dumps(_item(
+        status="matched", edited=True, source_url="https://example.com/b",
+        bundles=[{"name": "Bundle One", "url": "https://www.humblebundle.com/downloads?key=k1",
+                  "purchased_at": "2020-01-01"}], **overrides))
+    return eval_js(
+        """(() => { app.setReadOnly(%s); app.setItems([%s]); dom.reset();
+                    app.render(); return dom.writes["#catalog tbody"]; })()"""
+        % ("true" if read_only else "false", item))
+
+
+def test_read_only_rows_have_no_editing_controls():
+    html = _render_row(True)
+    assert "<select" not in html
+    # data-n marks the clickable star widget; read-only stars are plain
+    # text (class "star-text"), so matching on a class prefix would not do.
+    for marker in ('class="edit"', 'class="redo"', 'class="revert"',
+                   'class="override"', 'data-n="'):
+        assert marker not in html, marker
+    assert "★★★★" in html                      # the rating, as text
+    assert "downloads?key=k1" in html          # the download link stays
+    assert "Unread" in html                    # status as text
+
+
+def test_the_full_viewer_still_renders_its_controls():
+    html = _render_row(False)
+    assert "<select" in html and 'class="edit"' in html
+
+
+def test_read_only_mode_hides_the_write_sections():
+    result = eval_js("""(() => {
+        app.applyMode(true);
+        return ["library", "maintenance", "keys", "bundles", "tasks"]
+          .map((id) => document.querySelector("#tab-" + id).hidden);
+      })()""")
+    assert result == [False, True, False, True, True]
+
+
+def test_a_bookmark_to_a_hidden_section_lands_on_library():
+    assert eval_js("""(() => { app.applyMode(true);
+        location.hash = "#/tasks"; return app.currentSection(); })()""") == "library"
+
+
+def test_read_only_load_does_not_ask_for_write_only_data():
+    urls = eval_js("""(async () => {
+        const seen = [];
+        app.setReadOnly(true);
+        app.setFetch((url) => { seen.push(url); return Promise.resolve({
+          json: () => Promise.resolve(
+            url === "/api/items" ? {items: []} :
+            url === "/api/stats" ? {total: 0, sections: []} :
+            url === "/api/keys"  ? {rows: []} : {})}); });
+        await app.load();
+        return seen;
+      })()""")
+    assert "/api/review" not in urls and "/api/duplicates" not in urls
+    assert "/api/jobs" not in urls
+
+
+def test_polling_starts_only_once_the_mode_is_known():
+    # Before boot() has read /api/status, READ_ONLY is still false, so a
+    # poll started alongside boot() asked the LAN app for /api/jobs.
+    result = eval_js("""(async () => {
+        const seen = [], intervals = [];
+        globalThis.setInterval = (fn, ms) => { intervals.push(ms); return 1; };
+        app.setFetch((url) => { seen.push(url); return Promise.resolve({
+          json: () => Promise.resolve(
+            url === "/api/status" ? {read_only: true, runs: []} :
+            url === "/api/items" ? {items: []} :
+            url === "/api/stats" ? {total: 0, sections: []} :
+            url === "/api/keys"  ? {rows: []} : {})}); });
+        await app.start();
+        return {seen, intervals, readOnly: app.getReadOnly()};
+      })()""")
+    assert result["readOnly"] is True
+    assert result["seen"][0] == "/api/status"
+    assert "/api/jobs" not in result["seen"]
+    assert result["intervals"] == [5000]
+
+
+def test_read_only_keys_have_no_hide_button():
+    # _with_keys (defined earlier in this file) loads the standard key
+    # payload; the panel is rendered again once read-only mode is on.
+    html = _with_keys(
+        '(app.setReadOnly(true), app.renderKeys(), dom.writes["#keys-panel"])')
+    assert "Amber Hollow" in html              # the rows still render
+    assert "key-hide" not in html
+
+
+def test_cards_carry_the_title_series_and_download_link():
+    item = json.dumps(_item(
+        name="The Quiet Harbor: A Novel", series="Harbor Tales", series_number=2,
+        my_rating=4, formats=["epub", "pdf"],
+        bundles=[{"name": "Bundle One", "url": "https://www.humblebundle.com/downloads?key=k1",
+                  "purchased_at": "2020-01-01"}]))
+    html = eval_js(f"app.renderCards([{item}])")
+    assert html.count('<article class="card"') == 1
+    assert "The Quiet Harbor: A Novel" in html
+    assert "Harbor Tales #2" in html
+    assert 'class="card-link" href="https://www.humblebundle.com/downloads?key=k1"' in html
+    assert "★★★★" in html and "epub, pdf" in html
+
+
+def test_a_card_without_a_cover_draws_no_cover_box():
+    # An empty placeholder reserved a blank column on every coverless card;
+    # with the cover floated, no cover should mean full-width text.
+    html = eval_js(f"app.renderCards([{json.dumps(_item(cover_path=None))}])")
+    assert "card-cover" not in html
+    with_cover = eval_js(
+        f"app.renderCards([{json.dumps(_item(cover_path='covers/1.jpg'))}])")
+    assert '<img class="card-cover" src="/covers/1.jpg"' in with_cover
+
+
+def test_cards_survive_missing_fields():
+    # Same tolerance tagBadges and person have: an older server or a partial
+    # payload must not blank the page.
+    item = json.dumps(_item(bundles=None, authors=None, user_tags=None,
+                            formats=None, read_status=None))
+    assert eval_js(f"app.renderCards([{item}])").count('<article class="card"') == 1
+
+
+def test_a_narrow_screen_renders_cards_instead_of_the_table():
+    result = eval_js("""(() => {
+        globalThis.matchMedia = () => ({matches: true, addEventListener() {}});
+        app.setItems([%s]); dom.reset(); app.render();
+        return {cards: dom.writes["#card-list"] || "",
+                table: dom.writes["#catalog tbody"] || "",
+                tableHidden: document.querySelector("#table-wrap").hidden,
+                cardsHidden: document.querySelector("#card-list").hidden};
+      })()""" % json.dumps(_item()))
+    assert '<article class="card"' in result["cards"]
+    assert result["table"] == ""
+    assert result["tableHidden"] is True and result["cardsHidden"] is False
+
+
+def test_a_wide_screen_keeps_the_table():
+    result = eval_js("""(() => {
+        app.setItems([%s]); dom.reset(); app.render();
+        return {table: dom.writes["#catalog tbody"] || "",
+                cardsHidden: document.querySelector("#card-list").hidden};
+      })()""" % json.dumps(_item()))
+    assert "<tr>" in result["table"] and result["cardsHidden"] is True

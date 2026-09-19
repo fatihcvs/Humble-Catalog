@@ -126,10 +126,13 @@ Generated with `cryptography` (a new dependency):
 - `BasicConstraints(ca=True, path_length=0)`, and key usage limited to
   certificate signing.
 - **Name constraints** permitting only `10.0.0.0/8`, `172.16.0.0/12` and
-  `192.168.0.0/16`. An installed authority can normally vouch for any
-  site, so a leaked `ca.key` would let someone impersonate any website to
-  that phone. With the constraints, which Chrome enforces, it can vouch
-  only for private addresses.
+  `192.168.0.0/16`, plus the DNS name `invalid`. An installed authority
+  can normally vouch for any site, so a leaked `ca.key` would let someone
+  impersonate any website to that phone. With the constraints, which
+  Chrome enforces, it can vouch only for private addresses. The DNS entry
+  is needed because RFC 5280 leaves a name type unconstrained when no
+  subtree of that type is listed; `invalid` is a reserved TLD, so
+  permitting only it permits no real name.
 
 The server certificate is signed by the authority, carries the LAN IP as
 a `subjectAltName` IP entry, has extended key usage `serverAuth`, and is
@@ -160,8 +163,13 @@ and a QR code.
 `GET /pair?token=…`:
 
 - compares the token with `hmac.compare_digest`;
-- on a match, sets the cookie and redirects to `/`, so the token leaves
-  the address bar and is never sent as a referrer;
+- on a match, sets the cookie and answers a short page that refreshes
+  itself to `/`, with `Referrer-Policy: no-referrer`. The token leaves
+  the address bar and is never sent as a referrer. A page rather than a
+  303: a link opened from a QR-scanner app has no initiating site, and
+  Chrome may withhold a `SameSite=Strict` cookie on the redirected
+  request, while a same-origin refresh is an ordinary same-site
+  navigation;
 - otherwise answers 403 and prints the failed attempt, with the client
   address, on the console.
 
@@ -250,16 +258,17 @@ No test binds a real socket or touches the network.
   edited on purpose. The existing loopback tests show the full app is
   unchanged.
 - **Pairing.** The right token sets a cookie with `Secure`, `HttpOnly`
-  and `SameSite=Strict` and redirects to `/`. A wrong or missing token
+  and `SameSite=Strict` and answers a page that refreshes itself to
+  `/`. A wrong or missing token
   gets a 403. Every LAN route refuses a request without the cookie (a
   class test over all rules). Rotating the token invalidates an existing
   cookie.
 - **LAN host check.** A request with a foreign Host header gets a 403.
 - **Certificates** (inspected with `cryptography`). The authority has
-  `CA:true` and name constraints of exactly the three private ranges.
-  The server certificate carries the IP, chains to the authority,
-  expires in 30 days, and has `serverAuth`. A lone `ca.crt` or `ca.key`
-  raises the error above.
+  `CA:true` and name constraints of exactly the three private ranges and
+  the DNS name `invalid`. The server certificate carries the IP, chains
+  to the authority, expires in 30 days, and has `serverAuth`. A lone
+  `ca.crt` or `ca.key` raises the error above.
 - **`/api/status`** reports `read_only` correctly on both apps.
 - **Front end** (existing JS harness). Read-only mode renders no status
   `<select>` and no edit icons, and hides Maintenance, Bundles and Tasks.

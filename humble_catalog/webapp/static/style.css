@@ -443,7 +443,7 @@ a { color: var(--accent); }
 .key-hide { cursor: pointer; font-size: .85em; background: none;
             border: none; padding: 0; color: var(--accent);
             text-decoration: underline; font-family: inherit; }
-.key-hide-cell { white-space: nowrap; }
+.key-actions-cell { white-space: nowrap; }
 /* A hidden row is still readable, just visibly set aside -- it only
    appears when its chip is on, so it never needs to compete for
    attention with the rows that still need work. */
@@ -481,3 +481,49 @@ tr.key-is-hidden td { opacity: .6; }
 .job-hint { margin-top: .6rem; }
 .job-failed { color: var(--danger); }
 .job-cancelled { color: var(--muted); }
+
+/* The LAN viewer (serve --lan): the routes behind these are absent, so
+   the controls are not worth drawing. */
+body[data-mode="read-only"] #bulk-bar,
+body[data-mode="read-only"] #export,
+body[data-mode="read-only"] #export-format,
+body[data-mode="read-only"] #column-picker { display: none; }
+
+/* Card list (below 600 px). :not([hidden]) because a display rule would
+   otherwise override the hidden attribute. */
+/* The card list stands in for #table-wrap on a narrow screen, so it is the
+   Library's scroller too: body is overflow: hidden, and without these the
+   cards were clipped with nothing to scroll. align-content: start stops the
+   grid stretching its rows to fill that fixed height, which turned a single
+   search result into one card the height of the screen. */
+#card-list:not([hidden]) { display: grid; gap: .6rem; padding: .5rem 0;
+                           flex: 1; min-height: 0; overflow-y: auto;
+                           align-content: start; }
+/* The cover floats and the text wraps round it, then runs full width below.
+   Not a flexbox: a flex item stretches to the row's height, which pulled
+   every cover to the card's height and distorted it. flow-root makes the
+   card contain the float; .card-body must stay a plain block (no flex, no
+   overflow), or it would sit beside the cover as a column instead. */
+.card { display: flow-root; background: var(--surface);
+        border: 1px solid var(--border); border-radius: 6px; padding: .6rem; }
+.card-cover { float: left; width: 64px; height: auto;
+              margin: 0 .7rem .3rem 0; border-radius: 3px; }
+.card-title { display: block; overflow-wrap: anywhere; }
+.card-meta { font-size: .85rem; color: var(--muted); margin-top: .2rem; }
+/* A plain block, not a flex row: a flex row cannot wrap round the floated
+   cover, so it was pushed beside a tall one and its links squeezed into a
+   narrow column. Each link is an inline box instead, wrapping like a word;
+   the margin stands in for the old gap. */
+.card-links { margin-top: .4rem; }
+/* 44 px: the smallest comfortable touch target. */
+.card-link { display: inline-flex; align-items: center; min-height: 44px;
+             margin: 0 .4rem .4rem 0; vertical-align: top;
+             box-sizing: border-box; padding: .4rem .7rem; border-radius: 4px;
+             background: var(--surface-alt); color: var(--accent);
+             text-decoration: none; }
+@media (max-width: 600px) {
+  /* Measured at 375 px: Bundles was cut in half and Tasks off-screen. */
+  #tabs { overflow-x: auto; }
+  #tabs a { flex: none; white-space: nowrap; }
+}
+.star-text { color: var(--star); }

@@ -8,6 +8,9 @@ backups/
 .secrets/
 *.env
 
+# serve --lan: pairing token, certificate authority and its private key
+lan/
+
 # Claude Code local state. Machine-specific, not shared: settings.local.json
 # holds per-machine permissions and worktrees/ holds scratch checkouts. Both
 # were previously excluded only by this machine's global gitignore and

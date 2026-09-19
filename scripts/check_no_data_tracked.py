@@ -37,6 +37,7 @@ FORBIDDEN = [
     "Reference spreadsheets/*",
     ".secrets/*",
     ".playwright-profile/*",           # a logged-in browser session
+    "lan/*", "**/lan/*",               # serve --lan: token, CA private key
 ]
 
 # Exports the CLI writes at the repo root. Not private in themselves, but

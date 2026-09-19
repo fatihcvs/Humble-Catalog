@@ -6,7 +6,7 @@ The owner's HumbleBundle purchases are private. Nothing that reveals
 what they actually own may be committed to this repo:
 
 - Never commit `catalog.db*`, `Reference spreadsheets/`, `covers/`,
-  `cache/`, or any export of the catalog. They are gitignored; never
+  `cache/`, `lan/`, or any export of the catalog. They are gitignored; never
   weaken those rules or force-add them.
 - In committed text — docs, specs, tests, fixtures, commit messages —
   use invented or generic book titles and bundle names, never real
@@ -34,6 +34,10 @@ what they actually own may be committed to this repo:
   spot as images: judge it by eye before pasting it anywhere.
   `harvest --runs` is the opposite case and safe to share: it holds
   source names, counts and timestamps, never a title.
+- **The pairing link `serve --lan` prints is a credential.** Anyone
+  holding it can read the whole catalog from the home network. Like
+  `harvest --failures`, it is terminal output nothing scans: never paste
+  it into a commit, doc, issue or screenshot.
 - Run `.venv/Scripts/python scripts/leak_check.py` after adding tests,
   fixtures, or docs that name books, bundles, or people — it fails if
   anything from the real library appears in the repo.

@@ -1,14 +1,20 @@
 import base64
 import binascii
 import datetime as dt
+import hmac
 import io
 import json
+import re
 import shutil
 import tempfile
+import threading
+import time
 import webbrowser
 from pathlib import Path
 import requests
-from flask import Flask, Response, g, jsonify, request, send_from_directory
+from flask import (Flask, Response, current_app, g, jsonify, request,
+                   send_from_directory)
+from werkzeug.serving import WSGIRequestHandler, make_server
 from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
                             editions, export, humble_api, jobs, keys, stats,
                             url_import)
@@ -123,29 +129,24 @@ def _url_from_body():
     url = _json_object().get("url")
     return url.strip() if isinstance(url, str) else None
 
-def create_app(db_path="catalog.db", covers_dir="covers"):
+def _conn():
+    """The request's catalog connection, opened on first use.
+
+    Module-level rather than a closure inside create_app, so the read and
+    write route groups -- registered by separate functions, and on two
+    different apps -- share one definition of "the connection".
+    """
+    if "conn" not in g:
+        g.conn = db.connect(current_app.config["DB_PATH"])
+    return g.conn
+
+
+def _new_app(db_path, covers_dir, read_only):
+    """A bare app: config and connection teardown, no routes, no guards."""
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["DB_PATH"] = db_path
-    # One runner per app. Held in config rather than a module global so a
-    # test can swap in a stub, and so two apps in one process (the suite
-    # makes several) never share a job slot.
-    app.config["JOB_RUNNER"] = jobs.JobRunner(db_path=db_path)
-    covers = Path(covers_dir).resolve()
-
-    @app.before_request
-    def refuse_foreign_hosts():
-        # Before routing, so a foreign caller cannot reach any handler --
-        # not even by getting the content type right on a write.
-        if not host_is_loopback(request.headers.get("Host")):
-            return Response(
-                "Refused: the catalog viewer only answers requests "
-                "addressed to localhost.\n",
-                status=403, mimetype="text/plain")
-
-    def conn():
-        if "conn" not in g:
-            g.conn = db.connect(app.config["DB_PATH"])
-        return g.conn
+    app.config["COVERS_DIR"] = Path(covers_dir).resolve()
+    app.config["READ_ONLY"] = read_only
 
     @app.teardown_appcontext
     def close(_exc):
@@ -153,6 +154,20 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         if c is not None:
             c.close()
 
+    return app
+
+
+def _register_read_routes(app):
+    """The routes a read-only viewer needs, and nothing else.
+
+    This is the whole of what the LAN app serves (create_lan_app), so a
+    route belongs here only if it reads and a paired phone should reach
+    it. The maintenance reads (/api/review, /api/duplicates) are
+    deliberately NOT here: they are only useful beside the writes they
+    feed. test_lan_app_serves_only_the_pinned_read_routes pins this list.
+    """
+    conn = _conn
+    covers = app.config["COVERS_DIR"]
     @app.get("/")
     def index():
         return send_from_directory(app.static_folder, "index.html")
@@ -202,6 +217,18 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
         # always the whole key set, so there is nothing to pass, and
         # nothing about the library reaches a query string.
         return jsonify(keys.report(conn()))
+
+    @app.get("/api/status")
+    def status():
+        rows = conn().execute("SELECT * FROM run_status WHERE phase != 'done'").fetchall()
+        return jsonify({"runs": [dict(r) for r in rows],
+                        "read_only": app.config["READ_ONLY"]})
+
+
+def _register_write_routes(app):
+    """Every route that writes, runs a job, reaches the network, or feeds one
+    of those. Registered only by create_app, never on the LAN app."""
+    conn = _conn
 
     def _key_ref():
         """(gamekey, machine_name) from the request body, or (None, None).
@@ -841,14 +868,190 @@ def create_app(db_path="catalog.db", covers_dir="covers"):
             "SELECT * FROM run_status WHERE phase != 'done'")]
         return jsonify(state)
 
-    @app.get("/api/status")
-    def status():
-        rows = conn().execute("SELECT * FROM run_status WHERE phase != 'done'").fetchall()
-        return jsonify({"runs": [dict(r) for r in rows]})
+def create_app(db_path="catalog.db", covers_dir="covers"):
+    app = _new_app(db_path, covers_dir, read_only=False)
+    # One runner per app. Held in config rather than a module global so a
+    # test can swap in a stub, and so two apps in one process (the suite
+    # makes several) never share a job slot.
+    app.config["JOB_RUNNER"] = jobs.JobRunner(db_path=db_path)
 
+    @app.before_request
+    def refuse_foreign_hosts():
+        # Before routing, so a foreign caller cannot reach any handler --
+        # not even by getting the content type right on a write.
+        if not host_is_loopback(request.headers.get("Host")):
+            return Response(
+                "Refused: the catalog viewer only answers requests "
+                "addressed to localhost.\n",
+                status=403, mimetype="text/plain")
+
+    _register_read_routes(app)
+    _register_write_routes(app)
     return app
 
-def serve(db_path="catalog.db", port=8087):
-    app = create_app(db_path=db_path)
-    webbrowser.open(f"http://127.0.0.1:{port}/")
-    app.run(host="127.0.0.1", port=port)
+PAIR_COOKIE = "hc_lan"
+# Chrome caps cookie lifetime at 400 days; asking for more buys nothing.
+PAIR_MAX_AGE = 400 * 24 * 3600
+NOT_PAIRED = ("Not paired: open the pairing link that "
+              "`python -m humble_catalog serve --lan` prints.\n")
+# A page, not a 303. A link opened from a QR-scanner app has no initiating
+# site, and Chrome may withhold a SameSite=Strict cookie on the redirected
+# request; a same-origin refresh is an ordinary same-site navigation.
+PAIRED_PAGE = """<!doctype html><meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url=/">
+<title>Paired</title><p>Paired. <a href="/">Open the catalog</a>.</p>"""
+
+
+def _same_token(given, token):
+    # Bytes, because compare_digest refuses a str with non-ASCII in it,
+    # and a hostile query string is exactly where that would arrive.
+    return hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8"))
+
+
+def create_lan_app(db_path="catalog.db", covers_dir="covers", *, host, port,
+                   token):
+    """The read-only viewer a paired phone reaches over the LAN.
+
+    Registers the read group and nothing else, so a write route here is not
+    blocked, it is absent. Every request must name this app's own address
+    in Host (the LAN counterpart of refuse_foreign_hosts) and carry the
+    pairing cookie, except /pair, which is how the cookie is obtained.
+    """
+    if not token:
+        # Fails closed: an empty token would match an absent cookie.
+        raise ValueError("the LAN app needs a non-empty pairing token")
+    app = _new_app(db_path, covers_dir, read_only=True)
+    authority = f"{host}:{port}".lower()
+
+    @app.before_request
+    def guard():
+        if (request.headers.get("Host") or "").strip().lower() != authority:
+            return Response(
+                "Refused: this viewer only answers requests addressed to "
+                f"{authority}.\n", status=403, mimetype="text/plain")
+        if request.path == "/pair":
+            return None
+        if not _same_token(request.cookies.get(PAIR_COOKIE, ""), token):
+            return Response(NOT_PAIRED, status=403, mimetype="text/plain")
+        return None
+
+    @app.get("/pair")
+    def pair():
+        if not _same_token(request.args.get("token", ""), token):
+            print(f"serve --lan: refused a pairing attempt from "
+                  f"{request.remote_addr}")
+            return Response(NOT_PAIRED, status=403, mimetype="text/plain")
+        resp = Response(PAIRED_PAGE, mimetype="text/html")
+        resp.set_cookie(PAIR_COOKIE, token, max_age=PAIR_MAX_AGE, path="/",
+                        secure=True, httponly=True, samesite="Strict")
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        return resp
+
+    _register_read_routes(app)
+    return app
+
+_QUERY = re.compile(r"\?[^\s#]*")
+
+
+class LanRequestHandler(WSGIRequestHandler):
+    """Werkzeug's handler, minus the query string in the access log.
+
+    /pair?token=... would otherwise print the pairing token again for
+    every attempt, right or wrong. Only the logged line changes; the
+    request itself is untouched.
+    """
+
+    def log_request(self, code="-", size="-"):
+        kept = {k: self.__dict__[k] for k in ("path", "requestline")
+                if k in self.__dict__}
+        for k, v in kept.items():
+            setattr(self, k, _QUERY.sub("", v))
+        try:
+            super().log_request(code, size)
+        finally:
+            self.__dict__.update(kept)
+
+
+def _run_all(servers):
+    """Serve every server on its own thread until Ctrl-C, then stop all.
+
+    Polled with sleep() rather than join(): on Windows a bare join() is not
+    interrupted by Ctrl-C, so the process would ignore it.
+    """
+    threads = [threading.Thread(target=s.serve_forever, daemon=True)
+               for s in servers]
+    for t in threads:
+        t.start()
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for s in servers:
+            s.shutdown()
+            s.server_close()
+
+
+def serve(db_path="catalog.db", port=8087, lan=None):
+    if lan is None:
+        # Unchanged from before --lan existed.
+        app = create_app(db_path=db_path)
+        webbrowser.open(f"http://127.0.0.1:{port}/")
+        app.run(host="127.0.0.1", port=port)
+        return
+
+    from humble_catalog import lan as lanmod
+    # Everything that can be refused is checked before any file under lan/
+    # is written: a typo must not rotate the token or mint an authority.
+    lanmod.check_port(port, "--port")
+    lan_port = lan.port if lan.port is not None else port + 1
+    lanmod.check_port(lan_port, "--lan-port")
+    if lan.setup:
+        # The certificate download listens one above the LAN viewer.
+        lanmod.check_port(lan_port + 1, "--lan-port (--setup also uses "
+                          "the port above it)")
+    host = lan.host or lanmod.lan_address()
+    lanmod.private_address(host)
+
+    lan_dir = lanmod.lan_dir_for(db_path)
+    token = (lanmod.rotate_token(lan_dir) if lan.new_token
+             else lanmod.load_or_create_token(lan_dir))
+    _ca_key, ca_cert = lanmod.ensure_ca(lan_dir)
+    crt, key = lanmod.issue_server_cert(lan_dir, host)
+
+    # Every server is built -- and so every port bound -- before any
+    # starts, so a busy port stops the whole command rather than leaving
+    # half of it running.
+    wanted = [
+        ("127.0.0.1", port, create_app(db_path=db_path), {}),
+        (host, lan_port,
+         create_lan_app(db_path=db_path, host=host, port=lan_port, token=token),
+         {"ssl_context": lanmod.ssl_context(crt, key),
+          "request_handler": LanRequestHandler}),
+    ]
+    if lan.setup:
+        wanted.append((host, lan_port + 1, lanmod.ca_download_app(lan_dir), {}))
+    servers = []
+    for h, p, app, kw in wanted:
+        try:
+            servers.append(make_server(h, p, app, threaded=True, **kw))
+        except (OSError, SystemExit) as exc:
+            # Werkzeug 3.1 catches the bind OSError itself, prints a line
+            # and calls sys.exit(1); a raw OSError is caught too, in case
+            # it ever stops doing that.
+            for s in servers:
+                s.server_close()
+            detail = f" ({exc})" if isinstance(exc, OSError) else ""
+            raise lanmod.LanStateError(
+                f"cannot listen on {h}:{p}{detail} -- choose another port "
+                "with --lan-port (or --port for the viewer itself)") from exc
+
+    viewer_url = f"http://127.0.0.1:{port}/"
+    lanmod.print_instructions(
+        f"https://{host}:{lan_port}/pair?token={token}",
+        viewer_url=viewer_url,
+        ca_url=f"http://{host}:{lan_port + 1}/ca.crt" if lan.setup else None,
+        fingerprint=lanmod.ca_fingerprint(ca_cert) if lan.setup else None)
+    webbrowser.open(viewer_url)
+    _run_all(servers)

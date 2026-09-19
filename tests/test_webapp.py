@@ -1,14 +1,17 @@
 import io
 import json
 import re
+import ssl as _ssl
 import sys
 import tempfile
 from pathlib import Path
+import pytest
 import requests
 from unittest.mock import Mock
 from openpyxl import load_workbook
 from humble_catalog import db, export, stats
-from humble_catalog.webapp import create_app
+from humble_catalog import lan as lanmod, webapp as webmod
+from humble_catalog.webapp import create_app, create_lan_app
 
 
 def _viewer_js():
@@ -86,6 +89,53 @@ def test_only_the_table_scrolls_sideways():
     # viewport, so no panel can squeeze the table region any more
     assert "max-height: 50%" not in css
     assert 'section[id^="section-"]' in css
+
+def test_the_card_list_is_its_own_scroller():
+    # body is overflow: hidden, so the only vertical scroll in the Library
+    # is the scroller the content sits in. On a narrow screen render() hides
+    # #table-wrap and shows #card-list in its place, so the card list has to
+    # take that role too -- without it the cards were clipped at the bottom
+    # of the screen and could not be scrolled at all.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    rule = css[css.index("#card-list:not([hidden]) {"):]
+    rule = rule[:rule.index("}")]
+    for decl in ("flex: 1", "min-height: 0", "overflow-y: auto",
+                 # a grid in a fixed-height scroller stretches its rows to
+                 # fill it: one search result became a card 448 px tall
+                 "align-content: start"):
+        assert decl in rule, decl
+
+
+def _css_rule(css, selector):
+    body = css[css.index(selector + " {"):]
+    return body[:body.index("}")]
+
+
+def test_a_card_cover_keeps_its_proportions_and_text_flows_around_it():
+    # The card was a flexbox, and a flex item stretches to the row's height:
+    # the cover, given only a width, was pulled to the card's full height
+    # and distorted. It floats now, at its own proportions, with the text
+    # wrapping round it -- which needs the card to contain the float and
+    # the text block NOT to be a flex or formatting-context box, or the
+    # text would sit beside the cover in a column instead of flowing.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    card = _css_rule(css, ".card")
+    cover = _css_rule(css, ".card-cover")
+    assert "display: flow-root" in card and "flex" not in card
+    for decl in ("float: left", "height: auto"):
+        assert decl in cover, decl
+    # The link row too: a flex row cannot wrap round a float, so the whole
+    # row was pushed beside a tall cover and its links squeezed into a
+    # narrow column. As a plain block, each link wraps like a word.
+    assert "flex" not in _css_rule(css, ".card-links")
+    # .card-body needs no rule of its own; if one returns, it must not
+    # turn the text into a column beside the cover.
+    if ".card-body {" in css:
+        body = _css_rule(css, ".card-body")
+        assert "flex" not in body and "overflow" not in body
+
 
 def test_app_wires_every_registered_chip_filter():
     js = _viewer_js()
@@ -280,7 +330,7 @@ def test_type_override_and_status(tmp_path):
     assert client.post(f"/api/items/{item_id}/type",
                        json={"type": "comic"}).status_code == 200
     assert client.get("/api/items").get_json()["items"][0]["type"] == "comic"
-    assert client.get("/api/status").get_json() == {"runs": []}
+    assert client.get("/api/status").get_json() == {"runs": [], "read_only": False}
 
 
 # The write routes below answer a malformed body or an unknown item the way
@@ -2408,3 +2458,284 @@ def test_readme_does_not_still_claim_four_tabs():
     assert "four sections" not in readme
     assert "four tabs" not in readme
     assert "**Tasks**" in readme
+
+
+def test_status_reports_the_loopback_app_is_not_read_only(tmp_path):
+    # The front end decides whether to render editing controls from this
+    # flag, so the full viewer must say false, explicitly.
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    client = create_app(db_path=str(dbp)).test_client()
+    body = client.get("/api/status").get_json()
+    assert body["read_only"] is False
+    assert body["runs"] == []
+
+
+LAN_HOST, LAN_PORT, TOKEN = "192.168.1.20", 8088, "t" * 43
+LAN_BASE = f"https://{LAN_HOST}:{LAN_PORT}"
+# What the LAN app may serve. Adding a route to the read group fails this
+# test until the list is edited on purpose -- which is the point.
+LAN_RULES = {"/", "/static/<path:filename>", "/covers/<path:filename>",
+             "/api/items", "/api/stats", "/api/keys", "/api/status", "/pair"}
+
+
+def _lan_client(tmp_path, token=TOKEN):
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    app = create_lan_app(db_path=str(dbp), host=LAN_HOST, port=LAN_PORT,
+                         token=token)
+    return app, app.test_client()
+
+
+def _paired(client):
+    return client.get(f"/pair?token={TOKEN}", base_url=LAN_BASE)
+
+
+def test_lan_app_serves_only_the_pinned_read_routes(tmp_path):
+    app, _client = _lan_client(tmp_path)
+    rules = list(app.url_map.iter_rules())
+    assert {r.rule for r in rules} == LAN_RULES
+    for r in rules:
+        assert r.methods <= {"GET", "HEAD", "OPTIONS"}, (r.rule, r.methods)
+
+
+def test_every_lan_route_refuses_an_unpaired_request(tmp_path):
+    app, client = _lan_client(tmp_path)
+    for rule in app.url_map.iter_rules():
+        if rule.rule == "/pair":
+            continue
+        path = rule.rule.replace("<path:filename>", "x")
+        resp = client.get(path, base_url=LAN_BASE)
+        assert resp.status_code == 403, rule.rule
+        assert b"Not paired" in resp.data, rule.rule
+
+
+def test_pairing_sets_a_strict_secure_cookie_and_leaves_the_token_behind(tmp_path):
+    _app, client = _lan_client(tmp_path)
+    resp = _paired(client)
+    assert resp.status_code == 200
+    cookie = resp.headers["Set-Cookie"]
+    for part in ("hc_lan=" + TOKEN, "Secure", "HttpOnly", "SameSite=Strict",
+                 "Max-Age=34560000", "Path=/"):
+        assert part in cookie, part
+    assert resp.headers["Referrer-Policy"] == "no-referrer"
+    # A page that refreshes to /, not a 303: the next navigation is then
+    # same-origin, so a Strict cookie is sent even when the link came from
+    # a QR-scanner app. The token must not ride along.
+    assert b'http-equiv="refresh" content="0;url=/"' in resp.data
+    assert TOKEN.encode() not in resp.data
+
+
+def test_a_paired_phone_can_read_the_catalog(tmp_path):
+    _app, client = _lan_client(tmp_path)
+    _paired(client)
+    items = client.get("/api/items", base_url=LAN_BASE).get_json()["items"]
+    assert items[0]["name"] == "All Systems Red"
+    assert client.get("/api/status", base_url=LAN_BASE).get_json()[
+        "read_only"] is True
+
+
+def test_a_wrong_token_does_not_pair(tmp_path, capsys):
+    _app, client = _lan_client(tmp_path)
+    resp = client.get("/pair?token=wrong", base_url=LAN_BASE)
+    assert resp.status_code == 403
+    assert "Set-Cookie" not in resp.headers
+    assert "refused a pairing attempt" in capsys.readouterr().out
+
+
+def test_a_rotated_token_unpairs_an_old_cookie(tmp_path):
+    _app, client = _lan_client(tmp_path, token="n" * 43)
+    resp = client.get("/api/items", base_url=LAN_BASE,
+                      headers={"Cookie": f"hc_lan={TOKEN}"})
+    assert resp.status_code == 403
+
+
+def test_the_lan_app_refuses_a_foreign_host(tmp_path):
+    # DNS rebinding, LAN edition: evil.example re-pointed at the LAN IP
+    # still arrives with its own name in Host.
+    _app, client = _lan_client(tmp_path)
+    _paired(client)
+    resp = client.get("/api/items", base_url="https://evil.example:8088",
+                      headers={"Cookie": f"hc_lan={TOKEN}"})
+    assert resp.status_code == 403
+    assert b"Not paired" not in resp.data
+
+
+def test_the_lan_app_has_no_write_route_to_reach(tmp_path):
+    _app, client = _lan_client(tmp_path)
+    _paired(client)
+    resp = client.post("/api/items/1/rating", json={"rating": 5},
+                       base_url=LAN_BASE)
+    assert resp.status_code in (404, 405)
+
+
+def _stub_servers(monkeypatch):
+    built = []
+
+    class FakeServer:
+        def __init__(self, host, port, app, **kw):
+            self.host, self.port, self.app = host, port, app
+            self.ssl_context = kw.get("ssl_context")
+            self.kw = kw
+            built.append(self)
+        def server_close(self): pass
+
+    monkeypatch.setattr(webmod, "make_server",
+                        lambda host, port, app, **kw: FakeServer(host, port, app, **kw))
+    monkeypatch.setattr(webmod, "_run_all", lambda servers: None)
+    monkeypatch.setattr(webmod.webbrowser, "open", lambda url: None)
+    monkeypatch.setattr(lanmod, "lan_address", lambda: "192.168.1.20")
+    return built
+
+
+def test_serve_lan_runs_the_loopback_and_lan_servers(tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087, lan=lanmod.LanOptions())
+    loop, lan_srv = built
+    assert (loop.host, loop.port) == ("127.0.0.1", 8087)
+    assert loop.app.config["READ_ONLY"] is False and loop.ssl_context is None
+    assert (lan_srv.host, lan_srv.port) == ("192.168.1.20", 8088)
+    assert lan_srv.app.config["READ_ONLY"] is True
+    assert isinstance(lan_srv.ssl_context, _ssl.SSLContext)
+    token = (tmp_path / "lan" / "token").read_text().strip()
+    assert f"https://192.168.1.20:8088/pair?token={token}" in capsys.readouterr().out
+
+
+def test_serve_lan_setup_adds_the_certificate_download(tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087,
+                 lan=lanmod.LanOptions(setup=True, port=9000))
+    assert [(s.host, s.port) for s in built] == [
+        ("127.0.0.1", 8087), ("192.168.1.20", 9000), ("192.168.1.20", 9001)]
+    out = capsys.readouterr().out
+    assert "http://192.168.1.20:9001/ca.crt" in out and "SHA-256" in out
+
+
+def test_serve_lan_new_token_replaces_the_token(tmp_path, monkeypatch):
+    _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    old = lanmod.load_or_create_token(tmp_path / "lan")
+    webmod.serve(db_path=str(dbp), lan=lanmod.LanOptions(new_token=True))
+    assert (tmp_path / "lan" / "token").read_text().strip() != old
+
+
+def _busy_on_8088(monkeypatch, fail):
+    closed = []
+
+    class FakeServer:
+        def server_close(self): closed.append(self)
+
+    def make(host, port, app, **kw):
+        if port == 8088:
+            fail()
+        return FakeServer()
+
+    monkeypatch.setattr(webmod, "make_server", make)
+    monkeypatch.setattr(lanmod, "lan_address", lambda: "192.168.1.20")
+    return closed
+
+
+def _werkzeug_bind_failure():
+    # What Werkzeug 3.1 really does when bind() fails: it catches the
+    # OSError itself, prints a line to stderr and calls sys.exit(1).
+    sys.exit(1)
+
+
+def _raw_bind_failure():
+    raise OSError("address in use")
+
+
+@pytest.mark.parametrize("fail", [_werkzeug_bind_failure, _raw_bind_failure])
+def test_a_busy_port_closes_what_was_opened_and_says_which(tmp_path, monkeypatch, fail):
+    closed = _busy_on_8088(monkeypatch, fail)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    with pytest.raises(lanmod.LanStateError, match="192.168.1.20:8088.*--lan-port"):
+        webmod.serve(db_path=str(dbp), lan=lanmod.LanOptions())
+    assert len(closed) == 1           # the loopback server, opened first
+
+
+@pytest.mark.parametrize("options, match", [
+    (dict(host="abc"), "--lan-host"),
+    (dict(host="8.8.8.8"), "--lan-host"),
+    (dict(host="fd00::1"), "--lan-host"),
+    (dict(port=0), "--lan-port"),
+    (dict(port=70000), "--lan-port"),
+    (dict(port=65535, setup=True), "--lan-port"),
+])
+def test_a_bad_lan_address_or_port_is_refused_before_anything_is_written(
+        tmp_path, monkeypatch, options, match):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    with pytest.raises(lanmod.LanStateError, match=match):
+        webmod.serve(db_path=str(dbp), lan=lanmod.LanOptions(**options))
+    assert built == []
+    assert not (tmp_path / "lan").exists()
+
+
+def test_a_viewer_port_with_no_room_above_it_is_refused(tmp_path, monkeypatch):
+    # --lan-port defaults to --port + 1, which here is not a port at all.
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    with pytest.raises(lanmod.LanStateError, match="--lan-port"):
+        webmod.serve(db_path=str(dbp), port=65535, lan=lanmod.LanOptions())
+    assert built == [] and not (tmp_path / "lan").exists()
+
+
+def test_serve_lan_says_where_the_viewer_on_this_pc_is(tmp_path, monkeypatch, capsys):
+    _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087, lan=lanmod.LanOptions())
+    assert "Viewer on this PC: http://127.0.0.1:8087/" in capsys.readouterr().out
+
+
+def test_the_lan_app_refuses_an_empty_token(tmp_path):
+    # Fails closed: an empty token would match an absent cookie.
+    dbp = tmp_path / "t.db"
+    _seed(dbp)
+    for token in ("", None):
+        with pytest.raises(ValueError):
+            create_lan_app(db_path=str(dbp), host=LAN_HOST, port=LAN_PORT,
+                           token=token)
+
+
+def _logged_line(handler_cls, path, requestline):
+    h = handler_cls.__new__(handler_cls)
+    h.command, h.request_version = "GET", "HTTP/1.1"
+    if path is not None:
+        h.path = path
+    h.requestline = requestline
+    lines = []
+    h.log = lambda _type, message, *args: lines.append(message % args)
+    h.log_request(200, 123)
+    return h, lines[0]
+
+
+def test_the_lan_access_log_leaves_the_pairing_token_out():
+    secret = "s3cr3t-pairing-value"
+    h, line = _logged_line(webmod.LanRequestHandler, f"/pair?token={secret}",
+                           f"GET /pair?token={secret} HTTP/1.1")
+    assert secret not in line and "GET /pair HTTP/1.1" in line
+    assert h.path == f"/pair?token={secret}"      # only the log line changes
+    # A request line too malformed to parse is logged whole; still no query.
+    _h, line = _logged_line(webmod.LanRequestHandler, None,
+                            f"GET /pair?token={secret} HTTP/9")
+    assert secret not in line
+
+
+def test_serve_lan_builds_the_lan_server_with_the_quiet_handler(tmp_path, monkeypatch):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087, lan=lanmod.LanOptions())
+    loop, lan_srv = built
+    assert lan_srv.kw["request_handler"] is webmod.LanRequestHandler
+    assert "request_handler" not in loop.kw

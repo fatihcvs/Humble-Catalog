@@ -82,6 +82,23 @@ a `harvest` print real owned titles, and nothing scans an issue.
 
 ## Done (formerly on this list)
 
+- **A read-only LAN viewer for phones (#6, piece 1)** —
+  `superpowers/specs/2026-09-18-lan-viewer-design.md`.
+  `serve --lan` runs a second Flask app beside the loopback viewer, built
+  from the read route group only, so its write routes are absent rather
+  than refused. Phones pair with a token link exchanged for a
+  `SameSite=Strict` cookie, over HTTPS from a local certificate authority
+  installed once.
+
+  **Two spec corrections made while planning.** Name constraints listing
+  only IP ranges leave DNS names unconstrained under RFC 5280, so the
+  authority also permits only the reserved name `invalid`. And `/pair`
+  answers a self-refreshing page rather than a 303, because a link opened
+  from a QR scanner may lose a `Strict` cookie on the redirect.
+
+  #6 stays open for the native app, to be revisited once this has been
+  used.
+
 - **Catalog commands from the viewer (Phase 1)** —
   `superpowers/specs/2026-08-04-web-driven-jobs-design.md`.
   The Tasks tab starts `extract`, `reparse`, `harvest`, `enrich`,

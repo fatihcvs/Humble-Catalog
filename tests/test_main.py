@@ -394,3 +394,26 @@ def test_extract_no_login_reports_an_expired_session_without_a_traceback(
     with pytest.raises(SystemExit) as exc:
         main()
     assert "login" in str(exc.value)
+
+
+def test_serve_lan_passes_its_options(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("humble_catalog.webapp.serve",
+                        lambda **kw: seen.update(kw))
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "serve", "--lan",
+                                      "--lan-host", "10.0.0.5", "--setup"])
+    main()
+    assert seen["port"] == 8087
+    assert (seen["lan"].host, seen["lan"].port, seen["lan"].setup,
+            seen["lan"].new_token) == ("10.0.0.5", None, True, False)
+
+
+@pytest.mark.parametrize("flag", [["--lan-host", "10.0.0.5"],
+                                  ["--lan-port", "9000"],
+                                  ["--setup"], ["--new-token"]])
+def test_lan_flags_need_lan(monkeypatch, capsys, flag):
+    monkeypatch.setattr("humble_catalog.webapp.serve", lambda **kw: None)
+    monkeypatch.setattr(sys, "argv", ["humble_catalog", "serve", *flag])
+    with pytest.raises(SystemExit):
+        main()
+    assert "needs --lan" in capsys.readouterr().err

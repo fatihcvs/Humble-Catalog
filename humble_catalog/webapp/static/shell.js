@@ -26,15 +26,30 @@ const SECTIONS = [
   {id: "tasks",       label: "Tasks"},
 ];
 
+// What the LAN viewer shows. Maintenance and Tasks are writes; Bundles is
+// hidden too, because both previews are credentialed POSTs the LAN app
+// does not have.
+const READ_ONLY_SECTIONS = ["library", "keys"];
+const sectionAllowed = (id) => !READ_ONLY || READ_ONLY_SECTIONS.includes(id);
+
+function applyMode(readOnly) {
+  READ_ONLY = readOnly === true;
+  if (document.body) document.body.dataset.mode = READ_ONLY ? "read-only" : "full";
+  for (const s of SECTIONS) {
+    const tab = $(`#tab-${s.id}`);
+    if (tab) tab.hidden = !sectionAllowed(s.id);
+  }
+}
+
 const currentSection = () => {
   const name = (location.hash || "").replace(/^#\//, "");
-  return SECTIONS.some((s) => s.id === name) ? name : "library";
+  return SECTIONS.some((s) => s.id === name && sectionAllowed(s.id)) ? name : "library";
 };
 
 // An unknown hash falls back to Library WITHOUT rewriting the URL: a
 // silent rewrite would erase the evidence that a bookmark went stale.
 function showSection(name) {
-  const active = SECTIONS.some((s) => s.id === name) ? name : "library";
+  const active = SECTIONS.some((s) => s.id === name && sectionAllowed(s.id)) ? name : "library";
   for (const s of SECTIONS) {
     const el = $(`#section-${s.id}`);
     if (el) el.hidden = s.id !== active;
@@ -106,22 +121,53 @@ $("#theme-toggle").addEventListener("click", () => {
   syncThemeButton();
 });
 
-// Boot. load() runs every section's loader, so it cannot run until every
-// section's script has. The section is chosen before load() so the first
-// paint lands in the right place rather than flashing Library first.
-showSection(currentSection());
-load();
+// Boot. The mode is read before the catalog is drawn, so no row, card or
+// panel ever renders with editing controls the LAN viewer cannot use. The
+// static tab bar in index.html is visible until /api/status answers,
+// though, so the write tabs can show briefly on a slow connection.
+async function boot() {
+  let status = {};
+  try {
+    status = await (await fetch("/api/status")).json();
+  } catch (err) {
+    console.error("could not read /api/status:", err);
+  }
+  applyMode(status.read_only);
+  showSection(currentSection());
+  await load();
+}
 // One interval for both. pollStatus draws the header banner (which must
 // keep working for a run started in a terminal); pollJobs draws the Tasks
-// panel, which knows only about jobs this viewer started.
+// panel, which knows only about jobs this viewer started -- and which the
+// LAN viewer does not have.
 async function pollAll() {
   await pollStatus();
+  if (READ_ONLY) return;
   try {
     await pollJobs();
   } catch (err) {
     console.error("pollJobs() failed:", err);
   }
 }
-pollAll();
-setInterval(pollAll, 5000);
+// Re-render when the width crosses the card breakpoint, e.g. a phone
+// rotated to landscape.
+if (typeof matchMedia === "function")
+  matchMedia(NARROW_QUERY).addEventListener("change", () => render());
+// And re-apply the sidebar when crossing its breakpoint, whose two sides
+// use different classes (see applySidebar).
+if (typeof matchMedia === "function")
+  matchMedia(SIDEBAR_NARROW_QUERY).addEventListener("change", () => applySidebar());
+// Polling waits for boot(): until /api/status has answered, READ_ONLY is
+// still false, and a first poll would ask the LAN app for /api/jobs.
+async function start() {
+  try {
+    await boot();
+  } catch (err) {
+    // Polling still starts: the header banner must keep working.
+    console.error("boot() failed:", err);
+  }
+  pollAll();
+  setInterval(pollAll, 5000);
+}
+start();
 syncThemeButton();
