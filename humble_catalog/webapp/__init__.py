@@ -778,8 +778,74 @@ def _register_write_routes(app):
     def _runner():
         return app.config["JOB_RUNNER"]
 
+    def _slot():
+        return app.config.get("HANDOFF")
+
+    def _handoff_pending():
+        """A 409 while a handoff waits, else None.
+
+        The server is about to step down; a job spawned now would hold
+        the catalog open under a restore, or be wiped under a reset.
+        """
+        slot = _slot()
+        pending = slot.busy() if slot is not None else None
+        if pending:
+            return jsonify({"error": f"the viewer is handing {pending} to "
+                            "the terminal"}), 409
+        return None
+
+    @app.get("/api/backups")
+    def backups():
+        # So restore is chosen from a list, never typed as a path.
+        return jsonify({"backups": handoff.list_backups(
+            app.config["BACKUPS_DIR"])})
+
+    @app.post("/api/jobs/handoff")
+    def handoff_job():
+        """Queue login, reset or restore for the terminal serve runs in.
+
+        The answer goes out before the server steps down; the page then
+        shows the takeover screen and waits for `generation` to move.
+        The page's two clicks only ARM this. reset and restore still ask
+        for a typed word at the console, and that is the real guard.
+        """
+        data = _json_object_or_none()
+        if data is None:
+            return jsonify({"error": "a JSON object is required"}), 400
+        slot = _slot()
+        if slot is None:
+            return jsonify({"error": "this viewer was not started with "
+                            "`python -m humble_catalog serve`, so it has no "
+                            "terminal to hand over to"}), 409
+        command = _text_field(data, "command")
+        options = data.get("options") or {}
+        if not command:
+            return jsonify({"error": "command required"}), 400
+        if not isinstance(options, dict):
+            return jsonify({"error": "options must be an object"}), 400
+        running = _runner().state()["running"]
+        if running:
+            # restore cannot swap a file a job holds open, and reset must
+            # not wipe the catalog under one.
+            return jsonify({"error": f"{running['command']} is running; "
+                            "cancel it or let it finish first"}), 409
+        try:
+            # handoff.argv whitelists the command and matches the snapshot
+            # against the listing; nothing else from the body reaches argv.
+            line = handoff.argv(command, options, data.get("snapshot"),
+                                app.config["BACKUPS_DIR"])
+            generation = slot.request(command, line)
+        except jobs.Busy as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"command": command, "generation": generation})
+
     @app.post("/api/jobs/start")
     def start_job():
+        refused = _handoff_pending()
+        if refused:
+            return refused
         data = _json_object()
         command = _text_field(data, "command")
         options = data.get("options") or {}
@@ -816,6 +882,9 @@ def _register_write_routes(app):
         this API. Keeping "every write endpoint takes JSON only" true
         without exceptions is worth an unglamorous encoding.
         """
+        refused = _handoff_pending()
+        if refused:
+            return refused
         data = _json_object()
         name = _text_field(data, "filename")
         content = data.get("content_b64")
@@ -867,10 +936,17 @@ def _register_write_routes(app):
         # accounts of how far a run has got.
         state["progress"] = [dict(r) for r in conn().execute(
             "SELECT * FROM run_status WHERE phase != 'done'")]
+        slot = _slot()
+        state["handoff"] = ({"available": True, **slot.state()} if slot
+                            else {"available": False, "generation": 0,
+                                  "pending": None, "last": None})
         return jsonify(state)
 
-def create_app(db_path="catalog.db", covers_dir="covers"):
+def create_app(db_path="catalog.db", covers_dir="covers", backups_dir="backups"):
     app = _new_app(db_path, covers_dir, read_only=False)
+    # Where `backup` writes by default, relative to the working directory
+    # like catalog.db itself. The restore picker lists it.
+    app.config["BACKUPS_DIR"] = backups_dir
     # One runner per app. Held in config rather than a module global so a
     # test can swap in a stub, and so two apps in one process (the suite
     # makes several) never share a job slot.

@@ -2849,3 +2849,120 @@ def test_run_all_stops_for_a_handoff_and_shuts_every_server():
     req = webmod._run_all(servers, slot)
     assert req == {"command": "login", "argv": ["x"]}
     assert all(s.stop.is_set() and s.closed for s in servers)
+
+
+def _handoff_client(tmp_path, slot=True):
+    backups = tmp_path / "backups"
+    app = create_app(db_path=str(tmp_path / "catalog.db"),
+                     backups_dir=str(backups))
+    runner = _StubRunner()
+    app.config["JOB_RUNNER"] = runner
+    s = handoffmod.HandoffSlot() if slot else None
+    app.config["HANDOFF"] = s
+    return app.test_client(), runner, s, backups
+
+
+def _write_snapshot(backups, stamp="20260101-120000"):
+    backups.mkdir(exist_ok=True)
+    (backups / f"catalog-{stamp}.db").write_bytes(b"x")
+    return f"catalog-{stamp}.db"
+
+
+def test_backups_lists_the_snapshots(tmp_path):
+    client, _r, _s, backups = _handoff_client(tmp_path)
+    name = _write_snapshot(backups)
+    body = client.get("/api/backups").get_json()
+    assert [b["name"] for b in body["backups"]] == [name]
+
+
+def test_handoff_queues_the_whitelisted_command(tmp_path):
+    client, _r, slot, _b = _handoff_client(tmp_path)
+    resp = client.post("/api/jobs/handoff", json={"command": "reset"})
+    assert resp.status_code == 200
+    assert resp.get_json() == {"command": "reset", "generation": 0}
+    assert slot.take()["argv"][-1] == "reset"
+
+
+def test_handoff_restore_takes_a_listed_snapshot(tmp_path):
+    client, _r, slot, backups = _handoff_client(tmp_path)
+    name = _write_snapshot(backups)
+    resp = client.post("/api/jobs/handoff", json={
+        "command": "restore", "options": {"covers": True}, "snapshot": name})
+    assert resp.status_code == 200
+    line = slot.take()["argv"]
+    assert line[-2:] == [str(backups / name), "--covers"]
+
+
+@pytest.mark.parametrize("body", [
+    {"command": "harvest"},                      # an in-page command
+    {"command": "restore"},                      # no snapshot
+    {"command": "restore", "snapshot": "../catalog.db"},
+    {"command": "reset", "options": {"covers": True}},
+    {"command": "reset", "options": ["--yes"]},
+    {},
+])
+def test_handoff_refuses_what_the_whitelist_does_not_allow(tmp_path, body):
+    client, _r, slot, _b = _handoff_client(tmp_path)
+    assert client.post("/api/jobs/handoff", json=body).status_code == 400
+    assert slot.busy() is None
+
+
+def test_handoff_refuses_a_malformed_body(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path)
+    for body in ([], "reset", None):
+        resp = client.post("/api/jobs/handoff", json=body)
+        assert resp.status_code == 400
+        assert resp.is_json
+
+
+def test_handoff_without_a_serve_loop_says_how_to_get_one(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path, slot=False)
+    resp = client.post("/api/jobs/handoff", json={"command": "login"})
+    assert resp.status_code == 409
+    assert "humble_catalog serve" in resp.get_json()["error"]
+
+
+def test_handoff_waits_for_a_running_job(tmp_path):
+    client, runner, slot, _b = _handoff_client(tmp_path)
+    runner.state = lambda: {"running": {"command": "harvest"}, "log": [],
+                            "last": None}
+    resp = client.post("/api/jobs/handoff", json={"command": "reset"})
+    assert resp.status_code == 409
+    assert "harvest" in resp.get_json()["error"]
+    assert slot.busy() is None
+
+
+def test_a_second_handoff_is_refused(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path)
+    client.post("/api/jobs/handoff", json={"command": "login"})
+    assert client.post("/api/jobs/handoff",
+                       json={"command": "reset"}).status_code == 409
+
+
+def test_no_job_starts_while_a_handoff_is_pending(tmp_path):
+    client, runner, _s, _b = _handoff_client(tmp_path)
+    client.post("/api/jobs/handoff", json={"command": "reset"})
+    resp = client.post("/api/jobs/start", json={"command": "harvest"})
+    assert resp.status_code == 409
+    assert runner.started == []
+    resp = client.post("/api/jobs/import-sheets",
+                       json={"filename": "a.xlsx", "content_b64": "eA=="})
+    assert resp.status_code == 409
+
+
+def test_jobs_reports_the_handoff_state(tmp_path):
+    client, _r, slot, _b = _handoff_client(tmp_path)
+    slot.request("login", ["x"])
+    slot.take()
+    slot.finish(0)
+    body = client.get("/api/jobs").get_json()
+    assert body["handoff"]["available"] is True
+    assert body["handoff"]["generation"] == 1
+    assert body["handoff"]["last"]["command"] == "login"
+
+
+def test_jobs_reports_no_handoff_without_a_serve_loop(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path, slot=False)
+    h = client.get("/api/jobs").get_json()["handoff"]
+    assert h == {"available": False, "generation": 0, "pending": None,
+                 "last": None}
