@@ -260,7 +260,7 @@ def main():
                              "try again.")
     elif args.command == "login":
         from humble_catalog import humble_api
-        humble_api.ensure_login()
+        humble_api.login()
     elif args.command == "reparse":
         from humble_catalog import extract
         extract.reparse()

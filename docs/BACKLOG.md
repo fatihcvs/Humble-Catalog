@@ -133,8 +133,24 @@ a `harvest` print real owned titles, and nothing scans an issue.
   two hyphenated commands. Both go through `CLI_NAME` now, pinned by
   `test_the_run_status_guard_uses_the_cli_spelling`.
 
-  Still outstanding: Phase 2, the terminal handoff for `login`, `reset`
-  and `restore` (#8).
+  Phase 2, the terminal handoff for `login`, `reset` and `restore` (#8),
+  shipped from `docs/superpowers/plans/2026-09-19-terminal-handoff.md`.
+  `serve` is a loop now: it steps down, runs the command with the
+  console's own stdin and stdout, and rebinds the same app objects. The
+  page reloads when `/api/jobs` reports a handoff `generation` past the
+  one its request was answered with, because polling `/` cannot tell
+  "back" from "not gone down yet". The typed `RESET` / `RESTORE` is
+  untouched. The browser is deliberately not reopened (the spec asked
+  for that and for the page to reconnect, which together meant a second
+  tab after every handoff).
+
+  **The demo showed real snapshots.** The restore picker lists
+  `./backups`, and the demo server runs from the repo root, so its Tasks
+  tab showed the real snapshots' dates and sizes — found by looking at
+  it, invisible to every automated check. `demo_catalog.make_app` points
+  it at a directory that does not exist, pinned by
+  `test_the_demo_never_lists_the_real_backups`. Any new data directory
+  the viewer reads needs the same treatment in the demo.
 
 - **`clean_title`'s series-number hint understood the wrong spelling** —
   `docs/superpowers/specs/2026-08-01-series-number-fill-design.md`.

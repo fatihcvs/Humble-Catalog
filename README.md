@@ -284,11 +284,20 @@ table is counts, source names and timestamps only.
 The viewer's **Tasks** tab runs the catalog commands for you: fetching new
 bundles, harvesting, enriching, importing a spreadsheet or your game
 libraries, and taking a backup. Each runs as a separate process with its
-progress, its output and a Cancel button on the page, so the terminal is
-needed only for `login`, `reset` and `restore` — the three that need a
-browser window, a database file nobody holds open, or a word typed at a
-console. A command started in a terminal still shows in the banner, as
-it always did.
+progress, its output and a Cancel button on the page. A command started
+in a terminal still shows in the banner, as it always did.
+
+`login`, `reset` and `restore` are there too, marked **uses the
+terminal**, because each needs something a background process cannot
+have: a browser window to click through, a database file nobody holds
+open, or a word typed at a console. Clicking one twice hands it to the
+terminal you started `serve` from: the viewer steps down, the command
+runs there — `reset` and `restore` still ask you to type `RESET` or
+`RESTORE` — and the page reconnects by itself when it finishes. Ctrl-C
+during the command cancels it and brings the viewer back; a second
+Ctrl-C quits `serve` as usual. A restore is chosen from the snapshots
+already in `backups/`. The handoff needs a viewer started with
+`python -m humble_catalog serve`; one started any other way says so.
 
 The viewer's tabs are described [at the top of this
 page](#humble-catalog); what follows is what the Library table itself
@@ -531,8 +540,11 @@ import — so it is worth knowing. Three things bound it. The two defences above
 visit still cannot drive any of it. The command line is built from a fixed
 table of commands and flags, never from anything in the request, so no
 string from a caller reaches a process argument. And the destructive
-commands are not reachable this way at all: `reset` and `restore` still
-require a word typed at an interactive terminal.
+commands cannot be run this way, only handed over: a program on your
+machine could make the viewer hand `reset` or `restore` to its terminal,
+but nothing is wiped or replaced until a person types `RESET` or
+`RESTORE` there, and a restore can only name a snapshot already in
+`backups/`. Handing over `login` at most opens a browser window.
 
 Note that any process on your own machine can still reach the port —
 worth knowing if the machine is shared.

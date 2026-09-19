@@ -35,7 +35,7 @@ LOG_LINES = 500
 #
 # reset, restore and login are absent on purpose: each needs a terminal
 # (a typed confirmation, a file nobody holds open, a foreground browser
-# window) and is handled by the handoff, not by this runner.
+# window) and is handled by the handoff in handoff.py, not by this runner.
 COMMANDS = {
     "extract":       {"refetch": "--refetch"},
     "reparse":       {},
@@ -64,26 +64,35 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def argv(command, options=None):
-    """The exact command line for a job, or ValueError.
+def flags(command, allowed, options):
+    """The CLI flags for `options`, validated against `allowed`.
 
-    Every element is either a constant or a flag from COMMANDS. A value
-    that is not a bool is refused rather than coerced: coercion is how a
-    request string would end up in a process argument.
+    Shared with handoff.argv so the two whitelists cannot disagree about
+    what a usable option is. A value that is not a bool is refused rather
+    than coerced: coercion is how a request string would end up in a
+    process argument.
     """
-    if command not in COMMANDS:
-        raise ValueError(f"unknown command: {command}")
-    allowed = COMMANDS[command]
-    flags = []
+    out = []
     for name, value in (options or {}).items():
         if name not in allowed:
             raise ValueError(f"{command} does not accept the option {name!r}")
         if not isinstance(value, bool):
             raise ValueError(f"option {name!r} must be true or false")
         if value:
-            flags.append(allowed[name])
+            out.append(allowed[name])
+    return out
+
+
+def argv(command, options=None):
+    """The exact command line for a job, or ValueError.
+
+    Every element is either a constant or a flag from COMMANDS.
+    """
+    if command not in COMMANDS:
+        raise ValueError(f"unknown command: {command}")
     return [sys.executable, "-m", "humble_catalog",
-            CLI_NAME.get(command, command), *ALWAYS.get(command, []), *flags]
+            CLI_NAME.get(command, command), *ALWAYS.get(command, []),
+            *flags(command, COMMANDS[command], options)]
 
 
 class JobRunner:

@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import threading
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 import requests
@@ -16,8 +17,8 @@ from flask import (Flask, Response, current_app, g, jsonify, request,
                    send_from_directory)
 from werkzeug.serving import WSGIRequestHandler, make_server
 from humble_catalog import (bundle_preview, choice_preview, db, dedupe,
-                            editions, export, humble_api, jobs, keys, stats,
-                            url_import)
+                            editions, export, handoff, humble_api, jobs, keys,
+                            stats, url_import)
 from humble_catalog.enrich import EDITABLE_FIELDS, apply_candidate
 from humble_catalog.sources.base import candidate
 
@@ -777,8 +778,74 @@ def _register_write_routes(app):
     def _runner():
         return app.config["JOB_RUNNER"]
 
+    def _slot():
+        return app.config.get("HANDOFF")
+
+    def _handoff_pending():
+        """A 409 while a handoff waits, else None.
+
+        The server is about to step down; a job spawned now would hold
+        the catalog open under a restore, or be wiped under a reset.
+        """
+        slot = _slot()
+        pending = slot.busy() if slot is not None else None
+        if pending:
+            return jsonify({"error": f"the viewer is handing {pending} to "
+                            "the terminal"}), 409
+        return None
+
+    @app.get("/api/backups")
+    def backups():
+        # So restore is chosen from a list, never typed as a path.
+        return jsonify({"backups": handoff.list_backups(
+            app.config["BACKUPS_DIR"])})
+
+    @app.post("/api/jobs/handoff")
+    def handoff_job():
+        """Queue login, reset or restore for the terminal serve runs in.
+
+        The answer goes out before the server steps down; the page then
+        shows the takeover screen and waits for `generation` to move.
+        The page's two clicks only ARM this. reset and restore still ask
+        for a typed word at the console, and that is the real guard.
+        """
+        data = _json_object_or_none()
+        if data is None:
+            return jsonify({"error": "a JSON object is required"}), 400
+        slot = _slot()
+        if slot is None:
+            return jsonify({"error": "this viewer was not started with "
+                            "`python -m humble_catalog serve`, so it has no "
+                            "terminal to hand over to"}), 409
+        command = _text_field(data, "command")
+        options = data.get("options") or {}
+        if not command:
+            return jsonify({"error": "command required"}), 400
+        if not isinstance(options, dict):
+            return jsonify({"error": "options must be an object"}), 400
+        running = _runner().state()["running"]
+        if running:
+            # restore cannot swap a file a job holds open, and reset must
+            # not wipe the catalog under one.
+            return jsonify({"error": f"{running['command']} is running; "
+                            "cancel it or let it finish first"}), 409
+        try:
+            # handoff.argv whitelists the command and matches the snapshot
+            # against the listing; nothing else from the body reaches argv.
+            line = handoff.argv(command, options, data.get("snapshot"),
+                                app.config["BACKUPS_DIR"])
+            generation = slot.request(command, line)
+        except jobs.Busy as exc:
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"command": command, "generation": generation})
+
     @app.post("/api/jobs/start")
     def start_job():
+        refused = _handoff_pending()
+        if refused:
+            return refused
         data = _json_object()
         command = _text_field(data, "command")
         options = data.get("options") or {}
@@ -815,6 +882,9 @@ def _register_write_routes(app):
         this API. Keeping "every write endpoint takes JSON only" true
         without exceptions is worth an unglamorous encoding.
         """
+        refused = _handoff_pending()
+        if refused:
+            return refused
         data = _json_object()
         name = _text_field(data, "filename")
         content = data.get("content_b64")
@@ -866,14 +936,25 @@ def _register_write_routes(app):
         # accounts of how far a run has got.
         state["progress"] = [dict(r) for r in conn().execute(
             "SELECT * FROM run_status WHERE phase != 'done'")]
+        slot = _slot()
+        state["handoff"] = ({"available": True, **slot.state()} if slot
+                            else {"available": False, "generation": 0,
+                                  "pending": None, "last": None})
         return jsonify(state)
 
-def create_app(db_path="catalog.db", covers_dir="covers"):
+def create_app(db_path="catalog.db", covers_dir="covers", backups_dir="backups"):
     app = _new_app(db_path, covers_dir, read_only=False)
+    # Where `backup` writes by default, relative to the working directory
+    # like catalog.db itself. The restore picker lists it.
+    app.config["BACKUPS_DIR"] = backups_dir
     # One runner per app. Held in config rather than a module global so a
     # test can swap in a stub, and so two apps in one process (the suite
     # makes several) never share a job slot.
     app.config["JOB_RUNNER"] = jobs.JobRunner(db_path=db_path)
+    # Set by serve(), which is the only thing that can drain a handoff.
+    # A bare create_app() (the demo server, launch.json) leaves it None
+    # and the handoff route says so rather than queueing into nothing.
+    app.config["HANDOFF"] = None
 
     @app.before_request
     def refuse_foreign_hosts():
@@ -972,18 +1053,25 @@ class LanRequestHandler(WSGIRequestHandler):
             self.__dict__.update(kept)
 
 
-def _run_all(servers):
-    """Serve every server on its own thread until Ctrl-C, then stop all.
+def _run_all(servers, slot=None):
+    """Serve every server on its own thread until Ctrl-C or a handoff,
+    then stop all. Returns the handoff request taken from `slot`, or None
+    when it was Ctrl-C.
 
     Polled with sleep() rather than join(): on Windows a bare join() is not
-    interrupted by Ctrl-C, so the process would ignore it.
+    interrupted by Ctrl-C, so the process would ignore it. The same poll
+    checks the slot, so no extra thread or event is needed.
     """
     threads = [threading.Thread(target=s.serve_forever, daemon=True)
                for s in servers]
     for t in threads:
         t.start()
+    request = None
     try:
         while any(t.is_alive() for t in threads):
+            request = slot.take() if slot is not None else None
+            if request is not None:
+                break
             time.sleep(0.5)
     except KeyboardInterrupt:
         pass
@@ -991,14 +1079,77 @@ def _run_all(servers):
         for s in servers:
             s.shutdown()
             s.server_close()
+    return request
+
+
+def _bind(wanted, error_cls, hint):
+    """Build (and so bind) every server before any starts, so a busy port
+    stops the whole command rather than leaving half of it running."""
+    servers = []
+    for h, p, app, kw in wanted:
+        try:
+            servers.append(make_server(h, p, app, threaded=True, **kw))
+        except (OSError, SystemExit) as exc:
+            # Werkzeug 3.1 catches the bind OSError itself, prints a line
+            # and calls sys.exit(1); a raw OSError is caught too, in case
+            # it ever stops doing that.
+            for s in servers:
+                s.server_close()
+            detail = f" ({exc})" if isinstance(exc, OSError) else ""
+            raise error_cls(
+                f"cannot listen on {h}:{p}{detail} -- {hint}") from exc
+    return servers
+
+
+def _serve_loop(wanted, slot, viewer_url, error_cls, hint, servers):
+    """Serve; on a handoff, step down, run it, and serve again.
+
+    `servers` is the first round, already bound by serve() so that a busy
+    port is reported before the browser opens. Every way the command can
+    end -- an exit code, Ctrl-C, a failed spawn, or a bug in this loop's
+    own handling -- still rebinds, because a reset that crashed and left
+    no viewer and no explanation is the failure this loop exists to
+    prevent. Only Ctrl-C while SERVING ends it. The browser is not
+    reopened: the page reconnects by itself, and a second webbrowser.open
+    would be a second tab after every handoff.
+
+    The same app objects are rebound each round, so the job runner's last
+    result and the slot's generation survive the restart.
+    """
+    while True:
+        request = _run_all(servers, slot)
+        if request is None:
+            return
+        code = None
+        try:
+            code = handoff.run_in_terminal(request["command"],
+                                           request["argv"])
+        except Exception:                     # noqa: BLE001 - see docstring
+            traceback.print_exc()
+        finally:
+            slot.finish(code)
+        servers = _bind(wanted, error_cls, hint)
+        print(f"Viewer back at {viewer_url}", flush=True)
+
+
+LAN_HINT = ("choose another port with --lan-port (or --port for the viewer "
+            "itself)")
 
 
 def serve(db_path="catalog.db", port=8087, lan=None):
+    slot = handoff.HandoffSlot()
+    viewer_url = f"http://127.0.0.1:{port}/"
     if lan is None:
-        # Unchanged from before --lan existed.
         app = create_app(db_path=db_path)
-        webbrowser.open(f"http://127.0.0.1:{port}/")
-        app.run(host="127.0.0.1", port=port)
+        app.config["HANDOFF"] = slot
+        wanted = [("127.0.0.1", port, app, {})]
+        # Bound before the browser opens, so a busy port is reported
+        # instead of opening a tab onto whatever already holds it.
+        hint = "choose another port with --port"
+        servers = _bind(wanted, SystemExit, hint)
+        print(f"Viewer: {viewer_url}  (Ctrl-C to stop)")
+        webbrowser.open(viewer_url)
+        _serve_loop(wanted, slot, viewer_url, SystemExit, hint, servers)
         return
 
     from humble_catalog import lan as lanmod
@@ -1023,8 +1174,10 @@ def serve(db_path="catalog.db", port=8087, lan=None):
     # Every server is built -- and so every port bound -- before any
     # starts, so a busy port stops the whole command rather than leaving
     # half of it running.
+    loopback = create_app(db_path=db_path)
+    loopback.config["HANDOFF"] = slot
     wanted = [
-        ("127.0.0.1", port, create_app(db_path=db_path), {}),
+        ("127.0.0.1", port, loopback, {}),
         (host, lan_port,
          create_lan_app(db_path=db_path, host=host, port=lan_port, token=token),
          {"ssl_context": lanmod.ssl_context(crt, key),
@@ -1032,26 +1185,13 @@ def serve(db_path="catalog.db", port=8087, lan=None):
     ]
     if lan.setup:
         wanted.append((host, lan_port + 1, lanmod.ca_download_app(lan_dir), {}))
-    servers = []
-    for h, p, app, kw in wanted:
-        try:
-            servers.append(make_server(h, p, app, threaded=True, **kw))
-        except (OSError, SystemExit) as exc:
-            # Werkzeug 3.1 catches the bind OSError itself, prints a line
-            # and calls sys.exit(1); a raw OSError is caught too, in case
-            # it ever stops doing that.
-            for s in servers:
-                s.server_close()
-            detail = f" ({exc})" if isinstance(exc, OSError) else ""
-            raise lanmod.LanStateError(
-                f"cannot listen on {h}:{p}{detail} -- choose another port "
-                "with --lan-port (or --port for the viewer itself)") from exc
+    servers = _bind(wanted, lanmod.LanStateError, LAN_HINT)
 
-    viewer_url = f"http://127.0.0.1:{port}/"
     lanmod.print_instructions(
         f"https://{host}:{lan_port}/pair?token={token}",
         viewer_url=viewer_url,
         ca_url=f"http://{host}:{lan_port + 1}/ca.crt" if lan.setup else None,
         fingerprint=lanmod.ca_fingerprint(ca_cert) if lan.setup else None)
     webbrowser.open(viewer_url)
-    _run_all(servers)
+    _serve_loop(wanted, slot, viewer_url, lanmod.LanStateError, LAN_HINT,
+                servers)

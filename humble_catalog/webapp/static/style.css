@@ -452,6 +452,10 @@ tr.key-is-hidden td { opacity: .6; }
 /* ---- Tasks ---------------------------------------------------------- */
 /* Only properties :root already defines, and each is redefined in the
    dark and [data-theme] blocks, so the section themes itself. */
+/* body never scrolls (see App shell), so the section is its own
+   scroller: without it the cards past the fold -- Danger among them --
+   were clipped with no way to reach them. */
+#section-tasks { overflow-y: auto; }
 .task-group { margin-bottom: 1.5rem; }
 .task-group h3 { margin: 0 0 .5rem; font-size: 1rem; color: var(--muted); }
 .task-card {
@@ -473,6 +477,29 @@ tr.key-is-hidden td { opacity: .6; }
              border-radius: 6px; }
 .job-head { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
 .job-current { color: var(--muted); }
+.job-handoff { margin-top: .4rem; color: var(--muted); }
+.task-terminal {
+  margin-left: .4rem; padding: 0 .4rem; border-radius: 4px;
+  font-size: .75rem; font-weight: 400; color: var(--muted);
+  border: 1px solid var(--border);
+}
+.task-picker { grid-column: 1; display: flex; gap: .6rem; flex-wrap: wrap;
+               align-items: center; }
+.task-picker select { max-width: 100%; }
+.task-danger { padding-top: 1rem; border-top: 1px solid var(--panel-warn-border); }
+.task-danger .task-card { border-color: var(--panel-warn-border); }
+/* The takeover covers the whole page: while it shows, nothing on the page
+   can work -- the server behind it is gone until the terminal is done. */
+#handoff-screen {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center; padding: 16px;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+}
+#handoff-screen[hidden] { display: none; }
+.handoff-box {
+  max-width: 32rem; padding: 1.2rem 1.4rem; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+}
 .job-log {
   max-height: 14rem; overflow: auto; margin: .6rem 0 0;
   font-family: ui-monospace, monospace; font-size: .85rem;

@@ -157,3 +157,15 @@ def ensure_login(profile_dir=".playwright-profile", allow_login=True):
             "your Humble library page before closing the browser window.")
     print("Login saved. Future runs will not need this step.")
     return client
+
+
+def login(profile_dir=".playwright-profile"):
+    """The `login` command: ensure_login, but never silent.
+
+    With a live session ensure_login returns without a word, which after
+    a viewer handoff reads as "the promised window never opened".
+    """
+    if HumbleClient(get_cookies(profile_dir)).logged_in():
+        print("Already logged in to HumbleBundle; nothing to do.")
+        return
+    ensure_login(profile_dir)

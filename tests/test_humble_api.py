@@ -130,3 +130,32 @@ def test_ensure_login_refuses_to_open_a_browser_when_not_allowed(monkeypatch):
     with pytest.raises(humble_api.NotLoggedIn):
         humble_api.ensure_login(allow_login=False)
     assert opened == []   # the whole point: no window was opened
+
+
+def test_login_with_a_live_session_says_so(monkeypatch, capsys):
+    from humble_catalog import humble_api
+
+    monkeypatch.setattr(humble_api, "get_cookies", lambda profile_dir=None: {})
+    monkeypatch.setattr(humble_api.HumbleClient, "logged_in", lambda self: True)
+    opened = []
+    monkeypatch.setattr(humble_api, "manual_login",
+                        lambda profile_dir=None: opened.append(profile_dir))
+    humble_api.login()
+    assert opened == []
+    # Silence here read, after a viewer handoff, as "the promised window
+    # never opened".
+    assert "already logged in" in capsys.readouterr().out.lower()
+
+
+def test_login_with_an_expired_session_opens_the_window(monkeypatch):
+    from humble_catalog import humble_api
+
+    monkeypatch.setattr(humble_api, "get_cookies", lambda profile_dir=None: {})
+    states = iter([False, False, True])
+    monkeypatch.setattr(humble_api.HumbleClient, "logged_in",
+                        lambda self: next(states))
+    opened = []
+    monkeypatch.setattr(humble_api, "manual_login",
+                        lambda profile_dir=None: opened.append(profile_dir))
+    humble_api.login()
+    assert opened == [".playwright-profile"]

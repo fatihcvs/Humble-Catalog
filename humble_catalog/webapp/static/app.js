@@ -82,24 +82,32 @@ function esc(v) {
 
 // Two-click confirmation: first click arms the button, second click (within
 // 3 s) fires. Prevents one stray click from mis-attributing an item.
+//
+// The label is restored on BOTH exits. Restoring it only when the window
+// lapsed left a button that fired reading "Click again to confirm" for
+// good -- harmless where the fire re-renders the button, wrong wherever it
+// does not (a Tasks card whose start was refused, for one).
 function armOrFire(el, fire) {
   if (el.dataset.armed) {
     delete el.dataset.armed;
     el.classList.remove("armed");
+    el.textContent = el.dataset.label;
+    delete el.dataset.label;
     // Returned, not dropped: callers are async, and a test (or any future
     // caller that needs to know the write finished) has nothing else to
     // await. Every current caller ignores it.
     return fire();
   }
   el.dataset.armed = "1";
+  el.dataset.label = el.textContent;
   el.classList.add("armed");
-  const original = el.textContent;
   el.textContent = "Click again to confirm";
   setTimeout(() => {
     if (el.isConnected && el.dataset.armed) {
       delete el.dataset.armed;
       el.classList.remove("armed");
-      el.textContent = original;
+      el.textContent = el.dataset.label;
+      delete el.dataset.label;
     }
   }, 3000);
 }

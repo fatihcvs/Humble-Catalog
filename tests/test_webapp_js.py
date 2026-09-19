@@ -1819,10 +1819,15 @@ def test_render_choice_preview_before_any_fetch_draws_nothing():
     assert eval_js_error("(async () => app.renderChoicePreview())()") is None
 
 
-def test_task_cards_cover_every_headless_command():
-    from humble_catalog import jobs
-    listed = set(eval_js("app.TASK_CARDS.map((c) => c.command)"))
-    assert listed == set(jobs.COMMANDS)
+def test_task_cards_cover_every_command_in_both_whitelists():
+    from humble_catalog import handoff, jobs
+    cards = eval_js("app.TASK_CARDS")
+    in_page = {c["command"] for c in cards if not c.get("handoff")}
+    handed = {c["command"] for c in cards if c.get("handoff")}
+    # Each card posts to the endpoint whose whitelist owns its command. A
+    # card on the wrong side would answer 400, which is a dead button.
+    assert in_page == set(jobs.COMMANDS)
+    assert handed == set(handoff.COMMANDS)
 
 
 def test_tasks_gets_no_badge_even_with_a_job_running():
@@ -2052,3 +2057,152 @@ def test_a_wide_screen_keeps_the_table():
                 cardsHidden: document.querySelector("#card-list").hidden};
       })()""" % json.dumps(_item()))
     assert "<tr>" in result["table"] and result["cardsHidden"] is True
+
+
+def test_handoff_cards_say_they_use_the_terminal():
+    html = eval_js("(app.renderTasks(), dom.writes['#task-cards'])")
+    assert html.count("uses the terminal") == 3
+    assert 'data-handoff="1"' in html
+    assert "<h3>Danger</h3>" in html
+
+
+def test_reset_sits_alone_in_the_danger_group():
+    cards = eval_js("app.TASK_CARDS.filter((c) => c.group === 'Danger')")
+    assert [c["command"] for c in cards] == ["reset"]
+
+
+def test_restore_body_carries_the_chosen_snapshot_and_covers():
+    body = eval_js("""(() => {
+        document.querySelector("#restore-snapshot").value =
+          "catalog-20260101-120000.db";
+        document.querySelector("#restore-covers").checked = true;
+        return handoffBody("restore", {});
+      })()""")
+    assert body == {"command": "restore", "options": {"covers": True},
+                    "snapshot": "catalog-20260101-120000.db"}
+
+
+def test_a_plain_handoff_body_has_no_snapshot():
+    assert eval_js('handoffBody("reset", {})') == {
+        "command": "reset", "options": {}}
+
+
+def test_start_handoff_shows_the_takeover_and_reconnects():
+    result = eval_js("""(async () => {
+        const posted = [];
+        let reloaded = false;
+        location.reload = () => { reloaded = true; };
+        let polls = 0;
+        app.setFetch((url, init) => {
+          if (init && init.method === "POST") {
+            posted.push([url, JSON.parse(init.body)]);
+            return Promise.resolve({ok: true, status: 200,
+              json: () => Promise.resolve({command: "reset", generation: 4})});
+          }
+          polls += 1;
+          // down, still the old server, then back with a new generation
+          if (polls === 1) return Promise.reject(new TypeError("refused"));
+          const generation = polls === 2 ? 4 : 5;
+          return Promise.resolve({ok: true,
+            json: () => Promise.resolve({handoff: {generation}})});
+        });
+        const how = await startHandoff("reset", {}, () => Promise.resolve());
+        return {how, posted, polls, reloaded,
+                screen: dom.writes["#handoff-screen"],
+                hidden: document.querySelector("#handoff-screen").hidden};
+      })()""")
+    assert result["how"] == "handed"
+    assert result["posted"] == [["/api/jobs/handoff",
+                                 {"command": "reset", "options": {}}]]
+    assert result["polls"] == 3 and result["reloaded"] is True
+    assert "RESET" in result["screen"] and result["hidden"] is False
+
+
+def test_a_refused_handoff_stays_on_the_page():
+    result = eval_js("""(async () => {
+        app.setFetch(() => Promise.resolve({ok: false, status: 409,
+          json: () => Promise.resolve({error: "harvest is running"})}));
+        const how = await startHandoff("reset", {}, () => Promise.resolve());
+        return {how, msg: dom.writes["#task-message:text"],
+                screen: dom.writes["#handoff-screen"] || ""};
+      })()""")
+    assert result["how"] == "error"
+    assert "harvest is running" in result["msg"]
+    # A refusal must not tell the user to go and type RESET somewhere.
+    assert "RESET" not in result["screen"]
+
+
+def test_every_handoff_command_has_takeover_text():
+    from humble_catalog import handoff
+    text = eval_js("app.TAKEOVER_TEXT")
+    assert set(text) == set(handoff.COMMANDS)
+    assert "RESET" in text["reset"] and "RESTORE" in text["restore"]
+
+
+def test_takeover_says_the_page_comes_back_by_itself():
+    html = eval_js('renderTakeover("login")')
+    assert "reconnect" in html.lower()
+
+
+def test_render_backups_escapes_and_marks_covers():
+    html = eval_js("""renderBackups([
+        {name: "catalog-20260301-090000.db", size: 2000000,
+         modified: "2026-03-01 09:00", covers: true},
+        {name: "catalog-<x>.db", size: 1, modified: "m", covers: false}])""")
+    assert "catalog-20260301-090000.db" in html and "covers" in html
+    assert "<x>" not in html
+
+
+def test_render_backups_with_none_disables_restore():
+    html = eval_js("renderBackups([])")
+    assert "No snapshots" in html
+    assert eval_js("""(renderBackups([]),
+        document.querySelector("#restore-go").disabled)""") is True
+
+
+def test_the_first_poll_loads_the_snapshot_list_even_with_no_job_history():
+    seen = eval_js("""(async () => {
+        const seen = [];
+        app.setFetch((url) => { seen.push(url); return Promise.resolve({
+          json: () => Promise.resolve(url === "/api/backups"
+            ? {backups: []}
+            : {running: null, progress: [], log: [], last: null})}); });
+        await pollJobs();
+        await pollJobs();
+        return seen;
+      })()""")
+    # Once on the first poll, not again until a job finishes.
+    assert seen.count("/api/backups") == 1
+
+
+def test_an_expired_session_offers_a_log_in_handoff():
+    html = eval_js("""renderJobPanel({
+      running: null, progress: [],
+      log: ["HumbleBundle session expired -- run "
+            + "'python -m humble_catalog login', then try again."],
+      last: {command: "extract", state: "failed", exit_code: 1,
+             finished_at: "2026-08-04T00:01:00+00:00"}})""")
+    assert 'data-command="login"' in html and 'data-handoff="1"' in html
+
+
+def test_job_panel_reports_the_last_handoff():
+    html = eval_js("""renderJobPanel({running: null, progress: [], log: [],
+      last: null, handoff: {available: true, generation: 1, pending: null,
+        last: {command: "reset", exit_code: 0,
+               finished_at: "2026-09-19T00:00:00+00:00"}}})""")
+    assert "reset" in html and "terminal" in html.lower()
+
+
+def test_a_fired_button_gets_its_label_back():
+    # Only the unarmed timeout restored the label, so a button that FIRED
+    # read "Click again to confirm" for good -- on a refused reset, that is
+    # a Danger button inviting a click that has already happened.
+    result = eval_js("""(() => {
+        const el = {dataset: {}, textContent: "Run", isConnected: true,
+                    classList: {add() {}, remove() {}}};
+        armOrFire(el, () => null);
+        const armed = el.textContent;
+        armOrFire(el, () => null);
+        return [armed, el.textContent, Boolean(el.dataset.armed)];
+      })()""")
+    assert result == ["Click again to confirm", "Run", False]

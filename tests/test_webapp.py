@@ -10,7 +10,7 @@ import requests
 from unittest.mock import Mock
 from openpyxl import load_workbook
 from humble_catalog import db, export, stats
-from humble_catalog import lan as lanmod, webapp as webmod
+from humble_catalog import handoff as handoffmod, lan as lanmod, webapp as webmod
 from humble_catalog.webapp import create_app, create_lan_app
 
 
@@ -135,6 +135,16 @@ def test_a_card_cover_keeps_its_proportions_and_text_flows_around_it():
     if ".card-body {" in css:
         body = _css_rule(css, ".card-body")
         assert "flex" not in body and "overflow" not in body
+
+
+def test_the_tasks_section_is_its_own_scroller():
+    # body is overflow: hidden and every section brings its own scroller.
+    # Tasks had none, which went unseen while its cards fitted the window;
+    # the handoff cards pushed the Danger group below the fold with no way
+    # to scroll to it.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    assert "overflow-y: auto" in _css_rule(css, "#section-tasks")
 
 
 def test_app_wires_every_registered_chip_filter():
@@ -2430,13 +2440,10 @@ def test_index_has_a_tasks_tab_and_section():
     assert '<script src="/static/tasks.js"></script>' in html
 
 
-def test_tasks_tab_offers_no_terminal_only_command():
-    # reset, restore and login are terminal handoffs. A card that posted
-    # them to /api/jobs/start would 400, which is a dead button.
-    js = _viewer_js()
-    for command in ("reset", "restore", "login"):
-        assert f'command: "{command}"' not in js
-
+def test_index_has_the_takeover_screen():
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    assert '<div id="handoff-screen" hidden' in html
 
 def _readme():
     return (Path(__file__).parent.parent / "README.md").read_text(
@@ -2582,7 +2589,7 @@ def _stub_servers(monkeypatch):
 
     monkeypatch.setattr(webmod, "make_server",
                         lambda host, port, app, **kw: FakeServer(host, port, app, **kw))
-    monkeypatch.setattr(webmod, "_run_all", lambda servers: None)
+    monkeypatch.setattr(webmod, "_run_all", lambda servers, slot=None: None)
     monkeypatch.setattr(webmod.webbrowser, "open", lambda url: None)
     monkeypatch.setattr(lanmod, "lan_address", lambda: "192.168.1.20")
     return built
@@ -2739,3 +2746,241 @@ def test_serve_lan_builds_the_lan_server_with_the_quiet_handler(tmp_path, monkey
     loop, lan_srv = built
     assert lan_srv.kw["request_handler"] is webmod.LanRequestHandler
     assert "request_handler" not in loop.kw
+
+
+def test_create_app_alone_has_no_handoff(tmp_path):
+    # The demo server and launch.json call create_app().run(): no serve
+    # loop, so nothing could ever drain a handoff.
+    assert create_app(db_path=str(tmp_path / "c.db")).config["HANDOFF"] is None
+
+
+def test_serve_without_lan_goes_through_the_loop(tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087)
+    [loop] = built
+    assert (loop.host, loop.port) == ("127.0.0.1", 8087)
+    assert isinstance(loop.app.config["HANDOFF"], handoffmod.HandoffSlot)
+    assert "http://127.0.0.1:8087/" in capsys.readouterr().out
+
+
+def _handoff_once(monkeypatch, run_result):
+    """_run_all hands off once, then the user presses Ctrl-C."""
+    calls = []
+
+    def fake_run_all(servers, slot=None):
+        calls.append(servers)
+        if len(calls) == 1:
+            slot.request("reset", ["python", "-m", "humble_catalog", "reset"])
+            return slot.take()
+        return None
+
+    ran = []
+
+    def fake_terminal(command, line):
+        ran.append((command, line))
+        if isinstance(run_result, Exception):
+            raise run_result
+        return run_result
+
+    monkeypatch.setattr(webmod, "_run_all", fake_run_all)
+    monkeypatch.setattr(handoffmod, "run_in_terminal", fake_terminal)
+    return calls, ran
+
+
+@pytest.mark.parametrize("lan", [None, "lan"])
+def test_a_handoff_runs_the_command_then_rebinds_the_same_apps(
+        tmp_path, monkeypatch, lan):
+    built = _stub_servers(monkeypatch)
+    calls, ran = _handoff_once(monkeypatch, 0)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087,
+                 lan=lanmod.LanOptions() if lan else None)
+    assert [c for c, _ in ran] == ["reset"]
+    assert len(calls) == 2                       # served, handed off, served
+    per_round = len(built) // 2
+    first, second = built[:per_round], built[per_round:]
+    # The same app objects, so the job runner's history and the slot's
+    # generation survive the restart.
+    assert [s.app for s in first] == [s.app for s in second]
+    slot = first[0].app.config["HANDOFF"]
+    assert slot.state()["generation"] == 1
+    assert slot.state()["last"]["exit_code"] == 0
+    assert slot.busy() is None
+
+
+def test_a_crashing_handoff_still_brings_the_viewer_back(
+        tmp_path, monkeypatch, capsys):
+    built = _stub_servers(monkeypatch)
+    calls, _ran = _handoff_once(monkeypatch, RuntimeError("boom"))
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087)
+    assert len(calls) == 2 and len(built) == 2
+    slot = built[0].app.config["HANDOFF"]
+    assert slot.state()["last"]["exit_code"] is None
+    assert "boom" in capsys.readouterr().err
+
+
+def test_the_browser_opens_once_not_after_every_handoff(tmp_path, monkeypatch):
+    _stub_servers(monkeypatch)
+    opened = []
+    monkeypatch.setattr(webmod.webbrowser, "open", lambda url: opened.append(url))
+    _handoff_once(monkeypatch, 0)
+    dbp = tmp_path / "catalog.db"
+    _seed(dbp)
+    webmod.serve(db_path=str(dbp), port=8087)
+    # The page reconnects by itself; a second open would be a second tab.
+    assert opened == ["http://127.0.0.1:8087/"]
+
+
+def test_run_all_stops_for_a_handoff_and_shuts_every_server():
+    import threading
+
+    class Server:
+        def __init__(self):
+            self.stop = threading.Event()
+            self.closed = False
+        def serve_forever(self):
+            self.stop.wait(5)
+        def shutdown(self):
+            self.stop.set()
+        def server_close(self):
+            self.closed = True
+
+    slot = handoffmod.HandoffSlot()
+    slot.request("login", ["x"])
+    servers = [Server(), Server()]
+    req = webmod._run_all(servers, slot)
+    assert req == {"command": "login", "argv": ["x"]}
+    assert all(s.stop.is_set() and s.closed for s in servers)
+
+
+def _handoff_client(tmp_path, slot=True):
+    backups = tmp_path / "backups"
+    app = create_app(db_path=str(tmp_path / "catalog.db"),
+                     backups_dir=str(backups))
+    runner = _StubRunner()
+    app.config["JOB_RUNNER"] = runner
+    s = handoffmod.HandoffSlot() if slot else None
+    app.config["HANDOFF"] = s
+    return app.test_client(), runner, s, backups
+
+
+def _write_snapshot(backups, stamp="20260101-120000"):
+    backups.mkdir(exist_ok=True)
+    (backups / f"catalog-{stamp}.db").write_bytes(b"x")
+    return f"catalog-{stamp}.db"
+
+
+def test_backups_lists_the_snapshots(tmp_path):
+    client, _r, _s, backups = _handoff_client(tmp_path)
+    name = _write_snapshot(backups)
+    body = client.get("/api/backups").get_json()
+    assert [b["name"] for b in body["backups"]] == [name]
+
+
+def test_handoff_queues_the_whitelisted_command(tmp_path):
+    client, _r, slot, _b = _handoff_client(tmp_path)
+    resp = client.post("/api/jobs/handoff", json={"command": "reset"})
+    assert resp.status_code == 200
+    assert resp.get_json() == {"command": "reset", "generation": 0}
+    assert slot.take()["argv"][-1] == "reset"
+
+
+def test_handoff_restore_takes_a_listed_snapshot(tmp_path):
+    client, _r, slot, backups = _handoff_client(tmp_path)
+    name = _write_snapshot(backups)
+    resp = client.post("/api/jobs/handoff", json={
+        "command": "restore", "options": {"covers": True}, "snapshot": name})
+    assert resp.status_code == 200
+    line = slot.take()["argv"]
+    assert line[-2:] == [str(backups / name), "--covers"]
+
+
+@pytest.mark.parametrize("body", [
+    {"command": "harvest"},                      # an in-page command
+    {"command": "restore"},                      # no snapshot
+    {"command": "restore", "snapshot": "../catalog.db"},
+    {"command": "reset", "options": {"covers": True}},
+    {"command": "reset", "options": ["--yes"]},
+    {},
+])
+def test_handoff_refuses_what_the_whitelist_does_not_allow(tmp_path, body):
+    client, _r, slot, _b = _handoff_client(tmp_path)
+    assert client.post("/api/jobs/handoff", json=body).status_code == 400
+    assert slot.busy() is None
+
+
+def test_handoff_refuses_a_malformed_body(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path)
+    for body in ([], "reset", None):
+        resp = client.post("/api/jobs/handoff", json=body)
+        assert resp.status_code == 400
+        assert resp.is_json
+
+
+def test_handoff_without_a_serve_loop_says_how_to_get_one(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path, slot=False)
+    resp = client.post("/api/jobs/handoff", json={"command": "login"})
+    assert resp.status_code == 409
+    assert "humble_catalog serve" in resp.get_json()["error"]
+
+
+def test_handoff_waits_for_a_running_job(tmp_path):
+    client, runner, slot, _b = _handoff_client(tmp_path)
+    runner.state = lambda: {"running": {"command": "harvest"}, "log": [],
+                            "last": None}
+    resp = client.post("/api/jobs/handoff", json={"command": "reset"})
+    assert resp.status_code == 409
+    assert "harvest" in resp.get_json()["error"]
+    assert slot.busy() is None
+
+
+def test_a_second_handoff_is_refused(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path)
+    client.post("/api/jobs/handoff", json={"command": "login"})
+    assert client.post("/api/jobs/handoff",
+                       json={"command": "reset"}).status_code == 409
+
+
+def test_no_job_starts_while_a_handoff_is_pending(tmp_path):
+    client, runner, _s, _b = _handoff_client(tmp_path)
+    client.post("/api/jobs/handoff", json={"command": "reset"})
+    resp = client.post("/api/jobs/start", json={"command": "harvest"})
+    assert resp.status_code == 409
+    assert runner.started == []
+    resp = client.post("/api/jobs/import-sheets",
+                       json={"filename": "a.xlsx", "content_b64": "eA=="})
+    assert resp.status_code == 409
+
+
+def test_jobs_reports_the_handoff_state(tmp_path):
+    client, _r, slot, _b = _handoff_client(tmp_path)
+    slot.request("login", ["x"])
+    slot.take()
+    slot.finish(0)
+    body = client.get("/api/jobs").get_json()
+    assert body["handoff"]["available"] is True
+    assert body["handoff"]["generation"] == 1
+    assert body["handoff"]["last"]["command"] == "login"
+
+
+def test_jobs_reports_no_handoff_without_a_serve_loop(tmp_path):
+    client, _r, _s, _b = _handoff_client(tmp_path, slot=False)
+    h = client.get("/api/jobs").get_json()["handoff"]
+    assert h == {"available": False, "generation": 0, "pending": None,
+                 "last": None}
+
+
+def test_readme_explains_the_handoff_and_its_guard():
+    readme = _readme()
+    exposure = readme.split("### The viewer's exposure")[1]
+    # The destructive path's real guard is the typed word at the console.
+    # The exposure section must say a local process can now QUEUE a
+    # reset, and why that still cannot wipe anything unattended.
+    assert "hand" in exposure.lower()
+    assert "RESET" in exposure
+    assert "needed only for `login`, `reset` and `restore`" not in readme
