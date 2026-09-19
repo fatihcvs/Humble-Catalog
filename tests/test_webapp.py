@@ -137,6 +137,16 @@ def test_a_card_cover_keeps_its_proportions_and_text_flows_around_it():
         assert "flex" not in body and "overflow" not in body
 
 
+def test_the_tasks_section_is_its_own_scroller():
+    # body is overflow: hidden and every section brings its own scroller.
+    # Tasks had none, which went unseen while its cards fitted the window;
+    # the handoff cards pushed the Danger group below the fold with no way
+    # to scroll to it.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    assert "overflow-y: auto" in _css_rule(css, "#section-tasks")
+
+
 def test_app_wires_every_registered_chip_filter():
     js = _viewer_js()
     for field in ("genre", "series", "authors", "narrator", "publisher",
