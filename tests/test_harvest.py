@@ -85,21 +85,28 @@ def test_one_thread_per_source(tmp_path):
     conn = db.connect(tmp_path / "t.db")
     for i in range(4):
         _seed(conn, f"Book {i}", "ebook")
-    idents = {}  # source name -> set of thread ids seen
+    # Thread OBJECTS, not threading.get_ident(): an ident may be reused
+    # once its thread exits, and run() starts the sources one after
+    # another, so a fast source can finish before the next starts and hand
+    # its ident on. On Linux that happens often enough to fail CI (2 == 4).
+    # run() holds every Thread in a list until it joins them, so the
+    # objects themselves stay distinct for the whole run.
+    threads = {}  # source name -> set of Thread objects seen
     def make(name):
         s = Mock()
         def lookup(title):
-            idents.setdefault(name, set()).add(threading.get_ident())
+            threads.setdefault(name, set()).add(threading.current_thread())
             return []
         s.lookup.side_effect = lookup
         return s
     sources = {n: make(n) for n in ("hardcover", "google_books",
                                     "oreilly", "open_library")}
     harvest.run(db_path=tmp_path / "t.db", sources=sources, _conn=conn)
-    for name, seen in idents.items():
+    for name, seen in threads.items():
         assert len(seen) == 1, f"{name} used {len(seen)} threads"
-    all_idents = [next(iter(s)) for s in idents.values()]
-    assert len(set(all_idents)) == len(all_idents)  # distinct threads across sources
+    all_threads = [next(iter(s)) for s in threads.values()]
+    assert len(set(all_threads)) == len(all_threads)  # distinct threads across sources
+    assert threading.main_thread() not in all_threads
 
 def test_one_failing_source_does_not_stop_others(tmp_path):
     conn = db.connect(tmp_path / "t.db")
