@@ -168,6 +168,22 @@ def seed(db_path):
     conn.close()
 
 
+def make_app(db_path):
+    """The demo viewer, with every data directory pointed away from the
+    real ones beside catalog.db.
+
+    covers_dir is the committed invented covers, never the real covers/.
+    backups_dir is a directory that does not exist, never ./backups: the
+    demo runs from the repo root, and the Tasks tab's restore picker
+    would otherwise list the real snapshots -- their dates and sizes in
+    frame in any screenshot.
+    """
+    return create_app(
+        db_path=str(db_path), covers_dir=str(COVERS_DIR),
+        backups_dir=str(Path(tempfile.gettempdir())
+                        / "humble-catalog-demo-backups"))
+
+
 def main():
     # A fixed name inside the system temp directory: stable enough to
     # reopen between runs, and never beside catalog.db, where a stray
@@ -177,9 +193,7 @@ def main():
     print(f"Demo catalog: {db_path}")
     print(f"Serving {len(DEMO_ROWS)} invented items on "
           f"http://127.0.0.1:{PORT}  (Ctrl+C to stop)")
-    # covers_dir is the committed invented covers, never the real covers/.
-    create_app(db_path=str(db_path), covers_dir=str(COVERS_DIR)
-               ).run(host="127.0.0.1", port=PORT)
+    make_app(db_path).run(host="127.0.0.1", port=PORT)
 
 
 if __name__ == "__main__":

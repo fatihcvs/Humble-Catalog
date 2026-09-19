@@ -115,3 +115,17 @@ def test_the_viewer_serves_a_demo_cover(tmp_path):
     resp = client.get(f"/covers/{row['mn']}.svg")
     assert resp.status_code == 200
     assert resp.mimetype == "image/svg+xml"
+
+
+def test_the_demo_never_lists_the_real_backups(tmp_path):
+    # backups_dir defaults to ./backups, and the demo runs from the repo
+    # root, where the real snapshots live. Their dates and sizes are
+    # real-library metadata in any screenshot of the Tasks tab, which is
+    # exactly what the demo exists to keep out of frame.
+    dbp = tmp_path / "demo.db"
+    demo_catalog.seed(dbp)
+    app = demo_catalog.make_app(dbp)
+    backups = Path(app.config["BACKUPS_DIR"]).resolve()
+    repo = Path(__file__).resolve().parent.parent
+    assert repo not in backups.parents and backups != repo
+    assert app.test_client().get("/api/backups").get_json() == {"backups": []}
