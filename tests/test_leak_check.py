@@ -264,3 +264,110 @@ def test_scan_reports_the_file_a_hit_came_from():
 def test_scan_counts_every_file_even_when_nothing_hits():
     hits, nfiles = lc.scan([("a", "x"), ("b", "y")], ["Moonfall"])
     assert (hits, nfiles) == ({}, 2)
+
+
+# --- the frequency source ---------------------------------------------
+# These scores are the gate's calibration. A wordfreq upgrade that moves
+# them changes what the privacy check permits, so it has to fail here
+# rather than pass quietly. If this test breaks after a deliberate
+# upgrade, re-run the calibration in leak_check.py's COMMON_ZIPF comment
+# and update both together.
+
+def test_wordfreq_scores_are_stable():
+    from wordfreq import zipf_frequency
+    # Ordinary English, comfortably above any usable cutoff.
+    assert zipf_frequency("space", "en") > 5.0
+    assert zipf_frequency("legacy", "en") > 4.0
+    # A rare token, comfortably below one. Invented, so no real term can
+    # ever collide with it.
+    assert zipf_frequency("zzqqxv", "en") == 0.0
+
+
+# --- the common-word rule ---------------------------------------------
+
+def test_an_ordinary_single_word_is_common():
+    assert lc.is_common_word("space")
+    assert lc.is_common_word("legacy")
+    assert lc.is_common_word("prune")
+
+
+def test_a_rare_single_word_is_not_common():
+    # The rule is a frequency test, not a word-count test. A publisher's
+    # brand name is one token and must stay checkable.
+    assert not lc.is_common_word("zzqqxv")
+
+
+def test_a_phrase_is_never_common_however_ordinary_its_words():
+    # The threat-model line: a phrase of common words can name exactly
+    # one work, so no phrase is ever exempt.
+    assert not lc.is_common_word("the way")
+    assert not lc.is_common_word("all systems red")
+    assert not lc.is_common_word("a quiet life in harbors")
+
+
+def test_a_hyphenated_or_punctuated_term_is_not_a_single_token():
+    # Splitting on whitespace alone would call these one token. They can
+    # carry as much meaning as a phrase, so they stay checked.
+    assert not lc.is_common_word("science-fiction")
+    assert not lc.is_common_word("o'reilly")
+
+
+def test_partition_keeps_phrases_and_exempts_common_words(tmp_path,
+                                                          monkeypatch):
+    # "table" and "a quiet life" are deliberately NOT in ALLOWED: an
+    # allowlisted term never reaches the new rule, so using one here
+    # would test the wrong thing.
+    monkeypatch.setattr(lc, "db_terms",
+                        lambda path: {"table", "zzqqxv", "a quiet life"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    kept, exempt = lc.partition_terms(tmp_path)
+    assert kept == {"zzqqxv", "a quiet life"}
+    assert exempt == {"table"}
+
+
+def test_build_terms_is_the_kept_half(tmp_path, monkeypatch):
+    # leak_check_history imports build_terms; its contract must not move.
+    monkeypatch.setattr(lc, "db_terms",
+                        lambda path: {"table", "zzqqxv", "a quiet life"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    assert lc.build_terms(tmp_path) == lc.partition_terms(tmp_path)[0]
+
+
+def test_the_allowlist_still_wins_over_everything(tmp_path, monkeypatch):
+    # An ALLOWED phrase stays out of the term set; the rule is additive.
+    monkeypatch.setattr(lc, "db_terms", lambda path: {"All Systems Red"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    kept, exempt = lc.partition_terms(tmp_path)
+    assert kept == set() and exempt == set()
+
+
+def test_short_and_numeric_terms_are_still_dropped(tmp_path, monkeypatch):
+    # The pre-existing filters are unchanged: under four characters, and
+    # anything that is only digits and dots.
+    monkeypatch.setattr(lc, "db_terms", lambda path: {"abc", "12.5", "zzqqxv"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    assert lc.build_terms(tmp_path) == {"zzqqxv"}
+
+
+def test_the_summary_counts_exempt_words_without_naming_them(
+        tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(lc, "db_terms",
+                        lambda path: {"table", "window", "zzqqxv"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    monkeypatch.setattr(lc, "worktree_sources",
+                        lambda root=lc.ROOT: [("a.md", "nothing here")])
+    assert lc.main(()) == 0
+    out = capsys.readouterr().out
+    assert "2 single common words exempt" in out
+    # The words themselves must never reach the terminal: printing them
+    # rebuilds exactly the oracle this rule removes.
+    assert "table" not in out and "window" not in out
+
+
+def test_no_allowlist_entry_is_one_the_rule_already_covers():
+    # Every redundant entry is pure disclosure: it says "a term here
+    # equals this" and buys nothing, because the common-word rule would
+    # have exempted it anyway. Keeping the list minimal is the point of
+    # the rule.
+    redundant = sorted(t for t in lc.ALLOWED if lc.is_common_word(t))
+    assert redundant == [], redundant
