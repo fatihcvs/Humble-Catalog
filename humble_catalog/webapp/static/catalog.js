@@ -688,7 +688,15 @@ function renderCards(rows) {
       ? ` · ${esc(i.series)}${i.series_number ? " #" + i.series_number : ""}` : "";
     const rating = i.my_rating ? ` · ${"★".repeat(i.my_rating)}` : "";
     const tags = (i.user_tags || []).length ? ` · ${esc(i.user_tags.join(", "))}` : "";
-    return `<article class="card">
+    // The card itself is the control, rather than carrying two of its
+    // own: status and stars on every card face cost about 90 px each and
+    // roughly halve how much library fits on a screen, which is what the
+    // phone is mostly for. Measured both ways before choosing (#45).
+    const opens = READ_ONLY ? "" :
+      ` role="button" tabindex="0" data-open="${i.id}"` +
+      ` aria-label="Edit ${esc(i.name)}"`;
+    return `<article class="card${READ_ONLY ? "" : " tappable"}"${opens}>
+    ${READ_ONLY ? "" : '<span class="card-chevron" aria-hidden="true">&rsaquo;</span>'}
     ${i.cover_path
       ? `<img class="card-cover" src="/${i.cover_path}" alt="" loading="lazy">`
       : ""}
@@ -703,6 +711,114 @@ function renderCards(rows) {
     </div>
   </article>`;
   }).join("");
+}
+
+// ---- The phone's edit sheet -------------------------------------------
+// Below 600 px the table is gone and with it the status select and the
+// stars, so the two fields a phone is actually used for were unreachable.
+// The card opens this instead of carrying the controls itself: it costs
+// two taps per item and keeps half again as much list on screen.
+
+// Short labels, for the five-button row at 375 px. "Want to read" wraps
+// it; "Want" does not. The stored keys and the table's own labels are
+// unchanged -- this is a width problem, not a vocabulary one.
+const READ_STATUS_SHORT = {want_to_read: "Want", unread: "Unread",
+                           reading: "Reading", read: "Read", dnf: "DNF"};
+
+let openSheetId = null;
+
+function sheetFor(i) {
+  const cur = i.read_status || "unread";
+  const rating = i.my_rating || 0;
+  return `<div class="sheet-grabber"></div>
+    <h3 id="sheet-title">${esc(i.name)}</h3>
+    <p class="sheet-sub">${esc((i.authors || []).join(", ")) || esc(i.type)}</p>
+    <div class="sheet-label" id="sheet-status-label">Reading status</div>
+    <div class="seg" role="group" aria-labelledby="sheet-status-label">${
+      READ_STATUS.map(([k]) =>
+        `<button type="button" class="sheet-status rs-${k}" data-id="${i.id}"
+           data-s="${k}" aria-pressed="${k === cur}">${READ_STATUS_SHORT[k]}</button>`
+      ).join("")}</div>
+    <div class="sheet-label" id="sheet-rating-label">My rating</div>
+    <div class="sheet-stars" role="group" aria-labelledby="sheet-rating-label">${
+      [1, 2, 3, 4, 5].map((n) =>
+        `<button type="button" class="sheet-star${rating >= n ? " on" : ""}"
+           data-id="${i.id}" data-n="${n}"
+           aria-label="${n} star${n === 1 ? "" : "s"}">&#9733;</button>`).join("")}${
+      rating ? `<button type="button" class="sheet-star-clear" data-id="${i.id}"
+                  data-n="0">Clear</button>` : ""}</div>
+    <button type="button" class="sheet-done">Done</button>`;
+}
+
+function openSheet(id) {
+  const item = items.find((i) => i.id === id);
+  if (!item || READ_ONLY) return;
+  openSheetId = id;
+  const sheet = $("#edit-sheet"), scrim = $("#sheet-scrim");
+  sheet.innerHTML = sheetFor(item);
+  sheet.hidden = false;
+  scrim.hidden = false;
+  // Reading a layout property flushes the un-hidden, still-parked state to
+  // the engine, so the class that follows transitions from it rather than
+  // being collapsed into one paint. The obvious alternative -- deferring
+  // the class to requestAnimationFrame -- looks equivalent and is not: a
+  // hidden or throttled tab never delivers that frame, and the sheet then
+  // sits below the viewport while focused and taking taps. The animation
+  // is decoration; being visible is not.
+  sheet.getBoundingClientRect();
+  sheet.classList.add("open");
+  scrim.classList.add("open");
+  // preventScroll is load-bearing. At this instant the sheet is still
+  // parked at translateY(100%), below the frame, so a plain focus() makes
+  // the browser scroll to bring the button into view -- and what visibly
+  // moves is the list behind it, which reads as a stray animation.
+  sheet.querySelector(".sheet-done")?.focus({preventScroll: true});
+}
+
+function closeSheet() {
+  const id = openSheetId;
+  openSheetId = null;
+  const sheet = $("#edit-sheet"), scrim = $("#sheet-scrim");
+  sheet.classList.remove("open");
+  scrim.classList.remove("open");
+  // Hidden only once it has slid away; hiding immediately would cut the
+  // transition. A sheet reopened in the meantime keeps itself.
+  setTimeout(() => {
+    if (openSheetId === null) { sheet.hidden = true; scrim.hidden = true; }
+  }, 220);
+  // Same reason as above: the card may have scrolled out of view while
+  // the sheet was open, and returning focus must not drag the list back.
+  document.querySelector(`.card[data-open="${id}"]`)?.focus({preventScroll: true});
+}
+
+// The two writes. Separate functions rather than inline in the click
+// handler so they can be driven directly by a test -- the harness's
+// document stub swallows listeners, so a delegated click is unreachable
+// there. They post to the same routes the table's own controls use.
+async function setSheetStatus(id, status) {
+  await post(`/api/items/${id}/read-status`, {status});
+  const item = items.find((i) => i.id === id);
+  if (item) item.read_status = status;
+  refreshSheet(id);
+}
+
+async function setSheetRating(id, n) {
+  // 0 means clear, which the route spells as null -- the same value the
+  // table's own star sends when the current rating is tapped again.
+  const rating = n === 0 ? null : n;
+  await post(`/api/items/${id}/rating`, {rating});
+  const item = items.find((i) => i.id === id);
+  if (item) item.my_rating = rating;
+  refreshSheet(id);
+}
+
+// Redraw the list behind the sheet and the sheet itself, so the card's
+// summary line and the sheet's controls cannot disagree.
+function refreshSheet(id) {
+  render();
+  const item = items.find((i) => i.id === id);
+  if (item && openSheetId === id) $("#edit-sheet").innerHTML = sheetFor(item);
+  refreshStats();
 }
 
 function render() {
@@ -961,6 +1077,19 @@ document.addEventListener("click", async (ev) => {
       relevanceSort = false;
     }
     render();
+  } else if (el.closest && el.closest(".sheet-status")) {
+    const b = el.closest(".sheet-status");
+    await setSheetStatus(+b.dataset.id, b.dataset.s);
+  } else if (el.closest && el.closest(".sheet-star, .sheet-star-clear")) {
+    const b = el.closest(".sheet-star, .sheet-star-clear");
+    await setSheetRating(+b.dataset.id, +b.dataset.n);
+  } else if (el.closest && (el.closest(".sheet-done") || el.id === "sheet-scrim")) {
+    closeSheet();
+  } else if (el.closest && el.closest("[data-open]")
+             && !el.closest(".card-link")) {
+    // The bundle links inside a card stay links: tapping one should open
+    // the bundle page, not the editor.
+    openSheet(+el.closest("[data-open]").dataset.open);
   } else if (el.classList.contains("clear-all")) {
     clearAllFilters();
     render();
@@ -1124,6 +1253,17 @@ document.addEventListener("change", async (e) => {
   render();
   refreshStats();   // as with the star click: table now, panel a beat later
 });
+// The card is a button, so it answers Enter and Space like one; Escape
+// closes the sheet, which a dialog has to.
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && openSheetId !== null) { closeSheet(); return; }
+  if (ev.key !== "Enter" && ev.key !== " ") return;
+  const card = ev.target.closest?.("[data-open]");
+  if (!card) return;
+  ev.preventDefault();
+  openSheet(+card.dataset.open);
+});
+
 for (const id of ["#f-type", "#f-flag", "#f-rating"])
   $(id).addEventListener("input", render);
 // Typing a query re-asserts relevance ordering; a header click clears it.

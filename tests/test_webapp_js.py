@@ -2011,7 +2011,7 @@ def test_cards_carry_the_title_series_and_download_link():
         bundles=[{"name": "Bundle One", "url": "https://www.humblebundle.com/downloads?key=k1",
                   "purchased_at": "2020-01-01"}]))
     html = eval_js(f"app.renderCards([{item}])")
-    assert html.count('<article class="card"') == 1
+    assert html.count("</article>") == 1
     assert "The Quiet Harbor: A Novel" in html
     assert "Harbor Tales #2" in html
     assert 'class="card-link" href="https://www.humblebundle.com/downloads?key=k1"' in html
@@ -2033,7 +2033,7 @@ def test_cards_survive_missing_fields():
     # payload must not blank the page.
     item = json.dumps(_item(bundles=None, authors=None, user_tags=None,
                             formats=None, read_status=None))
-    assert eval_js(f"app.renderCards([{item}])").count('<article class="card"') == 1
+    assert eval_js(f"app.renderCards([{item}])").count("</article>") == 1
 
 
 def test_a_narrow_screen_renders_cards_instead_of_the_table():
@@ -2045,7 +2045,7 @@ def test_a_narrow_screen_renders_cards_instead_of_the_table():
                 tableHidden: document.querySelector("#table-wrap").hidden,
                 cardsHidden: document.querySelector("#card-list").hidden};
       })()""" % json.dumps(_item()))
-    assert '<article class="card"' in result["cards"]
+    assert "</article>" in result["cards"]
     assert result["table"] == ""
     assert result["tableHidden"] is True and result["cardsHidden"] is False
 
@@ -2536,3 +2536,146 @@ def test_the_announcement_is_dropped_once_rows_come_back():
               return dom.writes["#table-status:text"];
             }})()""")
     assert said == ""
+
+
+def _phone(items_json, body):
+    """Run `body` with the viewer in phone mode and a stubbed fetch.
+
+    isNarrow() reads matchMedia, which the sandbox does not have, so the
+    card path is selected by hand. Posts are captured rather than sent.
+    """
+    return eval_js(
+        f"""(async () => {{
+              dom.reset();
+              globalThis.posts = [];
+              app.setFetch((url, opts) => {{
+                // Writes only. Every write here also refreshes the stats
+                // panel, and a plain GET is not what these tests are about.
+                if (opts) posts.push({{url, body: JSON.parse(opts.body)}});
+                return Promise.resolve({{ok: true, json: () => Promise.resolve({{}})}});
+              }});
+              app.setItems({items_json});
+              {body}
+            }})()""")
+
+
+def test_a_phone_card_is_a_button_that_opens_the_editor():
+    # The cards were display-only -- "editing needs the table's width" --
+    # so a phone could not set the two fields a phone is actually for.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    html = _phone(items, "return app.renderCards(app.getItems());")
+    assert 'role="button"' in html
+    assert 'data-open="1"' in html
+
+
+def test_the_lan_viewers_cards_stay_display_only():
+    # serve --lan has no write routes at all -- they are absent, not
+    # refused -- so a control that posts must never be drawn there.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    html = eval_js(
+        f"""(() => {{
+              app.setReadOnly(true);
+              app.setItems({items});
+              const html = app.renderCards(app.getItems());
+              app.setReadOnly(false);
+              return html;
+            }})()""")
+    assert 'role="button"' not in html
+    assert "data-open" not in html
+
+
+def test_the_sheet_offers_every_status_by_its_short_name():
+    # "Want to read" wraps the five-button row at 375 px; "Want" does not.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    html = _phone(items, "return app.sheetFor(app.getItems()[0]);")
+    for label in ("Want", "Unread", "Reading", "Read", "DNF"):
+        assert f">{label}<" in html, label
+
+
+def test_choosing_a_status_in_the_sheet_posts_it_and_keeps_the_item():
+    items = json.dumps([_item(id=1, read_status="unread")])
+    out = _phone(items, """
+      await app.setSheetStatus(1, "read");
+      return {posts, status: app.getItems()[0].read_status};""")
+    assert out["posts"] == [{"url": "/api/items/1/read-status",
+                             "body": {"status": "read"}}]
+    assert out["status"] == "read"
+
+
+def test_rating_from_the_sheet_posts_the_star_that_was_tapped():
+    items = json.dumps([_item(id=1, my_rating=None)])
+    out = _phone(items, """
+      await app.setSheetRating(1, 4);
+      return {posts, rating: app.getItems()[0].my_rating};""")
+    assert out["posts"] == [{"url": "/api/items/1/rating", "body": {"rating": 4}}]
+    assert out["rating"] == 4
+
+
+def test_clearing_the_rating_from_the_sheet_posts_null():
+    # Re-tapping the current star clears it on the table too, but nothing
+    # says so; the sheet has room for a control that does.
+    items = json.dumps([_item(id=1, my_rating=4)])
+    out = _phone(items, """
+      await app.setSheetRating(1, 0);
+      return {posts, rating: app.getItems()[0].my_rating};""")
+    assert out["posts"] == [{"url": "/api/items/1/rating", "body": {"rating": None}}]
+    assert out["rating"] is None
+
+
+def test_opening_the_sheet_does_not_scroll_the_list():
+    # The sheet is parked below the frame until it animates up, so a plain
+    # focus() makes the browser scroll to bring the control into view --
+    # and what visibly moves is the list behind it.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    calls = _phone(items, "app.openSheet(1); return dom.focusCalls;")
+    assert calls, "nothing was focused when the sheet opened"
+    assert all(c["preventScroll"] for c in calls), calls
+
+
+def test_closing_the_sheet_does_not_scroll_the_list_either():
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    calls = _phone(items, """
+      app.openSheet(1);
+      dom.reset();
+      app.closeSheet();
+      return dom.focusCalls;""")
+    assert calls, "focus was not returned when the sheet closed"
+    assert all(c["preventScroll"] for c in calls), calls
+
+
+def test_the_sheet_reveals_itself_even_when_frames_never_come():
+    # Found in the browser: requestAnimationFrame does not fire in a
+    # hidden or throttled tab, so a reveal deferred to the next frame
+    # never happened -- and the sheet sat parked below the viewport while
+    # focused and taking taps. The animation is decoration; being visible
+    # is not, so the class goes on synchronously.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    opened = eval_js(
+        f"""(() => {{
+              // A frame callback that is registered and never called, which
+              // is exactly what a backgrounded tab does.
+              globalThis.requestAnimationFrame = () => 0;
+              app.setItems({items});
+              app.openSheet(1);
+              return document.querySelector("#edit-sheet")
+                       .classList.contains("open");
+            }})()""")
+    assert opened is True
+
+
+def test_the_sheet_refuses_to_open_on_the_lan_viewer():
+    # Defence in depth rather than a driven test: the cards there carry no
+    # opener at all (above). This pins the second half of the LAN viewer's
+    # safety story -- the controls are never drawn AND never reachable --
+    # so removing the guard cannot pass unnoticed.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    opened = eval_js(
+        f"""(() => {{
+              app.setReadOnly(true);
+              app.setItems({items});
+              app.openSheet(1);
+              const open = app.getOpenSheetId();
+              app.setReadOnly(false);
+              return open;
+            }})()""")
+    assert opened is None
