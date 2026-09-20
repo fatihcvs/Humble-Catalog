@@ -335,6 +335,18 @@ button { background: var(--surface); color: var(--fg);
          border: 1px solid var(--border-strong); border-radius: 4px;
          cursor: pointer; }
 button:disabled { color: var(--muted); cursor: default; }
+/* One ring for everything focusable, for the same reason the rule above
+   themes every button: opting in per control is a rule nobody remembers,
+   and the controls that had been missed were the custom ones -- the
+   status chips, the active-filter strip, a Tasks card.
+   :focus-visible rather than :focus, so a mouse click on a button does
+   not leave a ring behind it; the keyboard still gets one.
+   --accent-strong is the one accent defined to carry against BOTH
+   grounds, and the offset keeps the ring clear of a control's own
+   border, which otherwise just reads as a thicker border. Never trade
+   this for `outline: none`: there is a test forbidding it. */
+:focus-visible { outline: 2px solid var(--accent-strong);
+                 outline-offset: 2px; }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 /* Unclassed links (e.g. "inspect" in the review panel) otherwise take the
    browser's harsh default blue; the .tag-link/.src-link classes still win. */
