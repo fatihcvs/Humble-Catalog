@@ -279,6 +279,49 @@ def test_the_empty_state_line_does_not_read_as_a_data_row():
         assert "text-align: center" in rule, selector
 
 
+def test_the_table_says_it_is_loading_before_any_script_runs():
+    # /api/items is awaited before anything is drawn, so the table was
+    # blank for the whole round trip -- and identical to an empty catalog
+    # and to a server that never answered. The first state ships in the
+    # markup, so it is on screen at first paint rather than after the
+    # scripts have parsed.
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    body = html[html.index("<tbody>"):html.index("</tbody>")]
+    assert "Loading" in body
+
+
+def test_focus_is_visible_on_every_control():
+    # There was no :focus-visible rule at all, so a keyboard user tabbing
+    # through the filter fields, the status chips, the active-filter
+    # strip or a Tasks card had nothing on screen saying where they were.
+    # The base button rule above is exactly why the browser's own ring
+    # cannot be relied on here: every button carries a custom background,
+    # and the default ring is drawn to sit on the default button.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    rule = _css_rule(css, ":focus-visible")
+    assert "outline:" in rule
+    # custom properties, never a literal colour, or one theme loses the
+    # ring against its own ground -- the same rule the button base obeys
+    assert "var(--" in rule and "#" not in rule
+    # offset, so the ring clears a control's own border instead of
+    # tracing it and reading as a thicker border
+    assert "outline-offset:" in rule
+
+
+def test_nothing_suppresses_the_focus_outline():
+    # A single `outline: none` anywhere puts one control back in the dark,
+    # and it is the conventional way to "fix" a ring someone dislikes.
+    # Declarations only: the rule's own comment says not to write
+    # `outline: none`, and a raw substring scan reads that as the offence.
+    css = re.sub(r"/\*.*?\*/", "", (Path(__file__).parent.parent
+                 / "humble_catalog" / "webapp" / "static" / "style.css")
+                 .read_text(encoding="utf-8"), flags=re.S)
+    assert "outline: none" not in css
+    assert "outline: 0" not in css
+
+
 def test_search_box_has_title_typeahead():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")

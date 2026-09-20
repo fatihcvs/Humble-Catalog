@@ -121,9 +121,21 @@
       <th data-sort="my_rating">Mine<span class="sort-ind"></span></th>
       <th>My tags</th><th>Notes</th>
     </tr></thead>
-    <tbody></tbody>
+    <!-- The first state, in the markup rather than written by a script:
+         /api/items is awaited before anything is drawn, so this is what
+         stands during the round trip. An empty <tbody> made a slow load,
+         an empty catalog and a server that never answered all look the
+         same. render() replaces it, with rows or with a reason. -->
+    <tbody><tr class="table-empty"><td colspan="99">Loading the catalog…</td></tr></tbody>
   </table>
   </div>
+  <!-- The table's spoken channel. Present from first paint and never
+       removed: a live region inserted at the same moment as its text is
+       not reliably announced, so the visible line in the table cannot be
+       the region itself. render() writes the same sentence here, and
+       writes it empty again once rows come back, or the region
+       re-announces a stale one on the next change. -->
+  <p id="table-status" class="visually-hidden" role="status"></p>
   <div id="card-list" hidden></div>
   </div>
   </div>

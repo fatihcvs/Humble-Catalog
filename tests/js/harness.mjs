@@ -30,6 +30,8 @@ const fuzzySrc = fs.readFileSync(
 // Records innerHTML writes per selector, so a test can ask which
 // renderers actually ran.
 const writes = {};
+// Selectors that have been focus()ed, in order.
+const focused = [];
 
 function makeEl(selector) {
   const el = {
@@ -57,7 +59,10 @@ function makeEl(selector) {
     removeEventListener() {},
     insertAdjacentHTML() {},
     remove() {},
-    focus() {},
+    // Focus moves are RECORDED, for the same reason classes and
+    // attributes are: where the keyboard lands after a control removes
+    // itself is behaviour, and a no-op stub left it unobservable.
+    focus() { focused.push(selector); },
     click() {},
     closest: () => makeEl(selector),
     querySelector: () => makeEl(selector),
@@ -200,7 +205,9 @@ const runner = `
 })()
 `;
 
-sandbox.__dom = { writes, reset: () => { for (const k of Object.keys(writes)) delete writes[k]; } };
+sandbox.__dom = { writes, focused,
+  reset: () => { for (const k of Object.keys(writes)) delete writes[k];
+                 focused.length = 0; } };
 
 const result = await vm.runInContext(runner, sandbox);
 process.stdout.write(JSON.stringify(result === undefined ? null : result));

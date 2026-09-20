@@ -2384,6 +2384,9 @@ def test_clear_all_is_offered_only_while_a_filter_is_active():
            })()""")
     assert "clear-all" not in off
     assert "clear-all" in on
+    # "Clear all" alone does not say all WHAT, sitting in a toolbar beside
+    # a column picker and an export button
+    assert "Clear all filters" in on
 
 
 def test_clear_all_clears_every_kind_of_filter_at_once():
@@ -2431,3 +2434,105 @@ def test_spreadsheet_picker_is_inside_its_import_card():
     assert 'id="sheet-filename" role="status">No file selected' in card
     assert 'data-command="import_sheets"' in card
     assert 'Choosing a file below starts the import' in card
+
+
+def test_a_catalog_that_cannot_be_read_says_so_rather_than_going_blank():
+    # load() read /api/items outside its own guard, so a server that had
+    # stopped left the page on the loading line for ever, with the reason
+    # in the console and nothing on screen.
+    result = eval_js(
+        """(async () => {
+             dom.reset();
+             app.setItems([]);
+             app.setFetch(() => Promise.reject(new Error("connection refused")));
+             let threw = null;
+             try { await app.load(); } catch (e) { threw = e.message; }
+             return {threw, tbody: dom.writes["#catalog tbody"]};
+           })()""")
+    assert result["threw"] is None
+    assert "Could not read the catalog" in result["tbody"]
+
+
+def test_a_failed_load_does_not_tell_the_reader_to_go_and_fetch_bundles():
+    # The empty-catalog line is the wrong advice here: the rows are
+    # unknown, not absent.
+    tbody = eval_js(
+        """(async () => {
+             dom.reset();
+             app.setItems([]);
+             app.setFetch(() => Promise.reject(new Error("connection refused")));
+             await app.load();
+             return dom.writes["#catalog tbody"];
+           })()""")
+    assert "No items in the catalog yet" not in tbody
+
+
+def test_a_later_successful_load_clears_the_failure_line():
+    # Otherwise the first failure sticks for the life of the page, and the
+    # Tasks tab's own reload would look like it had done nothing.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    tbody = eval_js(
+        f"""(async () => {{
+              app.setItems([]);
+              app.setFetch(() => Promise.reject(new Error("refused")));
+              await app.load();
+              dom.reset();
+              app.setFetch((url) => Promise.resolve({{json: () => Promise.resolve(
+                url === "/api/items"      ? {{items: {items}}} :
+                url === "/api/review"     ? {{items: []}} :
+                url === "/api/duplicates" ? {{groups: []}} :
+                url === "/api/stats"      ? {{total: 1, sections: []}} : {{}})}}));
+              await app.load();
+              return dom.writes["#catalog tbody"];
+            }})()""")
+    assert "Could not read the catalog" not in tbody
+    assert "A Quiet Life in Harbors" in tbody
+
+
+def test_clearing_every_filter_returns_focus_to_the_search_box():
+    # The button deletes itself as it fires -- the strip it lives in is
+    # re-rendered from a now-empty filter set -- so focus fell back to
+    # <body> and a keyboard user was dropped at the top of the page. With
+    # a focus ring now drawn (#38) it reads as focus simply vanishing.
+    focused = eval_js(
+        """(() => {
+             dom.reset();
+             app.setItems([]);
+             app.setSearch("quiet");
+             app.clearAllFilters();
+             return dom.focused;
+           })()""")
+    assert "#search" in focused
+
+
+def test_an_empty_table_announces_itself():
+    # The line is drawn where the rows would be, which a sighted reader
+    # sees immediately and a screen-reader user is never told about: the
+    # table simply stops having rows. The announcement goes through a live
+    # region that is present from first paint, because a region inserted
+    # at the same moment as its text is not reliably spoken.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    said = eval_js(
+        f"""(() => {{
+              dom.reset();
+              app.setItems({items});
+              app.setSearch("zzzqqq");
+              app.render();
+              return dom.writes["#table-status:text"];
+            }})()""")
+    assert "No items match these filters." == said
+
+
+def test_the_announcement_is_dropped_once_rows_come_back():
+    # A live region still holding the old sentence re-announces it on the
+    # next unrelated change, so the all-clear has to be written too.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    said = eval_js(
+        f"""(() => {{
+              dom.reset();
+              app.setItems({items});
+              app.setSearch("");
+              app.render();
+              return dom.writes["#table-status:text"];
+            }})()""")
+    assert said == ""

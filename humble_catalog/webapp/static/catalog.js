@@ -577,7 +577,8 @@ function renderActiveFilters() {
   // nothing to clear is noise, and this strip is itself empty otherwise.
   // It sits after the chips because it is the summary of them -- clearing
   // one is the common act, clearing all is the escape hatch.
-  if (out.length) out.push('<button class="clear-all">Clear all</button>');
+  if (out.length)
+    out.push('<button class="clear-all">Clear all filters</button>');
   box.innerHTML = out.join("");
 }
 
@@ -608,6 +609,12 @@ function clearAllFilters() {
   // longer there.
   relevanceSort = false;
   renderFilterChips();
+  // The button fires and then deletes itself -- the strip is rebuilt from
+  // a filter set that is now empty -- so without this the keyboard is
+  // dropped back to <body>, at the top of the page. The search box is
+  // where clearing leaves you anyway: it is the next thing most sessions
+  // type into.
+  $("#search")?.focus();
 }
 
 // Everything after the title in the name cell. Read-only keeps only what
@@ -645,12 +652,19 @@ function nameExtras(i) {
       i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}` + editions;
 }
 
-// Which of the three blank tables this is. The reader's next action
-// differs -- clear a filter, or go and fetch something -- so one flat
-// "nothing here" would send half of them to clear filters they never set.
+// Which of the blank tables this is. The reader's next action differs --
+// clear a filter, go and fetch something, or go and see why the server
+// stopped -- so one flat "nothing here" would send most of them to clear
+// filters they never set.
 // The LAN viewer gets the shorter line: it has no Tasks section to send
 // anyone to, only Library and Keys.
 function emptyStateText() {
+  // First, because it outranks the other two: after a failed read the
+  // rows are unknown rather than absent, and telling the reader to go and
+  // fetch some would be wrong advice about a catalog that may be full.
+  if (loadError)
+    return "Could not read the catalog from the server — it may have"
+         + " stopped. Check the terminal, then reload.";
   if (items.length === 0)
     return READ_ONLY
       ? "No items in the catalog yet."
@@ -703,6 +717,10 @@ function render() {
   // catalog nothing had been fetched into, and from a filter that matched
   // nothing. The line says which -- inside the scroller either way, so it
   // stands where the rows would be rather than above them.
+  // Spoken as well as drawn. Written on every render, empty included, so
+  // the region never holds a sentence that is no longer true.
+  const status = $("#table-status");
+  if (status) status.textContent = rows.length === 0 ? emptyStateText() : "";
   if (rows.length === 0) {
     const text = esc(emptyStateText());
     // colspan 99 rather than the column count: the count is declared in

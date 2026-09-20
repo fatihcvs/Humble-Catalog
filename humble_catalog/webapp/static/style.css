@@ -122,6 +122,13 @@ section[id^="section-"][hidden] { display: none; }
                            border-radius: 999px; font-size: .75rem;
                            background: var(--accent); color: var(--surface); }
 .section-empty { opacity: .7; }
+/* Off-screen but still in the accessibility tree -- display:none and
+   visibility:hidden would take it out of both. For text that is spoken
+   but not drawn, where the drawn copy lives somewhere the reader would
+   otherwise never be told about. */
+.visually-hidden { position: absolute; width: 1px; height: 1px;
+                   margin: -1px; padding: 0; overflow: hidden;
+                   clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* Library layout: filters aside, table beside it. The aside is a grid
    column rather than a float so collapsing is one track width. */
@@ -157,8 +164,10 @@ section[id^="section-"][hidden] { display: none; }
 .clear-all { font-size: .8rem; padding: 0 .4rem; color: var(--muted);
              background: none; border-color: transparent; }
 .clear-all:hover { color: var(--fg); border-color: var(--border-strong); }
-/* The line that stands where the rows would be, in both layouts. Muted
-   and centred so it cannot be read as an item whose name is the message. */
+/* The line that stands where the rows would be, in both layouts: the
+   loading state that ships in index.html, a filter that matched nothing,
+   an empty catalog, or a read that failed. Muted and centred so it cannot
+   be read as an item whose name is the message. */
 .table-empty td { color: var(--muted); text-align: center;
                   padding: 2rem 1rem; font-style: italic; }
 .list-empty { color: var(--muted); text-align: center; padding: 2rem 1rem;
@@ -333,6 +342,18 @@ button { background: var(--surface); color: var(--fg);
          border: 1px solid var(--border-strong); border-radius: 4px;
          cursor: pointer; }
 button:disabled { color: var(--muted); cursor: default; }
+/* One ring for everything focusable, for the same reason the rule above
+   themes every button: opting in per control is a rule nobody remembers,
+   and the controls that had been missed were the custom ones -- the
+   status chips, the active-filter strip, a Tasks card.
+   :focus-visible rather than :focus, so a mouse click on a button does
+   not leave a ring behind it; the keyboard still gets one.
+   --accent-strong is the one accent defined to carry against BOTH
+   grounds, and the offset keeps the ring clear of a control's own
+   border, which otherwise just reads as a thicker border. Never trade
+   this for `outline: none`: there is a test forbidding it. */
+:focus-visible { outline: 2px solid var(--accent-strong);
+                 outline-offset: 2px; }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 /* Unclassed links (e.g. "inspect" in the review panel) otherwise take the
    browser's harsh default blue; the .tag-link/.src-link classes still win. */
