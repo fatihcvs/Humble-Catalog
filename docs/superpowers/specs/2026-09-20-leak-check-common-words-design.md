@@ -86,13 +86,13 @@ So the rule buys a small blind spot and retires most of the maintenance.
 One predicate, applied where `build_terms()` already subtracts `ALLOWED`:
 
     a term is exempt if it is a single token
-      AND zipf_frequency(term, "en") >= THRESHOLD
+      AND zipf_frequency(term, "en") >= COMMON_ZIPF
 
 `ALLOWED` continues to apply, unchanged, to everything else. Nothing
 about the scan, the word-boundary matching, the file exclusions or the
 exit code changes.
 
-`THRESHOLD` is calibrated in step 1 of implementation rather than
+`COMMON_ZIPF` is calibrated in step 1 of implementation rather than
 guessed. The calibration is a measurement, not a preference: score all
 409 single-word terms, and pick the lowest threshold at which every
 word that has ever needed an `ALLOWED` entry is exempt while the count
@@ -211,7 +211,7 @@ it.
 - `leak_check_history.py` imports `ALLOWED` and `build_terms()`; a test
   that both still import and run keeps that contract.
 
-Calibrating `THRESHOLD` is not a test. It is a measurement recorded in
+Calibrating `COMMON_ZIPF` is not a test. It is a measurement recorded in
 a comment, and rerunning it is how a future maintainer checks it.
 
 ## Documentation
