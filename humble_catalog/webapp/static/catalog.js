@@ -645,12 +645,19 @@ function nameExtras(i) {
       i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}` + editions;
 }
 
-// Which of the three blank tables this is. The reader's next action
-// differs -- clear a filter, or go and fetch something -- so one flat
-// "nothing here" would send half of them to clear filters they never set.
+// Which of the blank tables this is. The reader's next action differs --
+// clear a filter, go and fetch something, or go and see why the server
+// stopped -- so one flat "nothing here" would send most of them to clear
+// filters they never set.
 // The LAN viewer gets the shorter line: it has no Tasks section to send
 // anyone to, only Library and Keys.
 function emptyStateText() {
+  // First, because it outranks the other two: after a failed read the
+  // rows are unknown rather than absent, and telling the reader to go and
+  // fetch some would be wrong advice about a catalog that may be full.
+  if (loadError)
+    return "Could not read the catalog from the server — it may have"
+         + " stopped. Check the terminal, then reload.";
   if (items.length === 0)
     return READ_ONLY
       ? "No items in the catalog yet."

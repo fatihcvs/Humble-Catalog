@@ -279,6 +279,18 @@ def test_the_empty_state_line_does_not_read_as_a_data_row():
         assert "text-align: center" in rule, selector
 
 
+def test_the_table_says_it_is_loading_before_any_script_runs():
+    # /api/items is awaited before anything is drawn, so the table was
+    # blank for the whole round trip -- and identical to an empty catalog
+    # and to a server that never answered. The first state ships in the
+    # markup, so it is on screen at first paint rather than after the
+    # scripts have parsed.
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    body = html[html.index("<tbody>"):html.index("</tbody>")]
+    assert "Loading" in body
+
+
 def test_search_box_has_title_typeahead():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")

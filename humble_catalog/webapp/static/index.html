@@ -121,7 +121,12 @@
       <th data-sort="my_rating">Mine<span class="sort-ind"></span></th>
       <th>My tags</th><th>Notes</th>
     </tr></thead>
-    <tbody></tbody>
+    <!-- The first state, in the markup rather than written by a script:
+         /api/items is awaited before anything is drawn, so this is what
+         stands during the round trip. An empty <tbody> made a slow load,
+         an empty catalog and a server that never answered all look the
+         same. render() replaces it, with rows or with a reason. -->
+    <tbody><tr class="table-empty"><td colspan="99">Loading the catalog…</td></tr></tbody>
   </table>
   </div>
   <div id="card-list" hidden></div>
