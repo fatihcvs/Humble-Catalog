@@ -151,6 +151,18 @@ section[id^="section-"][hidden] { display: none; }
 /* The chips take the slack so the export controls stay right-aligned. */
 #filter-chips { display: flex; flex-wrap: wrap; gap: .3rem; flex: 1; }
 .active-filter { background: var(--surface-alt); }
+/* Quieter than the chips it follows: clearing one is the common act and
+   should stay the loudest thing in the strip, so this reads as the escape
+   hatch rather than as the sixth chip. */
+.clear-all { font-size: .8rem; padding: 0 .4rem; color: var(--muted);
+             background: none; border-color: transparent; }
+.clear-all:hover { color: var(--fg); border-color: var(--border-strong); }
+/* The line that stands where the rows would be, in both layouts. Muted
+   and centred so it cannot be read as an item whose name is the message. */
+.table-empty td { color: var(--muted); text-align: center;
+                  padding: 2rem 1rem; font-style: italic; }
+.list-empty { color: var(--muted); text-align: center; padding: 2rem 1rem;
+              font-style: italic; margin: 0; }
 .active-x { background: none; border: none; cursor: pointer;
             color: var(--accent); font-size: 1rem; line-height: 1;
             padding: 0 0 0 .25rem; }

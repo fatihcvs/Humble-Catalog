@@ -267,6 +267,18 @@ def test_buttons_are_themed_by_a_base_rule():
     assert "var(--surface)" in rule and "var(--fg)" in rule
     assert "#" not in rule
 
+def test_the_empty_state_line_does_not_read_as_a_data_row():
+    # It stands where the rows would be, so without a treatment of its own
+    # it reads as an item called "No items match these filters" -- the one
+    # reading that is worse than the blank table it replaced.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    for selector in (".table-empty td", ".list-empty"):
+        rule = _css_rule(css, selector)
+        assert "var(--muted)" in rule, selector
+        assert "text-align: center" in rule, selector
+
+
 def test_search_box_has_title_typeahead():
     static = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
               / "static")
