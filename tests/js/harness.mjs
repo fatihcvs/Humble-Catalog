@@ -146,7 +146,7 @@ const publish = `
   refreshStats, renderStats, SECTION_FILTERS,
   SECTIONS, currentSection, showSection,
   renderBadges, badgeCount,
-  toggleSidebar, sidebarCollapsed, applySidebar, renderActiveFilters,
+  toggleSidebar, sidebarCollapsed, applySidebar, renderActiveFilters, clearAllFilters,
   setPending: (v) => { pending = {...pending, ...v}; },
   getPending: () => pending,
   loadKeys, renderKeys, shownKeys, KEY_STATES, setKeyStates,

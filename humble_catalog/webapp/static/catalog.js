@@ -573,7 +573,25 @@ function renderActiveFilters() {
   const q = $("#search");
   if (q && q.value.trim()) chip(`Search: ${q.value.trim()}`,
                                 'data-kind="search"');
+  if (out.length) out.push('<button type="button" class="clear-filters">Clear all filters</button>');
   box.innerHTML = out.join("");
+}
+
+function clearAllFilters() {
+  for (const id of ["search", "f-type", "f-rating", "f-flag"])
+    $(`#${id}`).value = "";
+  statusFilter.clear();
+  document.querySelectorAll(".status-chip").forEach(el => el.classList.remove("on"));
+  for (const [field, f] of Object.entries(chipFilters)) {
+    f.chips = [];
+    f.text = "";
+    const input = document.querySelector(`.chip-filter[data-field="${field}"] input`);
+    if (input) input.value = "";
+  }
+  relevanceSort = false;
+  renderFilterChips();
+  render();
+  $("#search").focus();
 }
 
 // Everything after the title in the name cell. Read-only keeps only what
@@ -650,11 +668,15 @@ function render() {
   $("#count").textContent = `${rows.length} / ${items.length} items`
     + (relevanceActive() ? " · by relevance" : "");
   const narrow = isNarrow();
+  const empty = items.length > 0 && rows.length === 0;
+  $("#empty-results").hidden = !empty;
   $("#table-wrap").hidden = narrow;
   $("#card-list").hidden = !narrow;
   if (narrow) {
     $("#catalog tbody").innerHTML = "";
-    $("#card-list").innerHTML = renderCards(rows);
+    $("#card-list").innerHTML = empty
+      ? '<p class="empty-results" role="status">No items match these filters.</p>'
+      : renderCards(rows);
   } else {
     $("#card-list").innerHTML = "";
     $("#catalog tbody").innerHTML = rows.map(i => i.id === editingId ? `<tr>
@@ -860,6 +882,8 @@ document.addEventListener("click", async (ev) => {
     render();
   } else if (el.id === "sidebar-toggle") {
     toggleSidebar();
+  } else if (el.classList.contains("clear-filters")) {
+    clearAllFilters();
   } else if (el.classList.contains("active-x")) {
     // Clearing from the summary strip. Each kind clears the control the
     // chip stands for, so the sidebar agrees whether it is open or not.

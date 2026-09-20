@@ -2317,3 +2317,66 @@ def test_a_job_finishing_does_rebuild_the_panel():
     })()""")
     assert result != "SENTINEL"
     assert "finished" in result
+
+
+def test_empty_filter_results_recover_without_changing_catalog():
+    records = [_item(), _item(id=2, name="A Second Example")]
+    result = eval_js(f'''(() => {{
+      const original = {json.dumps(records)};
+      app.setItems(original);
+      app.setSearch("no-such-title-xyz");
+      app.setRating("5");
+      app.setFlag("nocover");
+      document.querySelector("#f-type").value = "audiobook";
+      app.setStatusFilter(["reading"]);
+      for (const [field, f] of Object.entries(app.chipFilters)) {{
+        f.chips = ["No match"];
+        f.text = "No match";
+        document.querySelector(`.chip-filter[data-field="${{field}}"] input`).value = "No match";
+      }}
+      app.render();
+      const before = {{hidden: document.querySelector("#empty-results").hidden,
+                       chips: dom.writes["#filter-chips"]}};
+      app.clearAllFilters();
+      return {{before, ids: app.visible().map(i => i.id),
+        hidden: document.querySelector("#empty-results").hidden,
+        chips: dom.writes["#filter-chips"], original,
+        values: ["search", "f-type", "f-rating", "f-flag"].map(id => document.querySelector(`#${{id}}`).value),
+        fields: Object.entries(app.chipFilters).map(([field, f]) => [f.chips, f.text,
+          document.querySelector(`.chip-filter[data-field="${{field}}"] input`).value])}};
+    }})()''')
+    assert result["before"]["hidden"] is False
+    assert "Clear all filters" in result["before"]["chips"]
+    assert sorted(result["ids"]) == [1, 2]
+    assert result["hidden"] is True
+    assert result["chips"] == ""
+    assert result["values"] == [""] * 4
+    assert all(field == [[], "", ""] for field in result["fields"])
+    assert result["original"] == records
+
+
+def test_empty_filter_results_on_phone_in_read_only_mode():
+    result = eval_js(f'''(() => {{
+      {_PHONE}
+      app.setReadOnly(true);
+      app.setItems([{json.dumps(_item())}]);
+      app.setSearch("no-such-title-xyz");
+      app.render();
+      const empty = dom.writes["#card-list"];
+      app.clearAllFilters();
+      return {{empty, restored: dom.writes["#card-list"],
+               chips: dom.writes["#filter-chips"]}};
+    }})()''')
+    assert 'role="status"' in result["empty"]
+    assert "No items match these filters" in result["empty"]
+    assert "The Quiet Harbor" in result["restored"]
+    assert "No items match" not in result["restored"]
+    assert result["chips"] == ""
+
+
+def test_unloaded_or_empty_catalog_does_not_claim_filters_hid_items():
+    assert eval_js('''(() => {
+      app.setItems([]);
+      app.render();
+      return document.querySelector("#empty-results").hidden;
+    })()''') is True
