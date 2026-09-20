@@ -40,7 +40,10 @@ what they actually own may be committed to this repo:
   it into a commit, doc, issue or screenshot.
 - Run `.venv/Scripts/python scripts/leak_check.py` after adding tests,
   fixtures, or docs that name books, bundles, or people — it fails if
-  anything from the real library appears in the repo.
+  anything from the real library appears in the repo. A single ordinary
+  English word is exempt automatically and needs no allowlist entry; a
+  phrase is not, however common its words, so a fresh phrase collision
+  is still reworded.
   `scripts/check_no_data_tracked.py` is the companion check that no data
   *file* is tracked; `verify` runs both. Before a first push to a public
   remote, and after any history rewrite, also run

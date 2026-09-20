@@ -42,9 +42,15 @@ without them, which is why CI cannot be the real gate for either.
 Acting on a hit:
 
 - **A term in the working tree** — reword it, drawing invented names
-  from `docs/TEST-DATA.md`. If it is ordinary English matching as a
-  substring rather than a real reference, add it to `ALLOWED` in
-  `leak_check.py` with a comment saying why.
+  from `docs/TEST-DATA.md`. Adding it to `ALLOWED` in `leak_check.py` is
+  the last resort, not the second option: every entry is itself a
+  disclosure, and it earns its place only where rewording is impossible
+  — which in practice means the text is already in pushed history.
+- **A single common word never reaches that choice.** `leak_check.py`
+  exempts a term that is one ordinary English word scoring at or above
+  `COMMON_ZIPF`, and reports how many it exempted. A phrase is never
+  exempt, whatever its words score. Design:
+  `docs/superpowers/specs/2026-09-20-leak-check-common-words-design.md`.
 - **A term or file in history** — cannot be edited away. It needs
   `git filter-repo` before anything is pushed.
 
