@@ -669,3 +669,10 @@ body[data-mode="read-only"] #column-picker { display: none; }
   #tabs a { flex: none; white-space: nowrap; }
 }
 .star-text { color: var(--star); }
+/* A sort header is a button so it can be focused and pressed, but it is
+   still a header: the theme's own button styling would put a filled
+   control in every column. Everything here is a reset except the cursor,
+   which the bare <th> already had. The focus ring comes from the global
+   :focus-visible rule, so nothing is opted in by hand. */
+.sort-btn { all: unset; cursor: pointer; display: inline; font: inherit;
+            color: inherit; }
