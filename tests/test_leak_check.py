@@ -310,3 +310,40 @@ def test_a_hyphenated_or_punctuated_term_is_not_a_single_token():
     # carry as much meaning as a phrase, so they stay checked.
     assert not lc.is_common_word("science-fiction")
     assert not lc.is_common_word("o'reilly")
+
+
+def test_partition_keeps_phrases_and_exempts_common_words(tmp_path,
+                                                          monkeypatch):
+    # "table" and "a quiet life" are deliberately NOT in ALLOWED: an
+    # allowlisted term never reaches the new rule, so using one here
+    # would test the wrong thing.
+    monkeypatch.setattr(lc, "db_terms",
+                        lambda path: {"table", "zzqqxv", "a quiet life"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    kept, exempt = lc.partition_terms(tmp_path)
+    assert kept == {"zzqqxv", "a quiet life"}
+    assert exempt == {"table"}
+
+
+def test_build_terms_is_the_kept_half(tmp_path, monkeypatch):
+    # leak_check_history imports build_terms; its contract must not move.
+    monkeypatch.setattr(lc, "db_terms",
+                        lambda path: {"table", "zzqqxv", "a quiet life"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    assert lc.build_terms(tmp_path) == lc.partition_terms(tmp_path)[0]
+
+
+def test_the_allowlist_still_wins_over_everything(tmp_path, monkeypatch):
+    # An ALLOWED phrase stays out of the term set; the rule is additive.
+    monkeypatch.setattr(lc, "db_terms", lambda path: {"All Systems Red"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    kept, exempt = lc.partition_terms(tmp_path)
+    assert kept == set() and exempt == set()
+
+
+def test_short_and_numeric_terms_are_still_dropped(tmp_path, monkeypatch):
+    # The pre-existing filters are unchanged: under four characters, and
+    # anything that is only digits and dots.
+    monkeypatch.setattr(lc, "db_terms", lambda path: {"abc", "12.5", "zzqqxv"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    assert lc.build_terms(tmp_path) == {"zzqqxv"}

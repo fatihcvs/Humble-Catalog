@@ -237,17 +237,34 @@ def sheet_terms(directory):
     return found
 
 
-def build_terms(root=ROOT):
-    """Every private term to search for, allowlist already applied.
+def partition_terms(root=ROOT):
+    """(terms to search for, terms exempted as common words).
 
-    Empty means there is nothing to check against — no catalog.db and no
-    spreadsheets — which callers must report rather than treat as a pass.
+    Both halves are needed: the first is the gate, the second is only
+    ever counted, so a run can report how large its blind spot is without
+    naming anything in it.
+
+    An empty first half means there is nothing to check against — no
+    catalog.db and no spreadsheets — which callers must report rather
+    than treat as a pass.
     """
     terms = db_terms(root / "catalog.db") | sheet_terms(root / "Reference spreadsheets")
     terms = {t.strip() for t in terms if t and str(t).strip()}
-    return {t for t in terms
-            if len(t) >= 4 and not t.replace(".", "").isdigit()
-            and t.lower() not in ALLOWED}
+    terms = {t for t in terms
+             if len(t) >= 4 and not t.replace(".", "").isdigit()
+             and t.lower() not in ALLOWED}
+    exempt = {t for t in terms if is_common_word(t)}
+    return terms - exempt, exempt
+
+
+def build_terms(root=ROOT):
+    """Every private term to search for, allowlist and common words
+    already applied.
+
+    Kept as its own name and signature because leak_check_history.py
+    imports it.
+    """
+    return partition_terms(root)[0]
 
 
 NOTHING_TO_CHECK = (
