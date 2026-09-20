@@ -573,7 +573,41 @@ function renderActiveFilters() {
   const q = $("#search");
   if (q && q.value.trim()) chip(`Search: ${q.value.trim()}`,
                                 'data-kind="search"');
+  // Offered only while something is filtering: a permanent control with
+  // nothing to clear is noise, and this strip is itself empty otherwise.
+  // It sits after the chips because it is the summary of them -- clearing
+  // one is the common act, clearing all is the escape hatch.
+  if (out.length) out.push('<button class="clear-all">Clear all</button>');
   box.innerHTML = out.join("");
+}
+
+// Every filter at once. Four or more clicks before this existed, one per
+// chip, with the strip re-rendering under the pointer between them.
+//
+// Each kind clears the CONTROL, not just the state, for the same reason
+// the per-chip handler does: the sidebar has to agree whether it is
+// folded away or not.
+function clearAllFilters() {
+  for (const id of ["f-type", "f-rating", "f-flag"]) {
+    const el = $(`#${id}`);
+    if (el) el.value = "";
+  }
+  statusFilter.clear();
+  for (const el of document.querySelectorAll(".status-chip"))
+    el.classList.remove("on");
+  for (const f of Object.values(chipFilters)) {
+    f.chips.length = 0;
+    f.text = "";
+  }
+  for (const input of document.querySelectorAll(".chip-filter input"))
+    input.value = "";
+  const q = $("#search");
+  if (q) q.value = "";
+  // Relevance is a mode the search box turns on, so it goes with it;
+  // leaving it set would order an unfiltered table by a query that is no
+  // longer there.
+  relevanceSort = false;
+  renderFilterChips();
 }
 
 // Everything after the title in the name cell. Read-only keeps only what
@@ -609,6 +643,19 @@ function nameExtras(i) {
             <button class="revert" data-id="${i.id}"
                     title="Revert to your edited values">&#x21A9;</button>` : ""}${
       i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}` + editions;
+}
+
+// Which of the three blank tables this is. The reader's next action
+// differs -- clear a filter, or go and fetch something -- so one flat
+// "nothing here" would send half of them to clear filters they never set.
+// The LAN viewer gets the shorter line: it has no Tasks section to send
+// anyone to, only Library and Keys.
+function emptyStateText() {
+  if (items.length === 0)
+    return READ_ONLY
+      ? "No items in the catalog yet."
+      : "No items in the catalog yet — run Fetch new bundles in Tasks.";
+  return "No items match these filters.";
 }
 
 // Below this width the 22-column table is unusable (measured at 375 px:
@@ -652,7 +699,20 @@ function render() {
   const narrow = isNarrow();
   $("#table-wrap").hidden = narrow;
   $("#card-list").hidden = !narrow;
-  if (narrow) {
+  // A blank table used to be indistinguishable from a failed load, from a
+  // catalog nothing had been fetched into, and from a filter that matched
+  // nothing. The line says which -- inside the scroller either way, so it
+  // stands where the rows would be rather than above them.
+  if (rows.length === 0) {
+    const text = esc(emptyStateText());
+    // colspan 99 rather than the column count: the count is declared in
+    // index.html's <thead> and would have to be kept in step here, and a
+    // colspan larger than the row is clamped, not an error.
+    $("#catalog tbody").innerHTML = narrow
+      ? "" : `<tr class="table-empty"><td colspan="99">${text}</td></tr>`;
+    $("#card-list").innerHTML = narrow
+      ? `<p class="list-empty">${text}</p>` : "";
+  } else if (narrow) {
     $("#catalog tbody").innerHTML = "";
     $("#card-list").innerHTML = renderCards(rows);
   } else {
@@ -882,6 +942,9 @@ document.addEventListener("click", async (ev) => {
       $("#search").value = "";
       relevanceSort = false;
     }
+    render();
+  } else if (el.classList.contains("clear-all")) {
+    clearAllFilters();
     render();
   } else if (el.classList.contains("chip-x")) {
     const f = chipFilters[el.dataset.field];

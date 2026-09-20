@@ -2317,3 +2317,102 @@ def test_a_job_finishing_does_rebuild_the_panel():
     })()""")
     assert result != "SENTINEL"
     assert "finished" in result
+
+
+def test_a_table_filtered_to_nothing_says_why_it_is_empty():
+    # Searching for something that matches nothing left the header row and
+    # several hundred pixels of blank space -- indistinguishable from a
+    # failed load, and with nothing on screen naming the filters as the
+    # reason.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    html = eval_js(
+        f"""(() => {{
+              dom.reset();
+              app.setItems({items});
+              app.setSearch("zzzqqq");
+              app.render();
+              return dom.writes["#catalog tbody"];
+            }})()""")
+    assert "No items match" in html
+
+
+def test_an_empty_catalog_does_not_blame_the_filters():
+    # Same blank table, opposite cause: nothing has been fetched yet. The
+    # line has to say which of the two it is, or it sends the reader to
+    # clear filters that are not set.
+    html = eval_js(
+        """(() => {
+             dom.reset();
+             app.setItems([]);
+             app.setSearch("");
+             app.render();
+             return dom.writes["#catalog tbody"];
+           })()""")
+    assert "No items match" not in html
+    assert "Tasks" in html
+
+
+def test_the_empty_catalog_line_does_not_send_the_lan_viewer_to_tasks():
+    # The LAN viewer has no Tasks section at all -- READ_ONLY_SECTIONS is
+    # library and keys -- so naming it there is an instruction the reader
+    # cannot follow.
+    html = eval_js(
+        """(() => {
+             dom.reset();
+             app.setReadOnly(true);
+             app.setItems([]);
+             app.setSearch("");
+             app.render();
+             app.setReadOnly(false);
+             return dom.writes["#catalog tbody"];
+           })()""")
+    assert "Tasks" not in html
+
+
+def test_clear_all_is_offered_only_while_a_filter_is_active():
+    # A permanent control with nothing to clear is noise, and the strip it
+    # belongs to is itself only there when something is filtering.
+    off, on = eval_js(
+        """(() => {
+             app.setItems([]);
+             app.setSearch("");
+             app.renderActiveFilters();
+             const off = dom.writes["#filter-chips"];
+             app.setSearch("quiet");
+             app.renderActiveFilters();
+             return [off, dom.writes["#filter-chips"]];
+           })()""")
+    assert "clear-all" not in off
+    assert "clear-all" in on
+
+
+def test_clear_all_clears_every_kind_of_filter_at_once():
+    # Search, three selects, the status set and both halves of a chip
+    # filter. Clearing them one chip at a time was four or more clicks.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors",
+                              genre=["Fantasy"])])
+    state = eval_js(
+        f"""(() => {{
+              app.setItems({items});
+              app.setSearch("quiet");
+              app.setFlag("unrated");
+              app.setRating("4");
+              app.setStatusFilter(["read"]);
+              app.chipFilters.genre.chips = ["Fantasy"];
+              app.chipFilters.genre.text = "fan";
+              document.querySelector("#f-type").value = "ebook";
+              app.clearAllFilters();
+              return {{
+                search: document.querySelector("#search").value,
+                type: document.querySelector("#f-type").value,
+                rating: document.querySelector("#f-rating").value,
+                flag: document.querySelector("#f-flag").value,
+                chips: app.chipFilters.genre.chips,
+                text: app.chipFilters.genre.text,
+                shown: app.visible().map(i => i.id),
+              }};
+            }})()""")
+    # the item is unread and unrated, so it reappears only if the status
+    # set and every select really were emptied
+    assert state == {"search": "", "type": "", "rating": "", "flag": "",
+                     "chips": [], "text": "", "shown": [1]}
