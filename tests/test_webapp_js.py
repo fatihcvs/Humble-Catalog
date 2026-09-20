@@ -2538,11 +2538,12 @@ def test_the_announcement_is_dropped_once_rows_come_back():
     assert said == ""
 
 
-def _phone(items_json, body):
-    """Run `body` with the viewer in phone mode and a stubbed fetch.
+def _driven(items_json, body):
+    """Run `body` against a loaded catalog with a stubbed fetch.
 
-    isNarrow() reads matchMedia, which the sandbox does not have, so the
-    card path is selected by hand. Posts are captured rather than sent.
+    isNarrow() reads matchMedia, which the sandbox does not have, so a
+    test wanting the card or sheet path calls into it by hand. Posts are
+    captured rather than sent.
     """
     return eval_js(
         f"""(async () => {{
@@ -2563,7 +2564,7 @@ def test_a_phone_card_is_a_button_that_opens_the_editor():
     # The cards were display-only -- "editing needs the table's width" --
     # so a phone could not set the two fields a phone is actually for.
     items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
-    html = _phone(items, "return app.renderCards(app.getItems());")
+    html = _driven(items, "return app.renderCards(app.getItems());")
     assert 'role="button"' in html
     assert 'data-open="1"' in html
 
@@ -2587,14 +2588,14 @@ def test_the_lan_viewers_cards_stay_display_only():
 def test_the_sheet_offers_every_status_by_its_short_name():
     # "Want to read" wraps the five-button row at 375 px; "Want" does not.
     items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
-    html = _phone(items, "return app.sheetFor(app.getItems()[0]);")
+    html = _driven(items, "return app.sheetFor(app.getItems()[0]);")
     for label in ("Want", "Unread", "Reading", "Read", "DNF"):
         assert f">{label}<" in html, label
 
 
 def test_choosing_a_status_in_the_sheet_posts_it_and_keeps_the_item():
     items = json.dumps([_item(id=1, read_status="unread")])
-    out = _phone(items, """
+    out = _driven(items, """
       await app.setSheetStatus(1, "read");
       return {posts, status: app.getItems()[0].read_status};""")
     assert out["posts"] == [{"url": "/api/items/1/read-status",
@@ -2604,7 +2605,7 @@ def test_choosing_a_status_in_the_sheet_posts_it_and_keeps_the_item():
 
 def test_rating_from_the_sheet_posts_the_star_that_was_tapped():
     items = json.dumps([_item(id=1, my_rating=None)])
-    out = _phone(items, """
+    out = _driven(items, """
       await app.setSheetRating(1, 4);
       return {posts, rating: app.getItems()[0].my_rating};""")
     assert out["posts"] == [{"url": "/api/items/1/rating", "body": {"rating": 4}}]
@@ -2615,7 +2616,7 @@ def test_clearing_the_rating_from_the_sheet_posts_null():
     # Re-tapping the current star clears it on the table too, but nothing
     # says so; the sheet has room for a control that does.
     items = json.dumps([_item(id=1, my_rating=4)])
-    out = _phone(items, """
+    out = _driven(items, """
       await app.setSheetRating(1, 0);
       return {posts, rating: app.getItems()[0].my_rating};""")
     assert out["posts"] == [{"url": "/api/items/1/rating", "body": {"rating": None}}]
@@ -2627,14 +2628,14 @@ def test_opening_the_sheet_does_not_scroll_the_list():
     # focus() makes the browser scroll to bring the control into view --
     # and what visibly moves is the list behind it.
     items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
-    calls = _phone(items, "app.openSheet(1); return dom.focusCalls;")
+    calls = _driven(items, "app.openSheet(1); return dom.focusCalls;")
     assert calls, "nothing was focused when the sheet opened"
     assert all(c["preventScroll"] for c in calls), calls
 
 
 def test_closing_the_sheet_does_not_scroll_the_list_either():
     items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
-    calls = _phone(items, """
+    calls = _driven(items, """
       app.openSheet(1);
       dom.reset();
       app.closeSheet();
@@ -2715,3 +2716,265 @@ def test_the_read_only_rating_carries_no_title():
     # would lie. It renders plain text and must stay that way.
     html = _render_row(True)
     assert "Clear rating" not in html and "Rate " not in html
+
+
+# -- Keyboard-operable rating (#39) ------------------------------------
+# The stars were <span>s with no tabindex, role or key handler, so the
+# most-repeated action in the app was unavailable without a mouse. They
+# are now one radiogroup per row: a single tab stop rather than five, so
+# Tab still crosses a large table in a usable number of presses, with the
+# arrows moving within the group.
+
+def _star_attrs(my_rating, attr):
+    """`attr` of each of the five table stars, at `my_rating`."""
+    return eval_js(
+        '(() => { const html = app.stars({id: 1, my_rating: %s});'
+        '  return [...html.matchAll(/<span class="star[^>]*>/g)]'
+        '    .map(m => (m[0].match(/ %s="([^"]*)"/) || [])[1] ?? null);'
+        ' })()' % ("null" if my_rating is None else my_rating, attr))
+
+
+def test_the_five_stars_are_wrapped_in_one_radiogroup():
+    html = eval_js('app.stars({id: 7, my_rating: 3})')
+    assert 'role="radiogroup"' in html and 'data-id="7"' in html
+
+
+def test_exactly_one_star_is_tabbable():
+    # The point of the radiogroup: a row costs one tab stop, not five.
+    assert _star_attrs(3, "tabindex").count("0") == 1
+
+
+def test_the_tab_stop_sits_on_the_current_rating():
+    assert _star_attrs(3, "tabindex") == ["-1", "-1", "0", "-1", "-1"]
+
+
+def test_an_unrated_row_puts_the_tab_stop_on_the_first_star():
+    # With nothing checked there is no rating to return to, so the group
+    # is entered at the low end and arrowed up from there.
+    assert _star_attrs(None, "tabindex") == ["0", "-1", "-1", "-1", "-1"]
+
+
+def test_only_the_exact_rating_is_checked():
+    # The fill is cumulative -- three stars are lit at a rating of three --
+    # but selection is not: a reader must hear "3 stars, selected" once,
+    # not three separate selected radios.
+    assert _star_attrs(3, "aria-checked") == ["false", "false", "true",
+                                              "false", "false"]
+
+
+def test_an_unrated_row_checks_nothing():
+    assert _star_attrs(None, "aria-checked") == ["false"] * 5
+
+
+def test_each_star_is_labelled_with_the_action_its_key_performs():
+    # The same wording #61 put in the title, now as the accessible name:
+    # a title is not announced reliably, and a radio needs a real label.
+    labels = _star_attrs(3, "aria-label")
+    assert labels[2] == "Clear rating" and labels[3] == "Rate 4 stars"
+
+
+def test_the_read_only_rating_is_not_focusable():
+    # The LAN viewer has no handlers, so a tab stop would be a promise
+    # nothing keeps.
+    html = _render_row(True)
+    assert "radiogroup" not in html and "tabindex" not in html
+
+
+# The key mapping is a pure function rather than logic inside the keydown
+# listener, because the harness stubs addEventListener to a no-op: a rule
+# written inside a listener cannot be tested here at all. It answers with
+# the star to focus and the rating to store, or null when the key is not
+# the group's to handle -- so the listener knows when to leave the event
+# alone rather than swallowing Tab.
+
+def _for_key(key, focused, current):
+    return eval_js('app.ratingForKey("%s", %s, %s)'
+                   % (key, focused, "null" if current is None else current))
+
+
+def test_arrowing_right_moves_up_one_star_and_selects_it():
+    # Selection follows focus, as it does in any radiogroup: arriving at a
+    # star IS choosing it, with no second keypress to confirm.
+    assert _for_key("ArrowRight", 2, 2) == {"focus": 3, "rating": 3}
+
+
+def test_arrowing_left_moves_down_one_star():
+    assert _for_key("ArrowLeft", 3, 3) == {"focus": 2, "rating": 2}
+
+
+def test_up_and_down_mirror_right_and_left():
+    assert _for_key("ArrowUp", 2, 2) == _for_key("ArrowRight", 2, 2)
+    assert _for_key("ArrowDown", 2, 2) == _for_key("ArrowLeft", 2, 2)
+
+
+def test_arrowing_past_the_last_star_stays_on_it():
+    # Clamped rather than wrapped: wrapping turns one keypress at the top
+    # into a five-star mis-rating, and this posts on every move.
+    assert _for_key("ArrowRight", 5, 5) == {"focus": 5, "rating": 5}
+
+
+def test_home_and_end_jump_to_the_ends():
+    assert _for_key("Home", 3, 3) == {"focus": 1, "rating": 1}
+    assert _for_key("End", 3, 3) == {"focus": 5, "rating": 5}
+
+
+def test_activating_the_current_rating_clears_it():
+    # The keyboard reading of the click that clears, so the "Clear rating"
+    # label names something a keyboard user can actually do.
+    assert _for_key("Enter", 3, 3) == {"focus": 3, "rating": None}
+
+
+def test_activating_a_different_star_sets_it():
+    assert _for_key(" ", 4, 3) == {"focus": 4, "rating": 4}
+
+
+def test_a_key_the_group_does_not_own_is_left_alone():
+    # Tab must still leave the group, so the listener needs to know the
+    # difference between "handled" and "not mine".
+    assert _for_key("Tab", 3, 3) is None
+    assert _for_key("a", 3, 3) is None
+
+
+def test_arrowing_down_from_an_unrated_row_rates_it_one_star():
+    # Consequence of clamping, and the one place the pattern reads oddly:
+    # focus starts on star 1 with nothing selected, so a LEFT arrow raises
+    # the rating from none to one. Pinned deliberately -- the alternative
+    # was letting it clear, which is not what a radiogroup does. Enter on
+    # the current star remains the way to un-rate.
+    assert _for_key("ArrowLeft", 1, None) == {"focus": 1, "rating": 1}
+
+
+# render() rebuilds the table's innerHTML, so the star that had focus is
+# destroyed by the very keypress that used it. The mouse never noticed;
+# a keyboard user would find the second arrow key going nowhere, because
+# focus had fallen back to the body. So the write restores it, the way
+# closeSheet() already restores focus to the card it came from.
+
+def _rating_run(items_json, body):
+    return _driven(items_json, "dom.reset();\n" + body)
+
+
+def test_rating_posts_the_new_value_and_updates_the_row():
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _rating_run(items, """
+      await app.applyRating(1, 3, 3);
+      return {posts, rating: app.getItems()[0].my_rating};""")
+    assert out["posts"][0] == {"url": "/api/items/1/rating", "body": {"rating": 3}}
+    assert out["rating"] == 3
+
+
+def test_rating_returns_focus_to_the_star_that_was_used():
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _rating_run(items, """
+      await app.applyRating(1, 3, 3);
+      return dom.focused;""")
+    assert any('.star[data-n="3"]' in sel and '[data-id="1"]' in sel
+               for sel in out), out
+
+
+def test_returning_focus_does_not_scroll_the_table():
+    # Same reason the sheet passes preventScroll: the row is already where
+    # the user is looking, and a scroll would move the page under them.
+    items = json.dumps([_item(id=1, my_rating=2)])
+    calls = _rating_run(items, """
+      await app.applyRating(1, 3, 3);
+      return dom.focusCalls;""")
+    assert calls and all(c["preventScroll"] for c in calls), calls
+
+
+def test_clearing_keeps_focus_on_the_star_that_cleared_it():
+    # The star is still there after a clear -- unlit, and now labelled
+    # "Rate 3 stars" -- so focus has somewhere to land.
+    items = json.dumps([_item(id=1, my_rating=3)])
+    out = _rating_run(items, """
+      await app.applyRating(1, 3, null);
+      return {posts, rating: app.getItems()[0].my_rating, focused: dom.focused};""")
+    assert out["posts"][0]["body"] == {"rating": None}
+    assert out["rating"] is None
+    assert any('.star[data-n="3"]' in sel for sel in out["focused"])
+
+
+# -- Sort headers announce the sort (#39) ------------------------------
+# The active sort was conveyed by the .sort-ind glyph alone, which is
+# invisible to a reader. aria-sort is the attribute made for it. As with
+# the key mapping, the value is a pure function: renderSortIndicators()
+# walks querySelectorAll, which the harness returns empty, so a rule
+# written inside it could not be tested.
+
+def _aria_sort(column, key="name", asc=True, search=""):
+    return eval_js(
+        '(() => { app.setSort("%s", %s); app.setSearch("%s");'
+        '  app.setRelevance(%s); return app.ariaSortFor("%s"); })()'
+        % (key, "true" if asc else "false", search,
+           "true" if search else "false", column))
+
+
+def test_the_sorted_column_announces_its_direction():
+    assert _aria_sort("name", key="name", asc=True) == "ascending"
+    assert _aria_sort("name", key="name", asc=False) == "descending"
+
+
+def test_the_other_columns_announce_no_sort():
+    # "none" rather than omitting the attribute: on a table that IS
+    # sorted, silence on the other headers reads as "not sortable".
+    assert _aria_sort("bundle", key="name", asc=True) == "none"
+
+
+def test_relevance_ordering_claims_no_column():
+    # The same reason the arrow is already suppressed here: the table is
+    # ordered by relevance, so naming a sorted column would be a lie.
+    assert _aria_sort("name", key="name", asc=True,
+                      search="harbors") == "none"
+
+
+# Arrow keys repeat when held, which is how a rating gets moved several
+# stars at once. A write that reaches the model only after the response
+# leaves the focused star reporting a stale rating for the length of a
+# round trip, and the repeat recomputes from it -- pressing Right twice
+# quickly moved one star, not two. So the model and the focus move first
+# and the request follows. post() never inspects the response, so nothing
+# was being guarded by the old order.
+
+def _in_flight(items_json, body):
+    """Run `body` with a fetch that hangs until `release()` is called."""
+    return _driven(items_json, """
+      let release;
+      app.setFetch(() => new Promise(r => {
+        release = () => r({ok: true, json: () => Promise.resolve({})});
+      }));
+    """ + body)
+
+
+def test_the_rating_lands_before_the_request_is_answered():
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _in_flight(items, """
+      const p = app.applyRating(1, 3, 3);
+      const duringFlight = app.getItems()[0].my_rating;
+      release(); await p;
+      return {duringFlight, settled: app.getItems()[0].my_rating};""")
+    assert out["duringFlight"] == 3, "the row still reported the old rating"
+    assert out["settled"] == 3
+
+
+def test_focus_returns_before_the_request_is_answered():
+    # The repeat arrives during the flight, so the star has to be back
+    # under focus by then or the keypress lands on nothing.
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _in_flight(items, """
+      dom.reset();
+      const p = app.applyRating(1, 3, 3);
+      const duringFlight = [...dom.focused];
+      release(); await p;
+      return duringFlight;""")
+    assert any('.star[data-n="3"]' in sel for sel in out), out
+
+
+def test_a_write_that_never_arrives_puts_the_rating_back():
+    # Optimism is only honest if it is undone when the write fails: the
+    # row must not keep showing a rating the server never took.
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _driven(items, """
+      app.setFetch(() => Promise.reject(new Error("offline")));
+      await app.applyRating(1, 4, 4);
+      return app.getItems()[0].my_rating;""")
+    assert out == 2

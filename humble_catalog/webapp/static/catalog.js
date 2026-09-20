@@ -77,6 +77,13 @@ const statusFilter = new Set();
 let relevanceSort = false;
 const relevanceActive = () => relevanceSort && $("#search").value.trim() !== "";
 
+// What a reader is told about the ordering that .sort-ind shows a
+// sighted user. "none" rather than an absent attribute: on a table that
+// IS sorted, silence on the other headers reads as "not sortable".
+const ariaSortFor = (key) =>
+  key === sortKey && !relevanceActive()
+    ? (sortAsc ? "ascending" : "descending") : "none";
+
 // Folding a name is the per-keystroke cost that is trivially avoidable;
 // the tier matching is not. Cleared whenever the catalog reloads.
 const foldCache = new Map();
@@ -186,19 +193,103 @@ function stars(item) {
   // Read-only: plain text, with no data-id for the click handler to act on.
   if (READ_ONLY)
     return item.my_rating ? `<span class="star-text">${"★".repeat(item.my_rating)}</span>` : "";
+  // One radiogroup per row, so crossing the table costs one tab stop per
+  // row rather than five -- the difference between Tab being usable at
+  // catalog size and not. The roving tabindex sits on the current rating,
+  // the star a returning keyboard user is most likely to want, or on the
+  // first star when nothing is set and there is no rating to return to.
+  const tabbable = item.my_rating || 1;
   let html = "";
   for (let n = 1; n <= 5; n++) {
-    // Each star is titled with the action its own click performs.
+    // Each star is named with the action its own activation performs.
     // Clicking the current rating clears it -- the only way to un-rate
     // from the table -- so that star says so rather than "Rate n", which
     // is what made the clear undiscoverable. The sheet names the same
     // action with a Clear button; the Mine column has no room for one.
-    const title = item.my_rating === n
+    // The title stays for the mouse tooltip; aria-label carries the same
+    // words to a reader, which a title alone does not do reliably.
+    const label = item.my_rating === n
       ? "Clear rating" : `Rate ${n} star${n === 1 ? "" : "s"}`;
+    // The fill is cumulative but the selection is not: three stars are
+    // lit at a rating of three, while only the third is checked, so a
+    // reader announces one selected radio rather than three.
     html += `<span class="star ${item.my_rating >= n ? "on" : ""}" `
-          + `title="${title}" data-id="${item.id}" data-n="${n}">★</span>`;
+          + `role="radio" aria-checked="${item.my_rating === n}" `
+          + `aria-label="${label}" title="${label}" `
+          + `tabindex="${n === tabbable ? 0 : -1}" `
+          + `data-id="${item.id}" data-n="${n}">★</span>`;
   }
-  return html;
+  return `<span class="rating-group" role="radiogroup" aria-label="Rating" `
+       + `data-id="${item.id}">${html}</span>`;
+}
+
+// What a keypress inside a rating group should do: which star to focus,
+// and what rating to store (null clears it). Answers null when the key is
+// not the group's, so the listener can leave the event alone -- Tab has to
+// keep leaving the group.
+//
+// A pure function rather than logic inside the keydown listener: the JS
+// test harness stubs addEventListener, so a rule written in a listener
+// cannot be tested at all. See tests/test_webapp_js.py (#39).
+//
+// `focused` is the star the key was pressed on (1-5). `current` is the
+// row's rating, or null when it is unrated.
+function ratingForKey(key, focused, current) {
+  // Selection follows focus, so landing on a star is choosing it.
+  const at = (n) => ({focus: n, rating: n});
+  // Clamped, not wrapped. Every move posts, so wrapping would turn one
+  // keypress at either end into a five-star mis-rating.
+  const clamp = (n) => Math.min(5, Math.max(1, n));
+  switch (key) {
+    case "ArrowRight": case "ArrowUp":   return at(clamp(focused + 1));
+    case "ArrowLeft":  case "ArrowDown": return at(clamp(focused - 1));
+    case "Home": return at(1);
+    case "End":  return at(5);
+    case "Enter": case " ":
+      // The keyboard reading of the click that clears: activating the
+      // star that already holds the rating un-rates the row.
+      return {focus: focused, rating: current === focused ? null : focused};
+    default: return null;
+  }
+}
+
+// Store `rating` for item `id`, then put focus back on star `star`.
+//
+// The focus restore is not a nicety. render() rebuilds the table's
+// innerHTML, so the star that was just used no longer exists and focus
+// falls back to the body -- which a mouse never notices and a keyboard
+// user hits on the very next arrow key. preventScroll for the reason
+// closeSheet() has it: the row is already where the user is looking.
+async function applyRating(id, star, rating) {
+  const item = items.find(i => i.id === id);
+  const previous = item ? item.my_rating : null;
+  // The model moves, and focus returns, BEFORE the request goes out.
+  // Arrow keys repeat when held, which is how a rating gets moved
+  // several stars at once; waiting for the response leaves the focused
+  // star reporting a stale rating for the length of a round trip, and
+  // the repeat recomputes from it -- two quick presses moved one star.
+  // Nothing is lost by going first: post() never inspects the response,
+  // so a rejected write already updated the row under the old order.
+  if (item) item.my_rating = rating;
+  render();
+  const focus = () => document.querySelector(
+    `.rating-group[data-id="${id}"] .star[data-n="${star}"]`)
+    ?.focus({preventScroll: true});
+  focus();
+  try {
+    await post(`/api/items/${id}/rating`, {rating});
+  } catch (err) {
+    // Offline. Optimism is only honest if it is undone: the row must
+    // not keep showing a rating the server never took.
+    if (item) item.my_rating = previous;
+    render();
+    focus();
+    return;
+  }
+  // The panel trails the table by one round trip, as it did before:
+  // blocking the star's own re-render on the server would be the visible
+  // cost, this is not.
+  refreshStats();
 }
 
 let editingId = null;
@@ -915,6 +1006,7 @@ function renderSortIndicators() {
   for (const th of document.querySelectorAll("#catalog th[data-sort]")) {
     const active = th.dataset.sort === sortKey;
     th.classList.toggle("sorted", active);
+    th.setAttribute("aria-sort", ariaSortFor(th.dataset.sort));
     const ind = th.querySelector(".sort-ind");
     // Suppressed while relevance orders the rows: a lit arrow would
     // claim the table is sorted by a column it is not sorted by.
@@ -1041,14 +1133,7 @@ document.addEventListener("click", async (ev) => {
   if (el.classList.contains("star")) {
     const id = +el.dataset.id, n = +el.dataset.n;
     const item = items.find(i => i.id === id);
-    const rating = item.my_rating === n ? null : n;  // click current rating to clear
-    await post(`/api/items/${id}/rating`, {rating});
-    item.my_rating = rating;
-    render();
-    // The table updates from the in-place edit immediately; the panel
-    // trails by one round trip. Deliberate: blocking the star's own
-    // re-render on the server would be the visible cost, this is not.
-    refreshStats();
+    await applyRating(id, n, item.my_rating === n ? null : n);  // click current to clear
   } else if (el.classList.contains("edit")) {
     editingId = +el.dataset.id;
     const it = items.find(i => i.id === editingId);
@@ -1264,6 +1349,18 @@ document.addEventListener("change", async (e) => {
 // The card is a button, so it answers Enter and Space like one; Escape
 // closes the sheet, which a dialog has to.
 document.addEventListener("keydown", (ev) => {
+  // Stars first: on a phone they sit inside the card, whose own Enter
+  // would open the sheet rather than rate the row.
+  const star = ev.target.closest?.(".star[data-n]");
+  if (star) {
+    const id = +star.dataset.id;
+    const move = ratingForKey(ev.key, +star.dataset.n,
+                              items.find(i => i.id === id)?.my_rating ?? null);
+    if (!move) return;          // not ours -- Tab still leaves the group
+    ev.preventDefault();
+    applyRating(id, move.focus, move.rating);
+    return;
+  }
   if (ev.key === "Escape" && openSheetId !== null) { closeSheet(); return; }
   if (ev.key !== "Enter" && ev.key !== " ") return;
   const card = ev.target.closest?.("[data-open]");
