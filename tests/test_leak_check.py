@@ -347,3 +347,18 @@ def test_short_and_numeric_terms_are_still_dropped(tmp_path, monkeypatch):
     monkeypatch.setattr(lc, "db_terms", lambda path: {"abc", "12.5", "zzqqxv"})
     monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
     assert lc.build_terms(tmp_path) == {"zzqqxv"}
+
+
+def test_the_summary_counts_exempt_words_without_naming_them(
+        tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(lc, "db_terms",
+                        lambda path: {"table", "window", "zzqqxv"})
+    monkeypatch.setattr(lc, "sheet_terms", lambda directory: set())
+    monkeypatch.setattr(lc, "worktree_sources",
+                        lambda root=lc.ROOT: [("a.md", "nothing here")])
+    assert lc.main(()) == 0
+    out = capsys.readouterr().out
+    assert "2 single common words exempt" in out
+    # The words themselves must never reach the terminal: printing them
+    # rebuilds exactly the oracle this rule removes.
+    assert "table" not in out and "window" not in out

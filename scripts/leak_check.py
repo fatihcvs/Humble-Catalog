@@ -166,8 +166,10 @@ ALLOWED = {t.lower() for t in [
 # ordinary words at 2.96 and above. 2.9 is the highest value that covers
 # all fifty, and it sits in the middle of a band 1.3 wide, so a small
 # wordfreq shift cannot move the boundary. At this value 161 of the 386
-# single-word terms in the catalog are exempt -- 2.8% of all 5,675 terms
-# searched for. Re-run the calibration in the design doc when upgrading
+# single-word terms the catalog holds score at or above it -- 2.8% of the
+# 5,675 terms in the raw set. A run reports a smaller number than that,
+# because ALLOWED is subtracted first and absorbs some of the same words.
+# Re-run the calibration in the design doc when upgrading
 # wordfreq; tests/test_leak_check.py pins scores either side of it so a
 # bump cannot move the gate quietly.
 COMMON_ZIPF = 2.9
@@ -426,7 +428,7 @@ def main(argv=()):
     # over what is about to be committed, which turns a whole-repo sweep
     # into something fast enough to run on every commit.
     staged = "--staged" in argv
-    terms = build_terms()
+    terms, exempt = partition_terms()
     if not terms:
         # Say so loudly rather than printing "clean": with nothing to search
         # for, a pass proves nothing, and quietly succeeding would give a
@@ -440,6 +442,10 @@ def main(argv=()):
     where = "staged file" if staged else "file"
     print(f"checked {len(terms)} terms against {nfiles} {where}"
           f"{'' if nfiles == 1 else 's'}")
+    # A count, never the words. The size of the blind spot should be
+    # visible rather than assumed, and it moves as the library grows.
+    if exempt:
+        print(f"{len(exempt)} single common words exempt by frequency")
     if hits:
         print(f"LEAK: {len(hits)} term(s) from the private library found "
               f"in {'the staged changes' if staged else 'the repo'}:")
