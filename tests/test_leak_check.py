@@ -281,3 +281,32 @@ def test_wordfreq_scores_are_stable():
     # A rare token, comfortably below one. Invented, so no real term can
     # ever collide with it.
     assert zipf_frequency("zzqqxv", "en") == 0.0
+
+
+# --- the common-word rule ---------------------------------------------
+
+def test_an_ordinary_single_word_is_common():
+    assert lc.is_common_word("space")
+    assert lc.is_common_word("legacy")
+    assert lc.is_common_word("prune")
+
+
+def test_a_rare_single_word_is_not_common():
+    # The rule is a frequency test, not a word-count test. A publisher's
+    # brand name is one token and must stay checkable.
+    assert not lc.is_common_word("zzqqxv")
+
+
+def test_a_phrase_is_never_common_however_ordinary_its_words():
+    # The threat-model line: a phrase of common words can name exactly
+    # one work, so no phrase is ever exempt.
+    assert not lc.is_common_word("the way")
+    assert not lc.is_common_word("all systems red")
+    assert not lc.is_common_word("a quiet life in harbors")
+
+
+def test_a_hyphenated_or_punctuated_term_is_not_a_single_token():
+    # Splitting on whitespace alone would call these one token. They can
+    # carry as much meaning as a phrase, so they stay checked.
+    assert not lc.is_common_word("science-fiction")
+    assert not lc.is_common_word("o'reilly")

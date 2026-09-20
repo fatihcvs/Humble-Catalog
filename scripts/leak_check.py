@@ -22,6 +22,15 @@ import sys
 
 import openpyxl
 
+try:
+    from wordfreq import zipf_frequency
+except ImportError:  # pragma: no cover - the venv always has it
+    # This module is a gate, and the pre-commit hook runs it. Failing to
+    # import would break committing with nothing on screen saying why.
+    raise SystemExit(
+        "leak_check needs wordfreq, for the common-word rule. "
+        'Install it with:  python -m pip install -e ".[dev]"')
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Known-benign matches, reviewed 2026-07-18. Two kinds:
@@ -130,6 +139,51 @@ ALLOWED = {t.lower() for t in [
     # from the prose around it.
     "Space", "Science Fiction & Fantasy", "The Way",
 ]}
+
+
+# Ordinary single words are not disclosures.
+#
+# The term set is derived from the live catalog, so it grows as the
+# library does, and a perfectly good English word becomes forbidden the
+# moment some term happens to equal it -- retroactively, in code that was
+# clean when it was written. Writing each one into ALLOWED instead
+# published a little more of the library every time: 71 of its 79 entries
+# were catalog terms when this was added.
+#
+# So a single token that is common English is exempt. A lone common word
+# cannot reconstruct anything, and is indistinguishable from the same
+# word used as itself -- which is exactly what makes it weak.
+#
+# SINGLE TOKENS ONLY, whatever the score. wordfreq will happily rate a
+# phrase by combining its tokens, which rates a three-common-word title
+# like any other three common words; a phrase can name exactly one work,
+# so no phrase is ever exempt. See the design doc:
+# docs/superpowers/specs/2026-09-20-leak-check-common-words-design.md
+#
+# Calibrated 2026-09-20, and chosen from a gap rather than by taste. The
+# single-word entries this list had accumulated fall into two groups with
+# nothing between them: four brand names at 1.64 and below, and fifty
+# ordinary words at 2.96 and above. 2.9 is the highest value that covers
+# all fifty, and it sits in the middle of a band 1.3 wide, so a small
+# wordfreq shift cannot move the boundary. At this value 161 of the 386
+# single-word terms in the catalog are exempt -- 2.8% of all 5,675 terms
+# searched for. Re-run the calibration in the design doc when upgrading
+# wordfreq; tests/test_leak_check.py pins scores either side of it so a
+# bump cannot move the gate quietly.
+COMMON_ZIPF = 2.9
+
+
+def is_common_word(term):
+    """True if `term` is a single ordinary English word.
+
+    `str.isalpha()` does the tokenising: it is false for anything with a
+    space, hyphen, apostrophe or digit in it, so "science-fiction" and
+    "o'reilly" are not single tokens however common their parts. It is
+    true for non-ASCII letters, which is intended -- an accented word is
+    still one word.
+    """
+    return term.isalpha() and zipf_frequency(term, "en") >= COMMON_ZIPF
+
 
 
 def db_terms(path):
