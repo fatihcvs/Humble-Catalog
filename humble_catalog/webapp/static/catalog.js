@@ -577,7 +577,8 @@ function renderActiveFilters() {
   // nothing to clear is noise, and this strip is itself empty otherwise.
   // It sits after the chips because it is the summary of them -- clearing
   // one is the common act, clearing all is the escape hatch.
-  if (out.length) out.push('<button class="clear-all">Clear all</button>');
+  if (out.length)
+    out.push('<button class="clear-all">Clear all filters</button>');
   box.innerHTML = out.join("");
 }
 
@@ -608,6 +609,12 @@ function clearAllFilters() {
   // longer there.
   relevanceSort = false;
   renderFilterChips();
+  // The button fires and then deletes itself -- the strip is rebuilt from
+  // a filter set that is now empty -- so without this the keyboard is
+  // dropped back to <body>, at the top of the page. The search box is
+  // where clearing leaves you anyway: it is the next thing most sessions
+  // type into.
+  $("#search")?.focus();
 }
 
 // Everything after the title in the name cell. Read-only keeps only what
@@ -710,6 +717,10 @@ function render() {
   // catalog nothing had been fetched into, and from a filter that matched
   // nothing. The line says which -- inside the scroller either way, so it
   // stands where the rows would be rather than above them.
+  // Spoken as well as drawn. Written on every render, empty included, so
+  // the region never holds a sentence that is no longer true.
+  const status = $("#table-status");
+  if (status) status.textContent = rows.length === 0 ? emptyStateText() : "";
   if (rows.length === 0) {
     const text = esc(emptyStateText());
     // colspan 99 rather than the column count: the count is declared in
