@@ -264,3 +264,20 @@ def test_scan_reports_the_file_a_hit_came_from():
 def test_scan_counts_every_file_even_when_nothing_hits():
     hits, nfiles = lc.scan([("a", "x"), ("b", "y")], ["Moonfall"])
     assert (hits, nfiles) == ({}, 2)
+
+
+# --- the frequency source ---------------------------------------------
+# These scores are the gate's calibration. A wordfreq upgrade that moves
+# them changes what the privacy check permits, so it has to fail here
+# rather than pass quietly. If this test breaks after a deliberate
+# upgrade, re-run the calibration in leak_check.py's COMMON_ZIPF comment
+# and update both together.
+
+def test_wordfreq_scores_are_stable():
+    from wordfreq import zipf_frequency
+    # Ordinary English, comfortably above any usable cutoff.
+    assert zipf_frequency("space", "en") > 5.0
+    assert zipf_frequency("legacy", "en") > 4.0
+    # A rare token, comfortably below one. Invented, so no real term can
+    # ever collide with it.
+    assert zipf_frequency("zzqqxv", "en") == 0.0
