@@ -255,15 +255,33 @@ function ratingForKey(key, focused, current) {
 // closeSheet() has it: the row is already where the user is looking.
 async function applyRating(id, star, rating) {
   const item = items.find(i => i.id === id);
-  await post(`/api/items/${id}/rating`, {rating});
+  const previous = item ? item.my_rating : null;
+  // The model moves, and focus returns, BEFORE the request goes out.
+  // Arrow keys repeat when held, which is how a rating gets moved
+  // several stars at once; waiting for the response leaves the focused
+  // star reporting a stale rating for the length of a round trip, and
+  // the repeat recomputes from it -- two quick presses moved one star.
+  // Nothing is lost by going first: post() never inspects the response,
+  // so a rejected write already updated the row under the old order.
   if (item) item.my_rating = rating;
   render();
-  document.querySelector(
+  const focus = () => document.querySelector(
     `.rating-group[data-id="${id}"] .star[data-n="${star}"]`)
     ?.focus({preventScroll: true});
-  // The table updates from the in-place edit immediately; the panel
-  // trails by one round trip. Deliberate: blocking the star's own
-  // re-render on the server would be the visible cost, this is not.
+  focus();
+  try {
+    await post(`/api/items/${id}/rating`, {rating});
+  } catch (err) {
+    // Offline. Optimism is only honest if it is undone: the row must
+    // not keep showing a rating the server never took.
+    if (item) item.my_rating = previous;
+    render();
+    focus();
+    return;
+  }
+  // The panel trails the table by one round trip, as it did before:
+  // blocking the star's own re-render on the server would be the visible
+  // cost, this is not.
   refreshStats();
 }
 

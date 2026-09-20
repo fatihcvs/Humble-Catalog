@@ -2892,3 +2892,56 @@ def test_clearing_keeps_focus_on_the_star_that_cleared_it():
     assert out["posts"][0]["body"] == {"rating": None}
     assert out["rating"] is None
     assert any('.star[data-n="3"]' in sel for sel in out["focused"])
+
+
+# Arrow keys repeat when held, which is how a rating gets moved several
+# stars at once. A write that reaches the model only after the response
+# leaves the focused star reporting a stale rating for the length of a
+# round trip, and the repeat recomputes from it -- pressing Right twice
+# quickly moved one star, not two. So the model and the focus move first
+# and the request follows. post() never inspects the response, so nothing
+# was being guarded by the old order.
+
+def _in_flight(items_json, body):
+    """Run `body` with a fetch that hangs until `release()` is called."""
+    return _driven(items_json, """
+      let release;
+      app.setFetch(() => new Promise(r => {
+        release = () => r({ok: true, json: () => Promise.resolve({})});
+      }));
+    """ + body)
+
+
+def test_the_rating_lands_before_the_request_is_answered():
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _in_flight(items, """
+      const p = app.applyRating(1, 3, 3);
+      const duringFlight = app.getItems()[0].my_rating;
+      release(); await p;
+      return {duringFlight, settled: app.getItems()[0].my_rating};""")
+    assert out["duringFlight"] == 3, "the row still reported the old rating"
+    assert out["settled"] == 3
+
+
+def test_focus_returns_before_the_request_is_answered():
+    # The repeat arrives during the flight, so the star has to be back
+    # under focus by then or the keypress lands on nothing.
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _in_flight(items, """
+      dom.reset();
+      const p = app.applyRating(1, 3, 3);
+      const duringFlight = [...dom.focused];
+      release(); await p;
+      return duringFlight;""")
+    assert any('.star[data-n="3"]' in sel for sel in out), out
+
+
+def test_a_write_that_never_arrives_puts_the_rating_back():
+    # Optimism is only honest if it is undone when the write fails: the
+    # row must not keep showing a rating the server never took.
+    items = json.dumps([_item(id=1, my_rating=2)])
+    out = _driven(items, """
+      app.setFetch(() => Promise.reject(new Error("offline")));
+      await app.applyRating(1, 4, 4);
+      return app.getItems()[0].my_rating;""")
+    assert out == 2
