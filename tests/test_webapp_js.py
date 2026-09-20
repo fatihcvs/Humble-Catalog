@@ -2421,6 +2421,21 @@ def test_clear_all_clears_every_kind_of_filter_at_once():
                      "chips": [], "text": "", "shown": [1]}
 
 
+def test_spreadsheet_picker_is_inside_its_import_card():
+    html = eval_js("(app.renderTasks(), dom.writes['#task-cards'])")
+    # Slice the actual generated card, not the unrelated static Tasks shell.
+    start = html.rfind('<div class="task-card">', 0, html.index('Import a spreadsheet'))
+    end = html.index('<div class="task-card">', html.index('Import a spreadsheet'))
+    card = html[start:end]
+    assert html.count('id="sheet-file"') == 1
+    assert 'for="sheet-file">Choose spreadsheet' in card
+    assert 'id="sheet-file" type="file" accept=".xlsx"' in card
+    assert 'aria-describedby="sheet-filename"' in card
+    assert 'id="sheet-filename" role="status">No file selected' in card
+    assert 'data-command="import_sheets"' in card
+    assert 'Choosing a file below starts the import' in card
+
+
 def test_a_catalog_that_cannot_be_read_says_so_rather_than_going_blank():
     # load() read /api/items outside its own guard, so a server that had
     # stopped left the page on the loading line for ever, with the reason

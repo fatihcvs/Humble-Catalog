@@ -32,7 +32,7 @@ const TASK_CARDS = [
    options: {series: true},
    note: "Reads \"Vol. 2\" out of a title where no source supplied it."},
   {group: "Import", command: "import_sheets", label: "Import a spreadsheet",
-   note: "Ratings and metadata from an .xlsx. Choose the file below."},
+   note: "Ratings and metadata from an .xlsx. Choosing a file below starts the import."},
   {group: "Import", command: "import_games", label: "Import game libraries",
    note: "Reads Heroic's caches and Steam's Web API. No login."},
   {group: "Backup", command: "backup", label: "Back up the catalog",
@@ -67,6 +67,13 @@ function taskCard(c) {
         ? ` <span class="task-terminal">uses the terminal</span>` : ""}</div>
       <div class="task-note">${esc(c.note)}</div>
       ${picker}
+      ${c.command === "import_sheets" ? `
+      <div id="task-upload">
+        <label class="sheet-choose" for="sheet-file">Choose spreadsheet
+          <input id="sheet-file" type="file" accept=".xlsx" aria-describedby="sheet-filename">
+        </label>
+        <span id="sheet-filename" role="status">No file selected</span>
+      </div>` : ""}
       <button class="task-go"${c.picker === "snapshot" ? ' id="restore-go"' : ""}
               data-command="${esc(c.command)}"${c.handoff ? ' data-handoff="1"' : ""}
               data-options='${esc(JSON.stringify(c.options || {}))}'
@@ -427,8 +434,11 @@ if (typeof document !== "undefined" && document.addEventListener) {
     }
   });
   document.addEventListener("change", (ev) => {
-    if (ev.target && ev.target.id === "sheet-file" && ev.target.files[0])
-      uploadSheet(ev.target.files[0]);
+    if (ev.target && ev.target.id === "sheet-file") {
+      const file = ev.target.files[0];
+      $("#sheet-filename").textContent = file ? file.name : "No file selected";
+      if (file) uploadSheet(file);
+    }
     if (ev.target && ev.target.id === "job-follow") {
       followLog = Boolean(ev.target.checked);
       const pre = $("#job-log");
