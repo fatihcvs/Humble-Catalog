@@ -15,7 +15,7 @@ async function loadReview() {
   panel.hidden = review.length === 0;
   panel.innerHTML = review.length === 0 ? "" :
     `<details${reviewOpen ? " open" : ""}>
-      <summary>&#9888; ${review.length} item${review.length === 1 ? "" : "s"} need review</summary>
+      <summary>&#9888; ${review.length} ${review.length === 1 ? "item needs" : "items need"} review</summary>
       ${review.map(r => `<div class="review-item">
       ${r.cover_path ? `<img class="review-cover" src="/${esc(r.cover_path)}" alt="">` : ""}
       <div class="review-body">
