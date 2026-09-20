@@ -159,7 +159,7 @@ vm.createContext(sandbox);
 const publish = `
 ;globalThis.__app = {
   tagBadges, person, personField, esc, highlight, chipFilters, passesChipFilters,
-  visible, render, stars, ratingForKey, applyRating, tagCounts, shouldPostEnrichmentEdit, load, loadReview, shownRows,
+  visible, render, stars, ratingForKey, applyRating, ariaSortFor, tagCounts, shouldPostEnrichmentEdit, load, loadReview, shownRows,
   renderBulkBar, runBulk, undoBulk,
   getLastTagOp: () => lastTagOp,
   setLastTagOp: (v) => { lastTagOp = v; },

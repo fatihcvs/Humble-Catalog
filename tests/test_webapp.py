@@ -3056,3 +3056,29 @@ def test_readme_explains_the_handoff_and_its_guard():
     assert "hand" in exposure.lower()
     assert "RESET" in exposure
     assert "needed only for `login`, `reset` and `restore`" not in readme
+
+
+def _sort_cells():
+    """The inner HTML of each sortable header cell in index.html."""
+    html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+            / "static" / "index.html").read_text(encoding="utf-8")
+    return re.findall(r'<th data-sort="[^"]+">(.*?)</th>', html, re.S)
+
+
+def test_every_sortable_header_is_a_real_button():
+    # The headers were bare <th>s driven by a delegated click listener:
+    # not focusable, so the table could be read by keyboard but not
+    # reordered. A real button is focusable and answers Enter and Space
+    # without a key handler of its own (#39).
+    cells = _sort_cells()
+    assert len(cells) == 11, cells
+    assert all('<button type="button" class="sort-btn"' in c for c in cells), cells
+
+
+def test_the_sort_indicator_stays_inside_the_header_button():
+    # The arrow belongs to the control that changes it, so it is part of
+    # the button's own label rather than a sibling the button does not own.
+    cells = _sort_cells()
+    assert all(c.index('<span class="sort-ind">') > c.index("<button")
+               and c.index('<span class="sort-ind">') < c.index("</button>")
+               for c in cells), cells

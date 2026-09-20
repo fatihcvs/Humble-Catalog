@@ -2894,6 +2894,39 @@ def test_clearing_keeps_focus_on_the_star_that_cleared_it():
     assert any('.star[data-n="3"]' in sel for sel in out["focused"])
 
 
+# -- Sort headers announce the sort (#39) ------------------------------
+# The active sort was conveyed by the .sort-ind glyph alone, which is
+# invisible to a reader. aria-sort is the attribute made for it. As with
+# the key mapping, the value is a pure function: renderSortIndicators()
+# walks querySelectorAll, which the harness returns empty, so a rule
+# written inside it could not be tested.
+
+def _aria_sort(column, key="name", asc=True, search=""):
+    return eval_js(
+        '(() => { app.setSort("%s", %s); app.setSearch("%s");'
+        '  app.setRelevance(%s); return app.ariaSortFor("%s"); })()'
+        % (key, "true" if asc else "false", search,
+           "true" if search else "false", column))
+
+
+def test_the_sorted_column_announces_its_direction():
+    assert _aria_sort("name", key="name", asc=True) == "ascending"
+    assert _aria_sort("name", key="name", asc=False) == "descending"
+
+
+def test_the_other_columns_announce_no_sort():
+    # "none" rather than omitting the attribute: on a table that IS
+    # sorted, silence on the other headers reads as "not sortable".
+    assert _aria_sort("bundle", key="name", asc=True) == "none"
+
+
+def test_relevance_ordering_claims_no_column():
+    # The same reason the arrow is already suppressed here: the table is
+    # ordered by relevance, so naming a sorted column would be a lie.
+    assert _aria_sort("name", key="name", asc=True,
+                      search="harbors") == "none"
+
+
 # Arrow keys repeat when held, which is how a rating gets moved several
 # stars at once. A write that reaches the model only after the response
 # leaves the focused star reporting a stale rating for the length of a

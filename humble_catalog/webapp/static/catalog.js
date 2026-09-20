@@ -77,6 +77,13 @@ const statusFilter = new Set();
 let relevanceSort = false;
 const relevanceActive = () => relevanceSort && $("#search").value.trim() !== "";
 
+// What a reader is told about the ordering that .sort-ind shows a
+// sighted user. "none" rather than an absent attribute: on a table that
+// IS sorted, silence on the other headers reads as "not sortable".
+const ariaSortFor = (key) =>
+  key === sortKey && !relevanceActive()
+    ? (sortAsc ? "ascending" : "descending") : "none";
+
 // Folding a name is the per-keystroke cost that is trivially avoidable;
 // the tier matching is not. Cleared whenever the catalog reloads.
 const foldCache = new Map();
@@ -999,6 +1006,7 @@ function renderSortIndicators() {
   for (const th of document.querySelectorAll("#catalog th[data-sort]")) {
     const active = th.dataset.sort === sortKey;
     th.classList.toggle("sorted", active);
+    th.setAttribute("aria-sort", ariaSortFor(th.dataset.sort));
     const ind = th.querySelector(".sort-ind");
     // Suppressed while relevance orders the rows: a lit arrow would
     // claim the table is sorted by a column it is not sorted by.
