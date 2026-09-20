@@ -187,9 +187,17 @@ function stars(item) {
   if (READ_ONLY)
     return item.my_rating ? `<span class="star-text">${"★".repeat(item.my_rating)}</span>` : "";
   let html = "";
-  for (let n = 1; n <= 5; n++)
+  for (let n = 1; n <= 5; n++) {
+    // Each star is titled with the action its own click performs.
+    // Clicking the current rating clears it -- the only way to un-rate
+    // from the table -- so that star says so rather than "Rate n", which
+    // is what made the clear undiscoverable. The sheet names the same
+    // action with a Clear button; the Mine column has no room for one.
+    const title = item.my_rating === n
+      ? "Clear rating" : `Rate ${n} star${n === 1 ? "" : "s"}`;
     html += `<span class="star ${item.my_rating >= n ? "on" : ""}" `
-          + `data-id="${item.id}" data-n="${n}">★</span>`;
+          + `title="${title}" data-id="${item.id}" data-n="${n}">★</span>`;
+  }
   return html;
 }
 

@@ -2679,3 +2679,39 @@ def test_the_sheet_refuses_to_open_on_the_lan_viewer():
               return open;
             }})()""")
     assert opened is None
+
+
+# -- Star titles (#61) -------------------------------------------------
+# Clicking the star that matches the current rating clears it, and that
+# was the only way to un-rate from the table. Each star now carries a
+# title naming the action its own click performs, so the clear appears on
+# the control that does it rather than in the source.
+
+def _star_titles(my_rating):
+    """The title of each of the five table stars, at `my_rating`."""
+    return eval_js(
+        '(() => { const html = app.stars({id: 1, my_rating: %s});'
+        '  return [...html.matchAll(/title="([^"]*)"/g)].map(m => m[1]);'
+        ' })()' % ("null" if my_rating is None else my_rating))
+
+
+def test_the_star_matching_the_current_rating_is_titled_to_clear():
+    assert _star_titles(3)[2] == "Clear rating"
+
+
+def test_the_other_stars_are_titled_with_the_rating_they_set():
+    titles = _star_titles(3)
+    assert titles[1] == "Rate 2 stars" and titles[3] == "Rate 4 stars"
+
+
+def test_an_unrated_row_offers_no_clear():
+    assert _star_titles(None) == ["Rate 1 star", "Rate 2 stars",
+                                  "Rate 3 stars", "Rate 4 stars",
+                                  "Rate 5 stars"]
+
+
+def test_the_read_only_rating_carries_no_title():
+    # The LAN viewer has no click handler, so a title promising a click
+    # would lie. It renders plain text and must stay that way.
+    html = _render_row(True)
+    assert "Clear rating" not in html and "Rate " not in html

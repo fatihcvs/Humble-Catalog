@@ -325,6 +325,12 @@ to any set of statuses, and the Status column sorts by reading order
 rather than alphabetically. Status is independent of your rating, and
 both are kept when you `reset`.
 
+**Ratings.** Click a star in the Mine column to rate a row one to five.
+Clicking the star that matches the current rating clears it instead, so a
+rating set by mistake is one click from gone; each star's tooltip names
+what its own click will do. On a phone the edit sheet has a named
+**Clear** button beside the stars.
+
 **Hand edits and re-enrichment.** A row you edit by hand carries an
 "edited" badge, `↩` to revert it and `↻` to queue it for the next enrich
 run. Queued rows show "re-enrich queued" and are listed by the "Queued
