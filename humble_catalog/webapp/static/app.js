@@ -30,8 +30,23 @@ const ENRICHMENT_STATES = ["matched", "low_confidence", "unmatched", "pending"];
 
 const $ = (sel) => document.querySelector(sel);
 
+// True when /api/items could not be read at all. Distinct from an empty
+// catalog: the rows are unknown, not absent, so the table must not offer
+// the advice an empty catalog would.
+let loadError = false;
+
 async function load() {
-  items = (await (await fetch("/api/items")).json()).items;
+  // Outside the guarded loop below, this line was the one unprotected
+  // fetch in load(): a server that had stopped threw here, boot() logged
+  // it to the console, and the page stayed on the loading row for ever
+  // with nothing on screen to say why.
+  try {
+    items = (await (await fetch("/api/items")).json()).items;
+    loadError = false;
+  } catch (err) {
+    console.error("could not read /api/items:", err);
+    loadError = true;
+  }
   foldCache.clear();
   // The four renderers are independent, so one failing must not take out
   // the rest. render() used to run first and unguarded: a single item

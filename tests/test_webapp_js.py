@@ -2416,3 +2416,56 @@ def test_clear_all_clears_every_kind_of_filter_at_once():
     # set and every select really were emptied
     assert state == {"search": "", "type": "", "rating": "", "flag": "",
                      "chips": [], "text": "", "shown": [1]}
+
+
+def test_a_catalog_that_cannot_be_read_says_so_rather_than_going_blank():
+    # load() read /api/items outside its own guard, so a server that had
+    # stopped left the page on the loading line for ever, with the reason
+    # in the console and nothing on screen.
+    result = eval_js(
+        """(async () => {
+             dom.reset();
+             app.setItems([]);
+             app.setFetch(() => Promise.reject(new Error("connection refused")));
+             let threw = null;
+             try { await app.load(); } catch (e) { threw = e.message; }
+             return {threw, tbody: dom.writes["#catalog tbody"]};
+           })()""")
+    assert result["threw"] is None
+    assert "Could not read the catalog" in result["tbody"]
+
+
+def test_a_failed_load_does_not_tell_the_reader_to_go_and_fetch_bundles():
+    # The empty-catalog line is the wrong advice here: the rows are
+    # unknown, not absent.
+    tbody = eval_js(
+        """(async () => {
+             dom.reset();
+             app.setItems([]);
+             app.setFetch(() => Promise.reject(new Error("connection refused")));
+             await app.load();
+             return dom.writes["#catalog tbody"];
+           })()""")
+    assert "No items in the catalog yet" not in tbody
+
+
+def test_a_later_successful_load_clears_the_failure_line():
+    # Otherwise the first failure sticks for the life of the page, and the
+    # Tasks tab's own reload would look like it had done nothing.
+    items = json.dumps([_item(id=1, name="A Quiet Life in Harbors")])
+    tbody = eval_js(
+        f"""(async () => {{
+              app.setItems([]);
+              app.setFetch(() => Promise.reject(new Error("refused")));
+              await app.load();
+              dom.reset();
+              app.setFetch((url) => Promise.resolve({{json: () => Promise.resolve(
+                url === "/api/items"      ? {{items: {items}}} :
+                url === "/api/review"     ? {{items: []}} :
+                url === "/api/duplicates" ? {{groups: []}} :
+                url === "/api/stats"      ? {{total: 1, sections: []}} : {{}})}}));
+              await app.load();
+              return dom.writes["#catalog tbody"];
+            }})()""")
+    assert "Could not read the catalog" not in tbody
+    assert "A Quiet Life in Harbors" in tbody
