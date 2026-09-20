@@ -33,111 +33,48 @@ except ImportError:  # pragma: no cover - the venv always has it
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-# Known-benign matches, reviewed 2026-07-18. Two kinds:
-# - the deliberate public house example (All Systems Red & co.);
-# - generic vocabulary that legitimately appears in code/docs
-#   (genres, major publishers, platform names, common words).
-# Compare case-insensitively. Anything NOT here fails the check.
+# Known-benign matches. Anything NOT here fails the check; compared
+# case-insensitively.
 #
-# There used to be a third kind - titles that collided only INSIDE longer
-# words - and 11 entries were removed on 2026-08-02 when matching moved to
-# word boundaries. Each of those had blinded the gate to a real title
-# containing that word, which is the cost this list always carries: an
-# entry earns its place only if the term appears in the repo as a whole
-# word. Measured before removal, by scanning the repo for each entry under
-# both rules; the ones that still hit as whole words stayed.
+# This list is deliberately small, and is meant to stay that way. Every
+# entry is itself a disclosure -- it says "some term in this catalog
+# equals this string" -- so the list is a cost, paid only where there is
+# no alternative. Two things keep it from growing:
+#
+# - A single ordinary English word never needs an entry. COMMON_ZIPF
+#   below exempts it automatically; 50 entries were removed on
+#   2026-09-20 when that rule arrived, because it covered them.
+# - A fresh collision in the working tree is REWORDED, not added here.
+#   An entry earns its place only when rewording is impossible, which in
+#   practice means the text is already in pushed history.
+#
+# Entries record why they are benign and never what kind of catalog term
+# they collided with: naming the role turns a weak signal into a usable
+# one. For the same reason, nothing here is grouped by category.
 ALLOWED = {t.lower() for t in [
-    "All Systems Red", "Martha Wells", "Kevin R. Free", "Murderbot Diaries",
-    "Artificial Condition", "Exit Strategy", "Fugitive Telemetry",
-    "Network Effect", "Rogue Protocol",              # public API fixture data
-    "Fantasy", "Fiction", "Science Fiction", "Science", "Programming",
-    "Manga", "Computers", "Drama", "Finance", "Machine learning",
-    "Mathematics", "Virtual Reality", "Foundation", "general",
-    "O'Reilly", "Packt", "Pearson", "Wiley", "Manning Publications",
-    "No Starch Press", "GraphicAudio",
-    "Humble Bundle", "Humble Music Bundle",
-    "Changes", "Count", "Flight", "None", "Reads",
-    # Added 2026-07-25. Ordinary English used as itself throughout the
-    # README and source - "Rebuild the catalog", "Framed as a working
-    # surface", "a bug in the prune logic" - never as a reference to the
-    # library. A fourth entry here matched only inside "over-typed" and
-    # was removed with the move to word boundaries.
-    "Rebuild", "Framed", "Prune",
+    # Public fixture data. Not from anyone's library: these are the
+    # worked examples the source and the tests are built on, and they
+    # appear verbatim in the committed hardcover fixture.
+    "All Systems Red", "Artificial Condition", "Exit Strategy",
+    "Fugitive Telemetry", "Network Effect", "Rogue Protocol",
+    "Murderbot Diaries", "The Murderbot Diaries",
+    "Martha Wells", "Kevin R. Free", "Frank Herbert",
 
-    # Added 2026-07-26 (second pass). A large harvest/enrich grew the
-    # catalog by roughly 1800 terms, and these are the ones that newly
-    # collided with text already committed. Three kinds, none of them a
-    # reference to the library.
-    #
-    # Genre labels. Categories rather than possessions, joining the dozen
-    # already listed above; they arrive from the metadata sources, so the
-    # set grows on its own as the catalog does.
-    "Adventure", "Comics", "Cooking", "Discipline", "Dystopian",
-    "Economics", "Engineering", "Games", "History", "Music", "Mystery",
-    "Personal Finance", "Political Science", "Reference", "Robot",
-    #
-    # Ordinary vocabulary, every one of which appears in the repo as a
-    # whole word - "unknown", "rules", "days", "alone", "rest", "omni",
-    # "seven", "symmetry", "wings", "the score" - in prose, in identifiers
-    # or in headings. Re-measured 2026-08-02 under word-boundary matching;
-    # the entries that survived only as substrings were removed then.
-    "Alone", "Days", "Omni", "Rest", "Rules", "Seven", "Symmetry",
-    "The Score", "Unknown", "Wings",
-    #
-    # Added 2026-07-26 (third pass). A timezone name, not a title: the
-    # harvest quota design has to say when Google's daily quota resets,
-    # and that instant is midnight Pacific. It appears only in that
-    # sense, in the spec and in the source that computes the time.
-    "Pacific",
-    #
-    # Added 2026-07-31 after the history scan run before the hidden-keys
-    # merge. All three appear in commit messages, and history cannot be
-    # edited, so they have to be allowed rather than reworded. "The
-    # Outside" matches as the whole phrase in ordinary prose ("what the
-    # outside world said"); the other two are quoted verbatim by the
-    # commit that added them to this list, which is a whole-word match no
-    # boundary rule can remove.
-    "Blek", "The Outside", "ustwo",
-    #
-    # Added 2026-08-02. Ordinary English in the loop template's own prose
-    # -- "not done except the small stuff" -- committed by the salvage
-    # that captured the bootstrapped PLAN.md before the first audit
-    # reworded it. Present only in that one historical blob; the working
-    # tree has said something else since. A pre-existing history hit, not
-    # something the boundary change introduced: a substring rule matched
-    # it too.
-    "STUFF",
-    #
-    # Added 2026-09-18. Ordinary vocabulary that became catalog terms as
-    # the library grew, each already a whole word in 15 files (132 hits)
-    # and in history pushed that day, which cannot be reworded:
-    # "convergence" is the jeffy loop's own term ("never counts toward
-    # convergence") and returns with every run; "legacy" names old-schema
-    # databases in the migration tests and the db-schema probe; and
-    # "divergence" is the CSV spec's "no divergence possible". A
-    # one-word title like these is indistinguishable from the prose, so
-    # the blindness this buys is one the check already had.
-    "Convergence", "Divergence", "Legacy",
-    #
-    # House examples. "The Murderbot Diaries" is the article-carrying
-    # variant of an entry already here, which the catalog stores in full.
-    # Dune is famous public fiction used exactly as All Systems Red is —
-    # docs/TEST-DATA.md already lists "Dune (Audiobook)" as standing test
-    # vocabulary — and owning it says nothing about anyone.
-    "The Murderbot Diaries", "Frank Herbert", "Dune",
-    #
-    # Added 2026-09-20, after a harvest grew the term set by ~220. Two
-    # genre labels and one series name, all already whole words in
-    # committed text and in pushed history, which cannot be reworded.
-    # "Space" is the literal word in the title and dedupe normalizers
-    # ("Punctuation -> space"); "Science Fiction & Fantasy" is a genre in
-    # the PUBLIC hardcover fixture, alongside the Murderbot data already
-    # allowed here; and "The Way" matches ordinary prose throughout the
-    # source and docs ("three-quarters of the way in"), exactly as "The
-    # Outside" and "The Score" above do. A genre is a category rather
-    # than a possession, and a phrase this common is indistinguishable
-    # from the prose around it.
-    "Space", "Science Fiction & Fantasy", "The Way",
+    # Vocabulary the project uses as itself, in prose and in
+    # identifiers, throughout the source and the docs. Each is a phrase,
+    # so the single-word rule cannot reach it.
+    "Machine learning", "Virtual Reality", "Science Fiction",
+    "Science Fiction & Fantasy", "Personal Finance", "Political Science",
+    "The Outside", "The Score", "The Way",
+
+    # The tool's own subject matter, which the README and the CLI text
+    # cannot avoid naming.
+    "Humble Bundle", "Humble Music Bundle",
+
+    # Rare tokens -- too rare for the frequency rule to reach, and
+    # present in pushed history, which cannot be edited.
+    "O'Reilly", "Packt", "Manning Publications", "No Starch Press",
+    "GraphicAudio", "Blek", "ustwo",
 ]}
 
 
@@ -166,11 +103,11 @@ ALLOWED = {t.lower() for t in [
 # ordinary words at 2.96 and above. 2.9 is the highest value that covers
 # all fifty, and it sits in the middle of a band 1.3 wide, so a small
 # wordfreq shift cannot move the boundary. At this value 161 of the 386
-# single-word terms the catalog holds score at or above it -- 2.8% of the
-# 5,675 terms in the raw set. A run reports a smaller number than that,
-# because ALLOWED is subtracted first and absorbs some of the same words.
-# Re-run the calibration in the design doc when upgrading
-# wordfreq; tests/test_leak_check.py pins scores either side of it so a
+# single-word terms the catalog holds are exempt -- 2.8% of the 5,675
+# terms in the raw set, and the number a run reports.
+#
+# Re-run the calibration in the design doc when upgrading wordfreq;
+# tests/test_leak_check.py pins scores either side of this value so a
 # bump cannot move the gate quietly.
 COMMON_ZIPF = 2.9
 
@@ -185,7 +122,6 @@ def is_common_word(term):
     still one word.
     """
     return term.isalpha() and zipf_frequency(term, "en") >= COMMON_ZIPF
-
 
 
 def db_terms(path):

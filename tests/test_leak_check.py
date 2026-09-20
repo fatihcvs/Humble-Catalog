@@ -362,3 +362,12 @@ def test_the_summary_counts_exempt_words_without_naming_them(
     # The words themselves must never reach the terminal: printing them
     # rebuilds exactly the oracle this rule removes.
     assert "table" not in out and "window" not in out
+
+
+def test_no_allowlist_entry_is_one_the_rule_already_covers():
+    # Every redundant entry is pure disclosure: it says "a term here
+    # equals this" and buys nothing, because the common-word rule would
+    # have exempted it anyway. Keeping the list minimal is the point of
+    # the rule.
+    redundant = sorted(t for t in lc.ALLOWED if lc.is_common_word(t))
+    assert redundant == [], redundant
