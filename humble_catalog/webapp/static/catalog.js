@@ -906,6 +906,9 @@ function render() {
   renderBulkBar();
   renderExportButton();
   renderSortIndicators();
+  // The panel describes these rows, so it is part of drawing them rather
+  // than something a mutation remembers to refresh afterwards.
+  refreshStats(rows);
 }
 
 // Reflect the current sort onto the static header cells (the <thead> is not
@@ -945,9 +948,18 @@ function highlight(text, spans) {
 
 // ---- Statistics panel -------------------------------------------------
 // Six sections -- type, ratings, reading status, enrichment, gaps, genres
-// -- fetched from /api/stats. The counting lives only in stats.py: the
-// labels, counts and order all arrive with the data, so there is no
-// second implementation here to drift from the CLI's.
+// -- counted in the browser by stats.js over the rows the table is
+// showing. The counts were served by /api/stats and covered the whole
+// catalog, which made a row's number a promise the jump could not keep:
+// with a filter already active, clicking "E-books 6" kept that filter and
+// could land on an empty table. SECTION_FILTERS sets one control and
+// clears nothing, so only counts over the visible rows are answerable.
+//
+// That means stats.py is no longer the only implementation. The two are
+// held together by a test rather than by the arrangement -- see
+// test_the_browser_counts_agree_with_stats_py, which counts one fixture
+// both ways. /api/stats still serves the whole-catalog report for the
+// CLI parity tests and the probe battery; the viewer no longer reads it.
 
 // Which filter a row of each section applies. This is the ONLY thing the
 // viewer knows about the sections. Keys come from stats.py's SECTIONS.
@@ -987,8 +999,20 @@ const GENRE_PREVIEW = 15;
 let statsData = null;
 let statsOpen = false, genresShowAll = false, tagEditMode = false;
 
-async function refreshStats() {
-  statsData = await (await fetch("/api/stats")).json();
+// `rows` is render()'s own visible() result, passed in so the filtering
+// is not repeated; callers that only mutated an item omit it.
+//
+// The filtering can itself throw -- one item with a missing field is how
+// the page once went blank -- and load() runs the renderers separately so
+// that one failure cannot take out the rest. Counting the whole catalog
+// is the degraded answer there: it is what the panel showed before #43,
+// and a page that still comes up beats a correct panel nobody sees.
+function refreshStats(rows) {
+  let counted = rows;
+  if (!counted) {
+    try { counted = visible(); } catch (err) { counted = items; }
+  }
+  statsData = statsReport(counted);
   renderStats();
 }
 
@@ -1014,7 +1038,7 @@ function renderStats() {
       <table><tbody>${rows}</tbody></table>${more}</section>`;
   }).join("");
   panel.innerHTML = `<details${statsOpen ? " open" : ""}>
-    <summary>${statsData.total} items — overview</summary>
+    <summary>${statsData.total} item${statsData.total === 1 ? "" : "s"} — overview</summary>
     <div id="stats-grid">${blocks}</div></details>`;
   panel.querySelector("details").addEventListener("toggle",
     (ev) => { statsOpen = ev.target.open; });
