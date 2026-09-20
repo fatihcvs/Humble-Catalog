@@ -606,6 +606,63 @@ body[data-mode="read-only"] #column-picker { display: none; }
              box-sizing: border-box; padding: .4rem .7rem; border-radius: 4px;
              background: var(--surface-alt); color: var(--accent);
              text-decoration: none; }
+/* The card as a control. .card is position: relative already for the
+   chevron; the whole face is the target, so nothing inside needs its own
+   except the bundle links, which stay links. */
+.card.tappable { cursor: pointer; position: relative; }
+.card.tappable:active { background: var(--surface-alt); }
+.card-chevron { position: absolute; top: .5rem; right: .6rem;
+                color: var(--muted); font-size: 1.2rem; line-height: 1; }
+
+/* The edit sheet. Fixed to the viewport rather than the card list, so it
+   is unaffected by where the list happens to be scrolled. z-index clears
+   the ladder documented at the top of this file (rows 5 < header 6 <
+   .ac-list 10); the scrim sits just under the sheet. */
+#sheet-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45);
+               opacity: 0; transition: opacity .18s; z-index: 30; }
+#sheet-scrim.open { opacity: 1; }
+#edit-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 31;
+              background: var(--surface); color: var(--fg);
+              border-top: 1px solid var(--border-strong);
+              border-radius: 14px 14px 0 0; padding: .9rem;
+              padding-bottom: calc(.9rem + env(safe-area-inset-bottom, 0px));
+              box-shadow: 0 -4px 16px var(--shadow);
+              transform: translateY(100%); transition: transform .2s ease-out; }
+#edit-sheet.open { transform: translateY(0); }
+.sheet-grabber { width: 36px; height: 4px; border-radius: 2px;
+                 background: var(--border-strong); margin: 0 auto .55rem; }
+#edit-sheet h3 { margin: .15rem 0 .1rem; font-size: 1rem; }
+.sheet-sub { color: var(--muted); font-size: .85rem; margin: 0 0 .5rem; }
+.sheet-label { font-size: .72rem; color: var(--muted); margin: .75rem 0 .3rem;
+               text-transform: uppercase; letter-spacing: .06em; }
+/* Five buttons on one line at 375 px -- which is why the labels are the
+   short ones. Wrapping is allowed rather than forced off: a larger text
+   size should wrap, not overflow. */
+#edit-sheet .seg { display: flex; flex-wrap: wrap; gap: .25rem; }
+.sheet-status { min-height: 44px; padding: 0 .55rem; font-size: .8rem; }
+.sheet-status[aria-pressed="true"] { color: var(--status-on-fg);
+                                     border-color: transparent; font-weight: 600; }
+.sheet-status[aria-pressed="true"].rs-want_to_read { background: var(--status-want); }
+.sheet-status[aria-pressed="true"].rs-unread       { background: var(--muted); }
+.sheet-status[aria-pressed="true"].rs-reading      { background: var(--status-reading); }
+.sheet-status[aria-pressed="true"].rs-read         { background: var(--status-read); }
+.sheet-status[aria-pressed="true"].rs-dnf          { background: var(--status-dnf); }
+.sheet-stars { display: flex; align-items: center; gap: .05rem; }
+.sheet-star { min-width: 40px; min-height: 44px; font-size: 1.3rem;
+              line-height: 1; padding: 0; border: 0; background: none;
+              color: var(--border-strong); }
+.sheet-star.on { color: var(--star); }
+/* Named, not a sixth star: re-tapping the current rating clears it on the
+   table too, but nothing there says so. */
+.sheet-star-clear { min-height: 44px; margin-left: .4rem; padding: 0 .6rem;
+                    font-size: .8rem; color: var(--muted);
+                    background: none; border-color: transparent; }
+.sheet-done { width: 100%; min-height: 44px; margin-top: .9rem;
+              font-weight: 600; background: var(--accent);
+              color: var(--status-on-fg); border-color: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  #edit-sheet, #sheet-scrim { transition: none; }
+}
 @media (max-width: 600px) {
   /* Measured at 375 px: Bundles was cut in half and Tasks off-screen. */
   #tabs { overflow-x: auto; }

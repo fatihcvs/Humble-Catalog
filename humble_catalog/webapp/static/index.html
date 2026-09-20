@@ -137,6 +137,13 @@
        re-announces a stale one on the next change. -->
   <p id="table-status" class="visually-hidden" role="status"></p>
   <div id="card-list" hidden></div>
+  <!-- The phone's editor. Below 600 px each row is a card and the table's
+       controls are gone with the table; tapping a card opens this. Empty
+       until then, and absent from the LAN viewer's reach because every
+       control it draws is suppressed by READ_ONLY. -->
+  <div id="sheet-scrim" hidden></div>
+  <div id="edit-sheet" role="dialog" aria-modal="true"
+       aria-labelledby="sheet-title" hidden></div>
   </div>
   </div>
   </section>

@@ -32,6 +32,8 @@ const fuzzySrc = fs.readFileSync(
 const writes = {};
 // Selectors that have been focus()ed, in order.
 const focused = [];
+// The same calls with their options, for assertions about preventScroll.
+const focusCalls = [];
 
 function makeEl(selector) {
   const el = {
@@ -62,7 +64,14 @@ function makeEl(selector) {
     // Focus moves are RECORDED, for the same reason classes and
     // attributes are: where the keyboard lands after a control removes
     // itself is behaviour, and a no-op stub left it unobservable.
-    focus() { focused.push(selector); },
+    focus(opts) {
+      focused.push(selector);
+      // The options too: a sheet that animates up from off-screen must be
+      // focused with preventScroll, or the browser scrolls to chase the
+      // control and the list appears to lurch. Recorded separately so the
+      // older `focused` assertions keep working.
+      focusCalls.push({selector, preventScroll: Boolean(opts && opts.preventScroll)});
+    },
     click() {},
     closest: () => makeEl(selector),
     querySelector: () => makeEl(selector),
@@ -80,6 +89,12 @@ function makeEl(selector) {
     },
     setAttribute(name, value) { this.attrs[name] = String(value); },
     appendChild() {},
+    // There is no layout here, but code that deliberately forces one --
+    // flushing a style change before the class that transitions from it --
+    // still has to be able to call this.
+    getBoundingClientRect() {
+      return {top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0};
+    },
     get innerHTML() { return writes[selector] ?? ""; },
     set innerHTML(v) { writes[selector] = String(v); },
     get textContent() { return ""; },
@@ -171,6 +186,8 @@ const publish = `
   statusCell, nameExtras, applyMode, sectionAllowed, READ_ONLY_SECTIONS,
   start,
   renderCards, isNarrow, NARROW_QUERY,
+  sheetFor, openSheet, closeSheet, setSheetStatus, setSheetRating,
+  READ_STATUS_SHORT, getOpenSheetId: () => openSheetId,
   setReadOnly: (v) => { READ_ONLY = v; },
   getReadOnly: () => READ_ONLY,
   setStatusFilter: (arr) => { statusFilter.clear(); for (const s of arr) statusFilter.add(s); },
@@ -205,9 +222,9 @@ const runner = `
 })()
 `;
 
-sandbox.__dom = { writes, focused,
+sandbox.__dom = { writes, focused, focusCalls,
   reset: () => { for (const k of Object.keys(writes)) delete writes[k];
-                 focused.length = 0; } };
+                 focused.length = 0; focusCalls.length = 0; } };
 
 const result = await vm.runInContext(runner, sandbox);
 process.stdout.write(JSON.stringify(result === undefined ? null : result));
