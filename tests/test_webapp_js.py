@@ -3107,3 +3107,63 @@ def test_a_single_row_is_summarised_in_the_singular():
     html = _panel_after(json.dumps([_item(id=1)]))
     assert "1 item —" in html, html[:120]
     assert "1 items" not in html
+
+
+def test_manual_merge_picker_is_reachable_with_no_suggested_duplicates():
+    # The picker lived only inside a panel that was hidden whenever
+    # /api/duplicates returned no groups. Picking a pair is the only thing
+    # that set manualPair.shown, so the first pick could never happen: the
+    # case the detector misses was exactly the case with no way to merge.
+    result = eval_js("""(async () => {
+      app.setFetch(async (url) => ({json: async () =>
+        url === "/api/duplicates" ? {groups: []} :
+        url === "/api/review" ? {items: []} :
+        url === "/api/stats" ? {total: 0, sections: []} : {items: []}}));
+      await app.load();
+      const panel = document.querySelector("#dupes-panel");
+      return {hidden: panel.hidden, html: dom.writes["#dupes-panel"]};
+    })()""")
+    assert result["hidden"] is False
+    assert 'id="dupe-a"' in result["html"]
+    assert 'id="dupe-b"' in result["html"]
+
+
+def test_empty_duplicates_summary_says_so_and_points_to_the_picker():
+    # The summary is all a collapsed panel shows. "0 possible duplicate
+    # groups" gave no reason to open it, and the manual picker is inside.
+    # No warning sign either: nothing suggested is the good outcome.
+    html = eval_js("""(async () => {
+      app.setFetch(async (url) => ({json: async () =>
+        url === "/api/duplicates" ? {groups: []} :
+        url === "/api/review" ? {items: []} :
+        url === "/api/stats" ? {total: 0, sections: []} : {items: []}}));
+      await app.load();
+      return dom.writes["#dupes-panel"];
+    })()""")
+    summary = html.split("<summary>")[1].split("</summary>")[0]
+    assert "No suggested duplicate groups" in summary
+    assert "by hand" in summary
+    assert "&#9888;" not in summary
+
+
+def test_duplicates_panel_drops_its_warning_look_only_when_nothing_is_suggested():
+    # The panel is amber because suggested duplicates need the owner's
+    # attention. Always showing it (#71) made the amber say "warning" when
+    # there is nothing to act on, so the empty state gets a neutral class
+    # -- and loses it again once a group arrives.
+    result = eval_js("""(async () => {
+      let groups = [];
+      app.setFetch(async (url) => ({json: async () =>
+        url === "/api/duplicates" ? {groups} :
+        url === "/api/review" ? {items: []} :
+        url === "/api/stats" ? {total: 0, sections: []} : {items: []}}));
+      const panel = document.querySelector("#dupes-panel");
+      await app.load();
+      const empty = panel.classList.contains("dupes-none");
+      groups = [[
+        {id: 1, name: "Amber Hollow", type: "ebook", bundles: []},
+        {id: 2, name: "Amber Hollow", type: "ebook", bundles: []}]];
+      await app.load();
+      return {empty, populated: panel.classList.contains("dupes-none")};
+    })()""")
+    assert result == {"empty": True, "populated": False}
