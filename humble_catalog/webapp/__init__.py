@@ -201,6 +201,13 @@ def _register_read_routes(app):
         # this route must not be able to disagree. GET with no parameters
         # -- the report is always the whole catalog, so there is nothing
         # to pass, and nothing about the library reaches a query string.
+        #
+        # The viewer does not read this. Its statistics panel counts the
+        # visible rows in stats.js (see the Statistics panel comment in
+        # catalog.js), and a whole-catalog count could not answer a
+        # filtered table. Kept as a documented read API: it is what the
+        # parity tests and the read-route probes assert against, and a
+        # LAN client gets the same report the CLI prints.
         sections, total = stats.report(db.fetch_items(conn()))
         return jsonify({
             "total": total,
