@@ -314,6 +314,43 @@ input.edit-url { width: 100%; box-sizing: border-box; margin: .2rem 0; }
                     background: var(--surface); z-index: 5; }
 #catalog th, #catalog td { padding: .3rem .55rem; }
 
+/* Column shares (#46). Automatic layout sized each column by its widest
+   unbreakable content, which ran backwards: a bundle name is a nowrap
+   .tag, so Bundle took a wide column and overflowed anyway, while Name --
+   the column people scan -- wrapped to three or four lines. Fixed layout
+   takes the widths below instead, and the table is never narrower than
+   their sum (it still scrolls on a small screen rather than crushing).
+   Every header needs one: fixed layout splits what is left evenly among
+   unsized columns. test_the_library_table_gives_name_the_widest_column
+   holds Name widest and the sum inside a 1440 px screen's scroller. */
+#catalog { table-layout: fixed; }
+#catalog td { overflow-wrap: break-word; }
+/* A fixed column no longer grows to fit a nowrap tag, so a long one is cut
+   here; tagBadges and the bundle links put the full name in a title. */
+#catalog td .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+                   box-sizing: border-box; vertical-align: top; }
+#catalog td select, #catalog td .tag-input { max-width: 100%; }
+/* Floors, in rem, where content cannot shrink: the 40 px cover 3.6, the
+   Status select 7.7, the five stars 4.8. Tag columns can go below their
+   longest tag now that tags truncate. The sum must stay <= 70. */
+/* border-box, so each width below is the column as drawn, padding and all,
+   and their sum is the table's real width rather than 15rem short of it. */
+#catalog th { box-sizing: border-box; }
+#catalog th.col-cover { width: 3.6rem; }
+#catalog th[data-sort="name"] { width: 9.2rem; }
+#catalog th[data-sort="type"] { width: 5.4rem; }
+#catalog th[data-sort="read_status"] { width: 7.7rem; }
+#catalog th[data-sort="genre"] { width: 5rem; }
+#catalog th[data-sort="series"] { width: 4rem; }
+#catalog th[data-sort="authors"] { width: 5rem; }
+#catalog th[data-sort="narrator"] { width: 4.6rem; }
+#catalog th[data-sort="publisher"] { width: 4.4rem; }
+#catalog th[data-sort="bundle"] { width: 5.4rem; }
+#catalog th[data-sort="external_rating"] { width: 3.9rem; }
+#catalog th[data-sort="my_rating"] { width: 4.8rem; }
+#catalog th.col-tags { width: 3.4rem; }
+#catalog th.col-notes { width: 3.6rem; }
+
 /* Filter bar: a touch more room, and a subtle divider before the type/flag
    selects and again before the chip filters, so the row reads as clusters
    instead of one dense run. */

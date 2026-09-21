@@ -486,6 +486,36 @@ def test_queued_row_renders_its_badge():
     assert "re-enrich queued" in _rendered(_item(edited=True, override=True))
 
 
+def test_a_table_tag_carries_its_full_name_for_when_it_is_cut():
+    # The Library's columns are fixed-width now (#46), so a long bundle or
+    # author name is cut with an ellipsis; the title is where the rest of
+    # it is read.
+    html = _rendered(_item(
+        authors=["Sam Coder"],
+        bundles=[{"name": "Example Press Omnibus Bundle",
+                  "url": "https://example.invalid/b1"}]))
+    assert '<span class="tag" title="Sam Coder">Sam Coder</span>' in html
+    assert 'title="Example Press Omnibus Bundle"' in html
+
+
+def test_a_bundle_cell_drops_the_prefix_every_bundle_shares():
+    # At a fixed width the ellipsis cut every bundle to "Humble...", the
+    # one word they all share, so the column no longer told rows apart
+    # (#46). The cell starts at the part that differs; the title and the
+    # link keep the full name.
+    html = _rendered(_item(bundles=[{
+        "name": "Humble Book Bundle: Example Harbor Tales",
+        "url": "https://example.invalid/b2"}]))
+    assert ('title="Humble Book Bundle: Example Harbor Tales">'
+            'Book Bundle: Example Harbor Tales</a>') in html
+
+
+def test_a_bundle_named_only_the_prefix_keeps_its_name():
+    assert eval_js('app.bundleLabel("Humble")') == "Humble"
+    assert eval_js('app.bundleLabel("Example Press Omnibus")') == \
+        "Example Press Omnibus"
+
+
 def test_re_enriched_row_renders_a_revert_button_not_an_edited_badge():
     html = _rendered(_item(edited=False, re_enriched=True))
     assert "re-enriched" in html and "revert" in html

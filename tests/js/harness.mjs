@@ -158,7 +158,7 @@ vm.createContext(sandbox);
 // tests need to drive state.
 const publish = `
 ;globalThis.__app = {
-  tagBadges, person, personField, esc, highlight, chipFilters, passesChipFilters,
+  tagBadges, bundleLabel, person, personField, esc, highlight, chipFilters, passesChipFilters,
   visible, render, stars, ratingForKey, applyRating, ariaSortFor, tagCounts, shouldPostEnrichmentEdit, load, loadReview, shownRows,
   renderBulkBar, runBulk, undoBulk,
   getLastTagOp: () => lastTagOp,

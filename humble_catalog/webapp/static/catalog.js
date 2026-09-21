@@ -716,6 +716,14 @@ function clearAllFilters() {
   $("#search")?.focus();
 }
 
+// A bundle's name as the Library table shows it. The column is narrow and
+// cuts with an ellipsis (#46), and nearly every bundle name opens with
+// the same word, so a cut name read "Humble..." on every row. Dropping it
+// starts the cell at the part that differs; the link's title keeps the
+// full name. A name that is only the prefix keeps it.
+const BUNDLE_PREFIX = /^Humble\s+/i;
+const bundleLabel = (name) => (name || "").replace(BUNDLE_PREFIX, "") || name;
+
 // Everything after the title in the name cell. Read-only keeps only what
 // navigates -- the source link and the edition jumps -- and drops the
 // badges and buttons that exist to drive enrichment.
@@ -966,7 +974,7 @@ function render() {
     ${chipCell("authors")}
     ${chipCell(personField(i))}
     <td>${esc(i.publisher)}</td>
-    <td>${i.bundles.map(b => `<a class="tag tag-link" href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.name)}</a>`)
+    <td>${i.bundles.map(b => `<a class="tag tag-link" href="${esc(b.url)}" target="_blank" rel="noopener" title="${esc(b.name)}">${esc(bundleLabel(b.name))}</a>`)
           .join("")}</td>
     <td>${i.external_rating ? `${i.external_rating.toFixed(1)} <small>(${
           i.rating_source})</small>` : ""}</td>
@@ -984,7 +992,7 @@ function render() {
     <td>${tagBadges(i.authors)}</td>
     <td>${tagBadges(person(i))}</td>
     <td>${esc(i.publisher)}</td>
-    <td>${i.bundles.map(b => `<a class="tag tag-link" href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.name)}</a>`)
+    <td>${i.bundles.map(b => `<a class="tag tag-link" href="${esc(b.url)}" target="_blank" rel="noopener" title="${esc(b.name)}">${esc(bundleLabel(b.name))}</a>`)
           .join("")}</td>
     <td>${i.external_rating ? `${i.external_rating.toFixed(1)} <small>(${
           i.rating_source})</small>` : ""}</td>

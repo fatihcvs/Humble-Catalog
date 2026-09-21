@@ -88,7 +88,7 @@ async function load() {
 // which is what a payload lacking a newer field (an older server, a
 // partial response) would otherwise do.
 const tagBadges = (arr) =>
-  (arr || []).map(t => `<span class="tag">${esc(t)}</span>`).join("");
+  (arr || []).map(t => `<span class="tag" title="${esc(t)}">${esc(t)}</span>`).join("");
 
 function esc(v) {
   return v == null ? "" : String(v).replace(/[&<>"]/g,
