@@ -410,7 +410,9 @@ every rating change. The panel no longer trails the table.
 report: the CLI parity tests and the read-route probe battery assert it
 reshapes `stats.report` field for field. The viewer simply stops reading
 it, which leaves the route without a viewer consumer — recorded as its own
-issue rather than decided here.
+issue rather than decided here. Decided in #67: kept as a documented read
+API, since the parity tests need a route to assert against; the comment
+on the route says the viewer does not read it.
 
 **One thing that fell out.** `refreshStats()` now depends on `visible()`,
 which a single item with a missing field can make throw — the failure
