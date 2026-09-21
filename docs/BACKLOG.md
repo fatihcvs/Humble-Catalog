@@ -977,9 +977,15 @@ a `harvest` print real owned titles, and nothing scans an issue.
   `docs/superpowers/specs/2026-07-24-statistics-panel-design.md`.
   One collapsible panel with six sections — type, ratings, reading
   status, enrichment, gaps, genres — replacing the separate gaps and
-  genre panels so each number lives in exactly one place. Counts always
-  cover the whole catalog, never the filtered set, which is what makes
+  genre panels so each number lives in exactly one place. Counts covered
+  the whole catalog, never the filtered set, on the grounds that this made
   click-through unambiguous: a row's count is what you see after the jump.
+  **Reversed on 2026-09-21 (#43)** — that holds only from an unfiltered
+  table, and `SECTION_FILTERS` clears nothing, so with a filter set the
+  jump compounds and the promised count is the one number you will not
+  get. The panel follows `visible()` now, and the two implementations of
+  the counting are held together by an equivalence test rather than by
+  there being only one. See the amendment at the end of the spec.
   The counting lives only in `stats.py` and reaches the viewer over a new
   `GET /api/stats`, so the CLI and the panel cannot drift; `gaps` widened
   into `stats`. Deriving in the browser was the first plan and was

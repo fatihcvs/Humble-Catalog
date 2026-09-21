@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from humble_catalog import export
+from humble_catalog import export, stats
 from tests.js_harness import eval_js, eval_js_error
 
 
@@ -865,12 +865,16 @@ def _section(key, label, rows):
 
 
 def _render_stats(payload):
-    """The #stats-panel HTML for a given /api/stats body."""
+    """The #stats-panel HTML for a given report payload.
+
+    Sets the data and draws it, rather than driving refreshStats: these
+    tests are about the rendering, and since #43 the numbers are counted
+    in the browser rather than fetched, which is not their subject.
+    """
     return eval_js(
-        """(async () => {
-             app.setFetch(() => Promise.resolve(
-               {json: () => Promise.resolve(%s)}));
-             await app.refreshStats();
+        """(() => {
+             app.setStatsData(%s);
+             app.renderStats();
              return dom.writes["#stats-panel"];
            })()""" % json.dumps(payload))
 
@@ -919,10 +923,8 @@ def test_genre_section_shows_fifteen_rows_until_show_all():
     assert "Show all 20" in collapsed
 
     expanded = eval_js(
-        """(async () => {
-             app.setFetch(() => Promise.resolve(
-               {json: () => Promise.resolve(%s)}));
-             await app.refreshStats();
+        """(() => {
+             app.setStatsData(%s);
              app.setGenresShowAll(true);
              app.renderStats();
              return dom.writes["#stats-panel"];
@@ -936,10 +938,8 @@ def test_edit_tags_toggle_reveals_the_rename_controls():
     assert "genre-rename" not in plain      # read-only by default
 
     editing = eval_js(
-        """(async () => {
-             app.setFetch(() => Promise.resolve(
-               {json: () => Promise.resolve(%s)}));
-             await app.refreshStats();
+        """(() => {
+             app.setStatsData(%s);
              app.setTagEditMode(true);
              app.renderStats();
              return dom.writes["#stats-panel"];
@@ -951,11 +951,9 @@ def test_edit_tags_toggle_reveals_the_rename_controls():
 def _stats_panel(read_only, tag_edit_mode):
     payload = _stats_payload([_section("genre", "Genres", [("Fantasy", 2)])])
     return eval_js(
-        """(async () => {
+        """(() => {
              app.setReadOnly(%s);
-             app.setFetch(() => Promise.resolve(
-               {json: () => Promise.resolve(%s)}));
-             await app.refreshStats();
+             app.setStatsData(%s);
              app.setTagEditMode(%s);
              app.renderStats();
              return dom.writes["#stats-panel"];
@@ -2978,3 +2976,134 @@ def test_a_write_that_never_arrives_puts_the_rating_back():
       await app.applyRating(1, 4, 4);
       return app.getItems()[0].my_rating;""")
     assert out == 2
+
+
+# -- The panel counts the rows the table shows (#43) -------------------
+# The counting used to live only in stats.py and arrive over /api/stats,
+# which is why the panel could only ever describe the whole catalog. It
+# now runs in the browser over the filtered rows, so there ARE two
+# implementations -- and this is what stops them drifting: one fixture,
+# both implementations, asserted equal field for field. It is the same
+# invariant the probe battery pins for the route, moved to the pair that
+# can now disagree.
+
+def _py_report(items):
+    """stats.report reshaped into the JSON shape the viewer renders."""
+    sections, total = stats.report(items)
+    return {"total": total,
+            "sections": [{"key": key, "label": label,
+                          "rows": [{"label": rl, "count": c} for rl, c in rows]}
+                         for key, label, rows in sections]}
+
+
+def _js_report(items):
+    return eval_js("app.statsReport(%s)" % json.dumps(items))
+
+
+def test_the_browser_counts_agree_with_stats_py():
+    items = [_item(id=1), _item(id=2, type="audiobook", my_rating=None),
+             _item(id=3, type="comic", read_status="read", status="pending"),
+             _item(id=4, type="music", my_rating=5, genre=["Fantasy", "Epic"])]
+    assert _js_report(items) == _py_report(items)
+
+
+def test_they_agree_on_a_value_outside_the_vocabulary():
+    # stats.py counts it nowhere rather than inventing a row, so a section
+    # need not sum to the total. The browser must be as silent about it.
+    items = [_item(id=1, type="sheet music"), _item(id=2, status="invented")]
+    assert _js_report(items) == _py_report(items)
+
+
+def test_they_agree_when_read_status_is_missing_entirely():
+    # A partial payload from an older server: stats.py defaults it to
+    # "unread" via _tally's `default`, and nothing else does.
+    items = [_item(id=1)]
+    del items[0]["read_status"]
+    assert _js_report(items) == _py_report(items)
+
+
+def test_they_agree_on_the_gaps():
+    items = [_item(id=1, my_rating=None, cover_path=None, source_url=None),
+             _item(id=2, my_rating=3, cover_path="covers/a.jpg",
+                   source_url="https://example.invalid/a")]
+    assert _js_report(items) == _py_report(items)
+
+
+def test_they_agree_on_a_genre_tie():
+    # Genres sort by count descending, ties broken alphabetically, so the
+    # order is total. A JS sort that left ties in insertion order would
+    # pass every count assertion and fail this one.
+    items = [_item(id=1, genre=["Westerns"]), _item(id=2, genre=["Epic"]),
+             _item(id=3, genre=["Fantasy", "Epic"])]
+    assert _js_report(items) == _py_report(items)
+
+
+def test_they_agree_on_an_empty_catalog():
+    assert _js_report([]) == _py_report([])
+
+
+def _panel_after(items_json, setup=""):
+    """The #stats-panel HTML after `setup` and a render."""
+    return eval_js("""(async () => {
+             dom.reset();
+             app.setFetch(() => Promise.resolve(
+               {ok: true, json: () => Promise.resolve({})}));
+             app.setItems(%s);
+             %s
+             app.render();
+             return dom.writes["#stats-panel"];
+           })()""" % (items_json, setup))
+
+
+_MIXED = json.dumps([
+    _item(id=1, type="ebook", genre=["Fantasy"]),
+    _item(id=2, type="ebook", genre=["Fantasy"]),
+    _item(id=3, type="ebook", genre=["Westerns"]),
+    _item(id=4, type="comic", genre=["Fantasy"]),
+])
+
+
+def test_the_panel_counts_only_the_rows_the_table_is_showing():
+    # Filtered to Fantasy: two of the three e-books and the comic. The
+    # panel used to answer for the whole catalog and say three e-books.
+    html = _panel_after(_MIXED, 'app.chipFilters.genre.chips = ["Fantasy"];')
+    block = html[html.index("stat-type"):html.index("stat-rating")]
+    assert ">2<" in block, block
+    assert ">3<" not in block, block
+
+
+def test_the_panel_total_agrees_with_the_toolbar():
+    # The complaint that opened #43: a panel reading "N items -- overview"
+    # beside a toolbar reading "3 / 4 items".
+    html = _panel_after(_MIXED, 'app.chipFilters.genre.chips = ["Fantasy"];')
+    assert "3 items" in html, html[:200]
+
+
+def test_clearing_the_filter_puts_the_whole_catalog_back():
+    html = _panel_after(_MIXED)
+    assert "4 items" in html, html[:200]
+
+
+def test_a_filter_matching_nothing_hides_the_panel():
+    # Reached through a filter now, but the same rule the empty catalog
+    # already had: with no rows there is nothing to summarise, and the
+    # table's own empty state is what says so. What must NOT happen is the
+    # panel keeping the counts from before the filter.
+    out = eval_js("""(() => {
+             dom.reset();
+             app.setItems(%s);
+             app.chipFilters.genre.chips = ["Nothing"];
+             app.render();
+             return {written: dom.writes["#stats-panel"] ?? null,
+                     total: app.getStatsData().total};
+           })()""" % _MIXED)
+    assert out["total"] == 0
+    assert out["written"] is None, out["written"]
+
+
+def test_a_single_row_is_summarised_in_the_singular():
+    # "1 items" was unreachable while the panel counted the whole catalog
+    # and became ordinary once it counts a filtered slice.
+    html = _panel_after(json.dumps([_item(id=1)]))
+    assert "1 item —" in html, html[:120]
+    assert "1 items" not in html
