@@ -41,7 +41,6 @@ async function loadReview() {
 
 // ---- Duplicates panel -------------------------------------------------
 // Manual pair picker state: item ids chosen via autocomplete, or null.
-// `shown` keeps the panel open mid-pick even with zero auto groups.
 let manualPair = {a: null, b: null};
 
 // Autocomplete options carry the id so identical names stay selectable.
@@ -100,15 +99,31 @@ async function loadDupes() {
   renderDupes();
 }
 
+// The panel's <summary> line, shown even when it is collapsed. With
+// groups it counts them; with none it has to say so AND tell the owner
+// the manual picker is inside, or a collapsed panel with nothing
+// suggested gives no reason to open it.
+function dupesSummary(groupCount) {
+  return groupCount === 0
+    ? "&#9187; No suggested duplicate groups, but you can still merge two items by hand"
+    : `&#9187; ${groupCount} possible duplicate group${groupCount === 1 ? "" : "s"}`;
+}
+
 function renderDupes() {
   const panel = $("#dupes-panel");
   const a = items.find(i => i.id === manualPair.a);
   const b = items.find(i => i.id === manualPair.b);
   const manualGroup = a && b && a.id !== b.id
     ? dupeGroupHtml([dupeMember(a), dupeMember(b)], true) : "";
-  panel.hidden = dupeGroups.length === 0 && !manualGroup && !manualPair.shown;
+  // Always shown, even with no suggested groups: the manual picker below
+  // is the only way to merge a pair the detector missed, and hiding the
+  // panel with nothing suggested hid the picker in exactly that case (#71).
+  panel.hidden = false;
+  // The amber is for suggestions awaiting a decision. With none, the
+  // panel is only the picker, and a warning colour would read as trouble.
+  panel.classList.toggle("dupes-none", dupeGroups.length === 0);
   panel.innerHTML = `<details${dupesOpen ? " open" : ""}>
-    <summary>&#9187; ${dupeGroups.length} possible duplicate group${dupeGroups.length === 1 ? "" : "s"}</summary>
+    <summary>${dupesSummary(dupeGroups.length)}</summary>
     <div class="dupe-pick ac-wrap">
       <input id="dupe-a" placeholder="Merge: first item..." size="30">
       <input id="dupe-b" placeholder="...second item" size="30">
@@ -124,7 +139,6 @@ function renderDupes() {
       const id = optionId(value);
       if (id) {
         manualPair[key] = id;
-        manualPair.shown = true;
         input.value = value;
         renderDupes();
       }

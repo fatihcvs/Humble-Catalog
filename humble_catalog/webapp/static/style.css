@@ -252,6 +252,8 @@ a.tag-link:hover { text-decoration: underline; }
                cursor: pointer; }
 #dupes-panel { border: 1px solid var(--panel-warn-border); background: var(--panel-warn-bg);
                padding: .6em; margin-bottom: 1em; }
+/* Nothing suggested: the review panel's neutral look, not the warning. */
+#dupes-panel.dupes-none { background: var(--surface); border-color: var(--border); }
 .dupe-group { display: flex; gap: 1em; border-top: 1px solid var(--border); padding: .5em 0; align-items: flex-start; }
 .dupe-card { display: flex; gap: .5em; flex: 1; }
 .dupe-card img { max-height: 80px; }
