@@ -664,8 +664,8 @@ body[data-mode="read-only"] #column-picker { display: none; }
   #edit-sheet, #sheet-scrim { transition: none; }
 }
 @media (max-width: 600px) {
-  /* Measured at 375 px: Bundles was cut in half and Tasks off-screen. */
-  #tabs { overflow-x: auto; }
+  /* Keep every section visible without an undiscoverable horizontal scroll. */
+  #tabs { flex-wrap: wrap; }
   #tabs a { flex: none; white-space: nowrap; }
 }
 .star-text { color: var(--star); }
