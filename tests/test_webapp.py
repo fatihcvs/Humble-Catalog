@@ -186,6 +186,18 @@ def test_a_truncated_tag_in_the_table_stays_inside_its_cell():
         assert decl in rule, decl
 
 
+def test_a_bundle_tag_wraps_to_two_lines_rather_than_one():
+    # One line of an 88 px column showed a few letters of any bundle name
+    # (#76). Unclamped, a name ran to five lines and doubled the row; two
+    # lines fit the height every row already has for its cover and status.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    rule = _css_rule(css, "#catalog td .tag-link")
+    for decl in ("white-space: normal", "-webkit-line-clamp: 2",
+                 "line-clamp: 2", "display: -webkit-box"):
+        assert decl in rule, decl
+
+
 def test_the_tasks_section_is_its_own_scroller():
     # body is overflow: hidden and every section brings its own scroller.
     # Tasks had none, which went unseen while its cards fitted the window;

@@ -717,12 +717,16 @@ function clearAllFilters() {
 }
 
 // A bundle's name as the Library table shows it. The column is narrow and
-// cuts with an ellipsis (#46), and nearly every bundle name opens with
-// the same word, so a cut name read "Humble..." on every row. Dropping it
-// starts the cell at the part that differs; the link's title keeps the
-// full name. A name that is only the prefix keeps it.
+// clamps at two lines (#46, #76), and nearly every bundle name opens with
+// the same word and then its kind -- "Humble Book Bundle: ..." -- so the
+// clamp spent both lines on what every row shares, first "Humble..." and
+// then "Book Bu...". The cell starts after both; the kind is in the link's
+// title with the rest of the full name. A colon not after "Bundle" is part
+// of the name, and a name that is only prefix keeps it.
 const BUNDLE_PREFIX = /^Humble\s+/i;
-const bundleLabel = (name) => (name || "").replace(BUNDLE_PREFIX, "") || name;
+const BUNDLE_KIND = /^[^:]*?\bBundle:\s*/i;
+const bundleLabel = (name) =>
+  (name || "").replace(BUNDLE_PREFIX, "").replace(BUNDLE_KIND, "") || name;
 
 // Everything after the title in the name cell. Read-only keeps only what
 // navigates -- the source link and the edition jumps -- and drops the
