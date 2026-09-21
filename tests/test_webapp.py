@@ -1300,7 +1300,10 @@ def test_app_js_renders_source_link_as_trailing_icon():
     app_js = _viewer_js()
     assert "src-link" in app_js
     assert "&#x2197;" in app_js
-    assert 'title="Open source page"' in app_js
+    # Built by nameExtras' named() helper, which writes it as both the
+    # title and the aria-label -- see test_every_name_cell_glyph_has_an_
+    # accessible_name for the rendered attributes.
+    assert '"Open source page"' in app_js
 
 def test_app_js_edits_source_url():
     app_js = _viewer_js()
