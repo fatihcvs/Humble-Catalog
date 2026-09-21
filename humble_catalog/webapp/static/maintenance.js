@@ -12,8 +12,9 @@ async function loadReview() {
   const review = (await (await fetch("/api/review")).json()).items;
   reviewCount = review.length;
   const panel = $("#review-panel");
-  panel.hidden = review.length === 0;
-  panel.innerHTML = review.length === 0 ? "" :
+  panel.hidden = false;
+  panel.innerHTML = review.length === 0
+    ? '<p class="section-empty">All clear: no items need review.</p>' :
     `<details${reviewOpen ? " open" : ""}>
       <summary>&#9888; ${review.length} ${review.length === 1 ? "item needs" : "items need"} review</summary>
       ${review.map(r => `<div class="review-item">
@@ -106,7 +107,11 @@ function renderDupes() {
   const b = items.find(i => i.id === manualPair.b);
   const manualGroup = a && b && a.id !== b.id
     ? dupeGroupHtml([dupeMember(a), dupeMember(b)], true) : "";
-  panel.hidden = dupeGroups.length === 0 && !manualGroup && !manualPair.shown;
+  panel.hidden = false;
+  if (!dupeGroups.length && !manualGroup && !manualPair.shown) {
+    panel.innerHTML = '<p class="section-empty">No possible duplicate groups to review.</p>';
+    return;
+  }
   panel.innerHTML = `<details${dupesOpen ? " open" : ""}>
     <summary>&#9187; ${dupeGroups.length} possible duplicate group${dupeGroups.length === 1 ? "" : "s"}</summary>
     <div class="dupe-pick ac-wrap">

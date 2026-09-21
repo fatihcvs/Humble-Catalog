@@ -2978,3 +2978,58 @@ def test_a_write_that_never_arrives_puts_the_rating_back():
       await app.applyRating(1, 4, 4);
       return app.getItems()[0].my_rating;""")
     assert out == 2
+
+
+def test_empty_keys_explains_setup_without_read_only_task_links():
+    for read_only in (False, True):
+        html = eval_js("""(async () => {
+          app.setReadOnly(%s);
+          app.setFetch(async () => ({json: async () =>
+            ({total: 0, rows: [], libraries: {}})}));
+          await app.loadKeys();
+          return dom.writes["#keys-panel"];
+        })()""" % json.dumps(read_only))
+        assert "No Humble keys have been fetched yet" in html
+        assert 'id="key-table-wrap" hidden' in html
+        assert ('href="#/tasks"' in html) is not read_only
+        assert ("catalog owner" in html) is read_only
+
+
+def test_keys_filtered_empty_does_not_claim_there_are_no_keys():
+    html = _with_keys('''(app.setKeyStates([]), app.renderKeys(),
+                         dom.writes["#keys-panel"])''')
+    assert "No keys match these filters" in html
+    assert "No Humble keys have been fetched" not in html
+    assert 'id="key-table-wrap" hidden' in html
+
+
+def test_keys_all_matched_does_not_ask_for_a_new_import():
+    html = eval_js("""(async () => {
+      app.setFetch(async () => ({json: async () => ({total: 2,
+        counts: {matched: 2}, rows: [],
+        libraries: {steam: {count: 2, imported_at: "2026-01-01"}}})}));
+      await app.loadKeys();
+      return dom.writes["#keys-panel"];
+    })()""")
+    assert "All reported keys match an imported game library" in html
+    assert 'href="#/tasks"' not in html
+
+
+def test_maintenance_all_clear_is_replaced_when_review_work_arrives():
+    result = eval_js("""(async () => {
+      const review = [];
+      app.setFetch(async (url) => ({json: async () =>
+        url === "/api/review" ? {items: review} :
+        url === "/api/duplicates" ? {groups: []} :
+        url === "/api/stats" ? {total: 0, sections: []} : {items: []}}));
+      await app.load();
+      const empty = [dom.writes["#review-panel"], dom.writes["#dupes-panel"]];
+      review.push({id: 1, name: "The Quiet Harbor: A Novel",
+                   status: "review", type: "ebook", candidates: []});
+      await app.loadReview();
+      return {empty, populated: dom.writes["#review-panel"]};
+    })()""")
+    assert "All clear" in result["empty"][0]
+    assert "No possible duplicate groups" in result["empty"][1]
+    assert "1 item needs review" in result["populated"]
+    assert "All clear" not in result["populated"]

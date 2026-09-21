@@ -85,6 +85,17 @@ function renderKeys() {
   const libraries = Object.entries(keyLibraries).map(
     ([store, info]) => `${esc(store)} ${info.count} (imported ${
       esc((info.imported_at || "").slice(0, 10))})`).join(", ");
+  let emptyMessage = "No keys match these filters. Try another state above.";
+  if (!keyTotal) {
+    emptyMessage = "No Humble keys have been fetched yet.";
+  } else if (!keyRows.length) {
+    emptyMessage = "All reported keys match an imported game library.";
+  }
+  const importHint = libraries ? "" : READ_ONLY
+    ? " Ask the catalog owner to import game libraries to compare ownership."
+    : ' Import game libraries from <a href="#/tasks">Tasks</a> to compare ownership.';
+  const fetchHint = !keyTotal && !READ_ONLY
+    ? ' Fetch new bundles from <a href="#/tasks">Tasks</a> to load your keys.' : "";
   $("#keys-panel").innerHTML = `
     <p class="keys-summary">${keyTotal} keys - ${keyCounts.matched || 0} in a
       library, ${rows.length} shown.
@@ -92,7 +103,8 @@ function renderKeys() {
       was only displayed, which is not the same as activated.</p>
     <div id="key-chips">${chips}</div>
     ${libraries ? `<p class="keys-libraries">Libraries: ${libraries}</p>` : ""}
-    <div id="key-table-wrap">
+    ${!rows.length ? `<p class="section-empty">${emptyMessage}${fetchHint}${importHint}</p>` : ""}
+    <div id="key-table-wrap"${rows.length ? "" : " hidden"}>
     <table id="key-table"><thead><tr>
       <th>Product</th><th>Store</th><th>Bundle</th><th>Purchased</th>
       <th>Expires</th><th>Revealed</th><th>State</th><th>Hidden</th>
