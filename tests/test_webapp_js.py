@@ -492,6 +492,33 @@ def test_re_enriched_row_renders_a_revert_button_not_an_edited_badge():
     assert "badge edited" not in html
 
 
+def _name_cell_buttons(html):
+    """{class: aria-label} for each icon-only control in the name cell."""
+    found = re.findall(
+        r'<(?:button|a) class="(src-link|redo|edit|revert|override)"'
+        r'[^>]*?aria-label="([^"]*)"', html, re.S)
+    return dict(found)
+
+
+def test_every_name_cell_glyph_has_an_accessible_name():
+    # Five controls that differ only by the shape of an arrow, and a title
+    # was all each one had: a hover to read, and the weakest accessible
+    # name there is (#50). Each needs an aria-label naming what it does
+    # and which row it does it to.
+    html = _rendered(_item(source_url="https://example.com/b",
+                           edited=True))
+    html += _rendered(_item(status="matched"))
+    labels = _name_cell_buttons(html)
+    assert set(labels) == {"src-link", "redo", "edit", "revert", "override"}
+    for cls, label in labels.items():
+        assert "The Quiet Harbor" in label, (cls, label)
+
+
+def test_the_re_enriched_revert_is_labelled_too():
+    labels = _name_cell_buttons(_rendered(_item(re_enriched=True)))
+    assert "your edited values" in labels["revert"]
+
+
 def _export_button(n_items, filter_text):
     """#export's label and disabled state after renderExportButton()."""
     catalog = json.dumps([
@@ -2197,13 +2224,51 @@ def test_a_fired_button_gets_its_label_back():
     # a Danger button inviting a click that has already happened.
     result = eval_js("""(() => {
         const el = {dataset: {}, textContent: "Run", isConnected: true,
-                    classList: {add() {}, remove() {}}};
+                    classList: {add() {}, remove() {}},
+                    getAttribute() { return null; }};
         armOrFire(el, () => null);
         const armed = el.textContent;
         armOrFire(el, () => null);
         return [armed, el.textContent, Boolean(el.dataset.armed)];
       })()""")
     assert result == ["Click again to confirm", "Run", False]
+
+
+def _labelled_button():
+    """A stand-in button with an aria-label, as the name-cell glyphs have."""
+    return """{dataset: {}, textContent: "↩", isConnected: true,
+               classList: {add() {}, remove() {}},
+               attrs: {"aria-label": "Revert Book"},
+               getAttribute(k) { return this.attrs[k] ?? null; },
+               setAttribute(k, v) { this.attrs[k] = v; }}"""
+
+
+def test_an_armed_glyph_announces_the_confirm_prompt():
+    # An aria-label outranks the text, so swapping only textContent left a
+    # reader hearing "Revert Book" on a button that now wants a second
+    # click. The prompt has to reach the label as well (#50).
+    result = eval_js("""(() => {
+        const el = %s;
+        armOrFire(el, () => null);
+        const armed = el.attrs["aria-label"];
+        armOrFire(el, () => null);
+        return [armed, el.attrs["aria-label"]];
+      })()""" % _labelled_button())
+    assert result == ["Click again to confirm", "Revert Book"]
+
+
+def test_an_armed_glyph_gets_its_label_back_on_timeout():
+    result = eval_js("""(() => {
+        const timers = [];
+        const realTimeout = globalThis.setTimeout;
+        globalThis.setTimeout = (fn) => timers.push(fn);
+        const el = %s;
+        armOrFire(el, () => null);
+        globalThis.setTimeout = realTimeout;
+        timers.forEach(fn => fn());
+        return [el.textContent, el.attrs["aria-label"]];
+      })()""" % _labelled_button())
+    assert result == ["↩", "Revert Book"]
 
 
 # --- Job log: follow, and hold still when not following (#36) -----------

@@ -719,10 +719,19 @@ function clearAllFilters() {
 // Everything after the title in the name cell. Read-only keeps only what
 // navigates -- the source link and the edition jumps -- and drops the
 // badges and buttons that exist to drive enrichment.
+//
+// The glyphs differ only by the shape of an arrow, so each carries an
+// aria-label as well as its title (#50): the title is the mouse tooltip,
+// and the label adds the row's name, since a reader listing the page's
+// buttons hears them without the row around them.
 function nameExtras(i) {
+  const named = (label) =>
+    `title="${label}" aria-label="${label}: ${esc(i.name)}"`;
+  const glyph = (cls, label, char) =>
+    ` <button class="${cls}" data-id="${i.id}" ${named(label)}>${char}</button>`;
   const src = i.source_url
     ? ` <a class="src-link" href="${esc(i.source_url)}" target="_blank"
-             rel="noopener" title="Open source page">&#x2197;</a>` : "";
+             rel="noopener" ${named("Open source page")}>&#x2197;</a>` : "";
   // The key is absent on nearly every row, so the || [] is
   // load-bearing rather than defensive.
   const editions = (i.editions || []).map(o => ` <button class="badge edition edition-jump"
@@ -734,20 +743,17 @@ function nameExtras(i) {
       i.status === "low_confidence" || i.status === "unmatched"
         ? ' <span class="badge">review</span>' : ""}${
       i.status === "matched" || i.status === "manually_fixed"
-        ? ` <button class="redo" data-id="${i.id}" title="Redo this match">&#x27F3;</button>` : ""}
-      <button class="edit" data-id="${i.id}" title="Edit fields">&#x270E;</button>${
+        ? glyph("redo", "Redo this match", "&#x27F3;") : ""}${
+      glyph("edit", "Edit fields", "&#x270E;")}${
       i.edited
-        ? ` <span class="badge edited">edited</span>
-            <button class="revert" data-id="${i.id}"
-                    title="Revert to the enriched values">&#x21A9;</button>
-            <button class="override" data-id="${i.id}"
-                    title="${i.override
-                      ? "Cancel the queued re-enrichment"
-                      : "Let the next enrich run update this row"}">&#x21BB;</button>` : ""}${
+        ? ` <span class="badge edited">edited</span>${
+            glyph("revert", "Revert to the enriched values", "&#x21A9;")}${
+            glyph("override", i.override
+              ? "Cancel the queued re-enrichment"
+              : "Let the next enrich run update this row", "&#x21BB;")}` : ""}${
       i.re_enriched
-        ? ` <span class="badge">re-enriched</span>
-            <button class="revert" data-id="${i.id}"
-                    title="Revert to your edited values">&#x21A9;</button>` : ""}${
+        ? ` <span class="badge">re-enriched</span>${
+            glyph("revert", "Revert to your edited values", "&#x21A9;")}` : ""}${
       i.override ? ' <span class="badge queued">re-enrich queued</span>' : ""}` + editions;
 }
 
