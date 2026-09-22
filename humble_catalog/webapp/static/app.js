@@ -88,7 +88,7 @@ async function load() {
 // which is what a payload lacking a newer field (an older server, a
 // partial response) would otherwise do.
 const tagBadges = (arr) =>
-  (arr || []).map(t => `<span class="tag">${esc(t)}</span>`).join("");
+  (arr || []).map(t => `<span class="tag" title="${esc(t)}">${esc(t)}</span>`).join("");
 
 function esc(v) {
   return v == null ? "" : String(v).replace(/[&<>"]/g,
@@ -103,11 +103,21 @@ function esc(v) {
 // good -- harmless where the fire re-renders the button, wrong wherever it
 // does not (a Tasks card whose start was refused, for one).
 function armOrFire(el, fire) {
-  if (el.dataset.armed) {
+  // An aria-label outranks the text, so a glyph button (#50) would go on
+  // announcing its action while it asks for a second click. The prompt
+  // goes into the label too, and the label comes back with the text.
+  const disarm = () => {
     delete el.dataset.armed;
     el.classList.remove("armed");
     el.textContent = el.dataset.label;
     delete el.dataset.label;
+    if (el.dataset.ariaLabel !== undefined) {
+      el.setAttribute("aria-label", el.dataset.ariaLabel);
+      delete el.dataset.ariaLabel;
+    }
+  };
+  if (el.dataset.armed) {
+    disarm();
     // Returned, not dropped: callers are async, and a test (or any future
     // caller that needs to know the write finished) has nothing else to
     // await. Every current caller ignores it.
@@ -117,13 +127,13 @@ function armOrFire(el, fire) {
   el.dataset.label = el.textContent;
   el.classList.add("armed");
   el.textContent = "Click again to confirm";
+  const ariaLabel = el.getAttribute("aria-label");
+  if (ariaLabel !== null) {
+    el.dataset.ariaLabel = ariaLabel;
+    el.setAttribute("aria-label", "Click again to confirm");
+  }
   setTimeout(() => {
-    if (el.isConnected && el.dataset.armed) {
-      delete el.dataset.armed;
-      el.classList.remove("armed");
-      el.textContent = el.dataset.label;
-      delete el.dataset.label;
-    }
+    if (el.isConnected && el.dataset.armed) disarm();
   }, 3000);
 }
 

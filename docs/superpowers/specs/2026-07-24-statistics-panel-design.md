@@ -46,7 +46,8 @@ above the table are each showing one small table.
   rating buckets is decoration, and the viewer has no charting dependency
   worth adding for it.
 - **Statistics over the filtered set.** The panel always counts the whole
-  catalog (see the decision below).
+  catalog (see the decision below). **Reversed on 2026-09-21 by #43 — see
+  the note at the end of this document.**
 - **Historical trends.** Nothing records catalog state over time, and
   adding that would mean storing snapshots this design has no use for.
 - **New stored data.** Every section is a pure function of current rows.
@@ -61,6 +62,16 @@ above the table are each showing one small table.
   compounds onto filters already set. A filtered breakdown was considered
   and dropped — it re-renders on every keystroke and turns click-through
   into a feedback loop.
+
+  **Reversed 2026-09-21 (#43).** The argument above is sound only from an
+  unfiltered table, which is the case where the two behaviours agree
+  anyway. `SECTION_FILTERS` sets one control and clears nothing, so with a
+  filter already active the jump compounds regardless — and then a
+  whole-catalog count is precisely the number you will NOT see after it.
+  Demonstrated against `demo_catalog.py`: with one genre chip active, the
+  panel offered "E-books 6" and the jump landed on an empty table. The
+  counts now follow `visible()`, and a row's count is what the jump
+  delivers whether or not filters are already set. See the note below.
 
 - **Computed once, in Python, served over `GET /api/stats`.** The counting
   lives in `stats.py`; the CLI prints its result and the viewer renders it.
@@ -361,3 +372,51 @@ Fixtures use the invented titles and tags from `docs/TEST-DATA.md`;
 - `tests/test_gaps.py` → `tests/test_stats.py`; `tests/test_webapp.py`;
   `tests/test_webapp_js.py`; `tests/test_cli.py`; `tests/test_db.py`
 - `docs/BACKLOG.md` (entry moves to Done)
+
+## Amendment — 2026-09-21: the panel follows the filters (#43)
+
+Two things in the repo asserted opposite behaviours. This document said
+whole-catalog counts, always; `catalog.js`'s header comment and
+`2026-07-30-viewer-multi-section-layout-design.md` said the summary
+"describes the very rows the table is showing", which is why it sits
+beside the table rather than in a section of its own. The second is now
+true and this document's decision is reversed.
+
+**What decided it** was neither document but `SECTION_FILTERS`: it sets
+one control and clears none of the others, so the jump always compounds
+onto the active filters. A whole-catalog count is therefore a promise the
+jump cannot keep whenever a filter is set — at worst offering a row
+reading 6 that lands on nothing. Counts over `visible()` keep that promise
+in both cases.
+
+**What this costs.** The counting is now implemented twice: `stats.py` for
+the CLI and `/api/stats`, and `stats.js` for the panel. That is the drift
+this design's "computed once, in Python" decision existed to prevent, so
+it is held by a test instead of by the arrangement —
+`test_the_browser_counts_agree_with_stats_py` counts one fixture with both
+implementations and asserts them equal field for field, including a value
+outside the vocabulary, a missing `read_status`, the gaps, a genre tie and
+an empty catalog. The same invariant the probe battery already pins for
+the route, moved to the pair that can now disagree.
+
+**What the measurement said, and why it does not apply.** Browser-side
+deriving was dropped in 2026-07-24 after measuring that keeping the panel
+fresh would cost a full `/api/items` refetch — 1.3 MiB per star click.
+That measured refetching *items*; counting the array already in memory
+fetches nothing, and removes the `/api/stats` round trip that followed
+every rating change. The panel no longer trails the table.
+
+**What did not change.** `/api/stats` still serves the whole-catalog
+report: the CLI parity tests and the read-route probe battery assert it
+reshapes `stats.report` field for field. The viewer simply stops reading
+it, which leaves the route without a viewer consumer — recorded as its own
+issue rather than decided here. Decided in #67: kept as a documented read
+API, since the parity tests need a route to assert against; the comment
+on the route says the viewer does not read it.
+
+**One thing that fell out.** `refreshStats()` now depends on `visible()`,
+which a single item with a missing field can make throw — the failure
+`load()`'s per-renderer guard exists to contain. When the filtering
+throws, the panel counts the whole catalog rather than nothing: the
+pre-#43 answer, on the grounds that a page which still comes up beats a
+correct panel nobody sees.

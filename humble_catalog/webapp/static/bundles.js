@@ -34,7 +34,13 @@ async function previewBundle(url) {
   renderBundlePreview();
 }
 
+function renderBundleGuidance() {
+  $("#bundle-empty").hidden = !!(bundlePreview || bundlePreviewError
+    || choicePreview || choicePreviewError);
+}
+
 function renderBundlePreview() {
+  renderBundleGuidance();
   const panel = $("#bundle-panel");
   panel.hidden = !bundlePreview && !bundlePreviewError;
   if (panel.hidden) return;
@@ -165,6 +171,7 @@ async function previewChoice() {
 }
 
 function renderChoicePreview() {
+  renderBundleGuidance();
   const panel = $("#choice-panel");
   panel.hidden = !choicePreview && !choicePreviewError;
   if (panel.hidden) return;

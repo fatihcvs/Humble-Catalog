@@ -137,6 +137,55 @@ def test_a_card_cover_keeps_its_proportions_and_text_flows_around_it():
         assert "flex" not in body and "overflow" not in body
 
 
+def _library_column_widths(css):
+    """{column: width in rem} from the Library table's column rules."""
+    return {sort or cls: float(value) for sort, cls, value in re.findall(
+        r'#catalog th(?:\[data-sort="(\w+)"\]|\.col-(\w+))'
+        r' \{ width: ([\d.]+)rem; \}', css)}
+
+
+def test_the_library_table_gives_name_the_widest_column():
+    # Automatic layout sized columns by their content's unbreakable width,
+    # which ran backwards: a bundle name is a nowrap .tag, so Bundle took a
+    # wide column and overflowed anyway, while Name -- the column people
+    # scan -- wrapped to three or four lines (#46). A fixed layout with an
+    # explicit width per column puts the share where it is read.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    assert "table-layout: fixed" in _css_rule(css, "#catalog")
+    widths = _library_column_widths(css)
+    # Every one of the 14 headers has a width, or fixed layout splits the
+    # remainder evenly among the unsized ones and the shares mean nothing.
+    assert len(widths) == 14, sorted(widths)
+    assert max(widths, key=widths.get) == "name"
+    assert widths["bundle"] < widths["name"]
+    # At 1440 px, with the filter sidebar open, the table's scroller is
+    # 1137 px wide (measured on the demo catalog), about 71rem. The issue
+    # was that it still scrolled sideways there.
+    assert sum(widths.values()) <= 70, sum(widths.values())
+
+
+def test_every_library_header_has_a_column_hook():
+    # The width rules select on data-sort or a col- class, so a header
+    # with neither would be unsized.
+    html = _index_html()
+    head = html[html.index('<table id="catalog">'):html.index("</thead>")]
+    for th in re.findall(r"<th(?:\s[^>]*)?>", head):
+        assert "data-sort=" in th or 'class="col-' in th, th
+
+
+def test_a_truncated_tag_in_the_table_stays_inside_its_cell():
+    # A fixed column no longer grows to fit a nowrap tag, so a long bundle
+    # or author name must be cut with an ellipsis rather than painted over
+    # the next column. The full name is in the tag's title.
+    css = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
+           / "static" / "style.css").read_text(encoding="utf-8")
+    rule = _css_rule(css, "#catalog td .tag")
+    for decl in ("max-width: 100%", "overflow: hidden",
+                 "text-overflow: ellipsis"):
+        assert decl in rule, decl
+
+
 def test_the_tasks_section_is_its_own_scroller():
     # body is overflow: hidden and every section brings its own scroller.
     # Tasks had none, which went unseen while its cards fitted the window;
@@ -1300,7 +1349,10 @@ def test_app_js_renders_source_link_as_trailing_icon():
     app_js = _viewer_js()
     assert "src-link" in app_js
     assert "&#x2197;" in app_js
-    assert 'title="Open source page"' in app_js
+    # Built by nameExtras' named() helper, which writes it as both the
+    # title and the aria-label -- see test_every_name_cell_glyph_has_an_
+    # accessible_name for the rendered attributes.
+    assert '"Open source page"' in app_js
 
 def test_app_js_edits_source_url():
     app_js = _viewer_js()
@@ -1442,7 +1494,8 @@ def test_save_skips_edit_when_only_user_fields_changed():
 def test_index_has_user_columns():
     html = (Path(__file__).parent.parent / "humble_catalog" / "webapp"
             / "static" / "index.html").read_text(encoding="utf-8")
-    assert "<th>My tags</th><th>Notes</th>" in html
+    assert ('<th class="col-tags">My tags</th>'
+            '<th class="col-notes">Notes</th>') in html
 
 def _index_html():
     return (Path(__file__).parent.parent / "humble_catalog" / "webapp"

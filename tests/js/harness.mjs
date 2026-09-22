@@ -158,12 +158,14 @@ vm.createContext(sandbox);
 // tests need to drive state.
 const publish = `
 ;globalThis.__app = {
-  tagBadges, person, personField, esc, highlight, chipFilters, passesChipFilters,
+  tagBadges, bundleLabel, person, personField, esc, highlight, chipFilters, passesChipFilters,
   visible, render, stars, ratingForKey, applyRating, ariaSortFor, tagCounts, shouldPostEnrichmentEdit, load, loadReview, shownRows,
   renderBulkBar, runBulk, undoBulk,
   getLastTagOp: () => lastTagOp,
   setLastTagOp: (v) => { lastTagOp = v; },
-  refreshStats, renderStats, SECTION_FILTERS,
+  refreshStats, renderStats, statsReport, SECTION_FILTERS,
+  setStatsData: (v) => { statsData = v; },
+  getStatsData: () => statsData,
   SECTIONS, currentSection, showSection,
   renderBadges, badgeCount,
   toggleSidebar, sidebarCollapsed, applySidebar, renderActiveFilters,
