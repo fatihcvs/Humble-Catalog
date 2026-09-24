@@ -253,6 +253,8 @@ a.tag-link:hover { text-decoration: underline; }
                cursor: pointer; }
 #dupes-panel { border: 1px solid var(--panel-warn-border); background: var(--panel-warn-bg);
                padding: .6em; margin-bottom: 1em; }
+/* Nothing suggested: the review panel's neutral look, not the warning. */
+#dupes-panel.dupes-none { background: var(--surface); border-color: var(--border); }
 .dupe-group { display: flex; gap: 1em; border-top: 1px solid var(--border); padding: .5em 0; align-items: flex-start; }
 .dupe-card { display: flex; gap: .5em; flex: 1; }
 .dupe-card img { max-height: 80px; }
@@ -312,6 +314,51 @@ input.edit-url { width: 100%; box-sizing: border-box; margin: .2rem 0; }
 #catalog thead th { position: sticky; top: 0;
                     background: var(--surface); z-index: 5; }
 #catalog th, #catalog td { padding: .3rem .55rem; }
+
+/* Column shares (#46). Automatic layout sized each column by its widest
+   unbreakable content, which ran backwards: a bundle name is a nowrap
+   .tag, so Bundle took a wide column and overflowed anyway, while Name --
+   the column people scan -- wrapped to three or four lines. Fixed layout
+   takes the widths below instead, and the table is never narrower than
+   their sum (it still scrolls on a small screen rather than crushing).
+   Every header needs one: fixed layout splits what is left evenly among
+   unsized columns. test_the_library_table_gives_name_the_widest_column
+   holds Name widest and the sum inside a 1440 px screen's scroller. */
+#catalog { table-layout: fixed; }
+#catalog td { overflow-wrap: break-word; }
+/* A fixed column no longer grows to fit a nowrap tag, so a long one is cut
+   here; tagBadges and the bundle links put the full name in a title. */
+#catalog td .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+                   box-sizing: border-box; vertical-align: top; }
+/* Except a bundle, which gets two lines (#76): one line of an 88 px column
+   is a few letters, and bundleLabel has already dropped the prefix every
+   bundle shares, so two lines reach the part that names it. Unclamped a
+   name ran to five lines and doubled the row; two fit the height a row
+   already has for its cover and status select. */
+#catalog td .tag-link { white-space: normal; overflow-wrap: anywhere;
+                        display: -webkit-box; -webkit-box-orient: vertical;
+                        -webkit-line-clamp: 2; line-clamp: 2; }
+#catalog td select, #catalog td .tag-input { max-width: 100%; }
+/* Floors, in rem, where content cannot shrink: the 40 px cover 3.6, the
+   Status select 7.7, the five stars 4.8. Tag columns can go below their
+   longest tag now that tags truncate. The sum must stay <= 70. */
+/* border-box, so each width below is the column as drawn, padding and all,
+   and their sum is the table's real width rather than 15rem short of it. */
+#catalog th { box-sizing: border-box; }
+#catalog th.col-cover { width: 3.6rem; }
+#catalog th[data-sort="name"] { width: 9.2rem; }
+#catalog th[data-sort="type"] { width: 5.4rem; }
+#catalog th[data-sort="read_status"] { width: 7.7rem; }
+#catalog th[data-sort="genre"] { width: 5rem; }
+#catalog th[data-sort="series"] { width: 4rem; }
+#catalog th[data-sort="authors"] { width: 5rem; }
+#catalog th[data-sort="narrator"] { width: 4.6rem; }
+#catalog th[data-sort="publisher"] { width: 4.4rem; }
+#catalog th[data-sort="bundle"] { width: 5.4rem; }
+#catalog th[data-sort="external_rating"] { width: 3.9rem; }
+#catalog th[data-sort="my_rating"] { width: 4.8rem; }
+#catalog th.col-tags { width: 3.4rem; }
+#catalog th.col-notes { width: 3.6rem; }
 
 /* Filter bar: a touch more room, and a subtle divider before the type/flag
    selects and again before the chip filters, so the row reads as clusters
@@ -665,8 +712,8 @@ body[data-mode="read-only"] #column-picker { display: none; }
   #edit-sheet, #sheet-scrim { transition: none; }
 }
 @media (max-width: 600px) {
-  /* Measured at 375 px: Bundles was cut in half and Tasks off-screen. */
-  #tabs { overflow-x: auto; }
+  /* Keep every section visible without an undiscoverable horizontal scroll. */
+  #tabs { flex-wrap: wrap; }
   #tabs a { flex: none; white-space: nowrap; }
 }
 .star-text { color: var(--star); }

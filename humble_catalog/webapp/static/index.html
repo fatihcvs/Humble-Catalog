@@ -108,18 +108,18 @@
   <div id="table-wrap">
   <table id="catalog">
     <thead><tr>
-      <th></th><th data-sort="name"><button type="button" class="sort-btn">Name<span class="sort-ind"></span></button></th>
+      <th class="col-cover"></th><th data-sort="name"><button type="button" class="sort-btn">Name<span class="sort-ind"></span></button></th>
       <th data-sort="type"><button type="button" class="sort-btn">Type<span class="sort-ind"></span></button></th>
       <th data-sort="read_status"><button type="button" class="sort-btn">Status<span class="sort-ind"></span></button></th>
       <th data-sort="genre"><button type="button" class="sort-btn">Genre<span class="sort-ind"></span></button></th>
       <th data-sort="series"><button type="button" class="sort-btn">Series<span class="sort-ind"></span></button></th>
       <th data-sort="authors"><button type="button" class="sort-btn">Authors<span class="sort-ind"></span></button></th>
-      <th data-sort="narrator"><button type="button" class="sort-btn">Narrator/Artist<span class="sort-ind"></span></button></th>
+      <th data-sort="narrator"><button type="button" class="sort-btn">Narrator/<wbr>Artist<span class="sort-ind"></span></button></th>
       <th data-sort="publisher"><button type="button" class="sort-btn">Publisher<span class="sort-ind"></span></button></th>
       <th data-sort="bundle"><button type="button" class="sort-btn">Bundle<span class="sort-ind"></span></button></th>
       <th data-sort="external_rating"><button type="button" class="sort-btn">Rating<span class="sort-ind"></span></button></th>
       <th data-sort="my_rating"><button type="button" class="sort-btn">Mine<span class="sort-ind"></span></button></th>
-      <th>My tags</th><th>Notes</th>
+      <th class="col-tags">My tags</th><th class="col-notes">Notes</th>
     </tr></thead>
     <!-- The first state, in the markup rather than written by a script:
          /api/items is awaited before anything is drawn, so this is what
@@ -157,6 +157,9 @@
     <div id="keys-panel"></div>
   </section>
   <section id="section-bundles" hidden>
+    <p id="bundle-empty" class="section-empty">Paste a Humble bundle URL to compare each tier's
+      owned and new items with your catalog. To preview this month's Choice,
+      use the Choice button below; no URL is needed.</p>
     <div id="bundle-form">
       <input id="bundle-url" aria-label="Humble bundle URL to preview" type="url" size="60"
              placeholder="Paste a HumbleBundle page URL to see what you already own">
@@ -180,6 +183,7 @@
 <script src="/static/fuzzy.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/catalog.js"></script>
+<script src="/static/stats.js"></script>
 <script src="/static/maintenance.js"></script>
 <script src="/static/keys.js"></script>
 <script src="/static/bundles.js"></script>
