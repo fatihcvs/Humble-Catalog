@@ -12,8 +12,9 @@ async function loadReview() {
   const review = (await (await fetch("/api/review")).json()).items;
   reviewCount = review.length;
   const panel = $("#review-panel");
-  panel.hidden = review.length === 0;
-  panel.innerHTML = review.length === 0 ? "" :
+  panel.hidden = false;
+  panel.innerHTML = review.length === 0
+    ? '<p class="section-empty">All clear: no items need review.</p>' :
     `<details${reviewOpen ? " open" : ""}>
       <summary>&#9888; ${review.length} ${review.length === 1 ? "item needs" : "items need"} review</summary>
       ${review.map(r => `<div class="review-item">
