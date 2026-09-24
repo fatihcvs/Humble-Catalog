@@ -329,6 +329,14 @@ input.edit-url { width: 100%; box-sizing: border-box; margin: .2rem 0; }
    here; tagBadges and the bundle links put the full name in a title. */
 #catalog td .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis;
                    box-sizing: border-box; vertical-align: top; }
+/* Except a bundle, which gets two lines (#76): one line of an 88 px column
+   is a few letters, and bundleLabel has already dropped the prefix every
+   bundle shares, so two lines reach the part that names it. Unclamped a
+   name ran to five lines and doubled the row; two fit the height a row
+   already has for its cover and status select. */
+#catalog td .tag-link { white-space: normal; overflow-wrap: anywhere;
+                        display: -webkit-box; -webkit-box-orient: vertical;
+                        -webkit-line-clamp: 2; line-clamp: 2; }
 #catalog td select, #catalog td .tag-input { max-width: 100%; }
 /* Floors, in rem, where content cannot shrink: the 40 px cover 3.6, the
    Status select 7.7, the five stars 4.8. Tag columns can go below their

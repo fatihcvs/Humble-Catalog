@@ -498,22 +498,30 @@ def test_a_table_tag_carries_its_full_name_for_when_it_is_cut():
     assert 'title="Example Press Omnibus Bundle"' in html
 
 
-def test_a_bundle_cell_drops_the_prefix_every_bundle_shares():
+def test_a_bundle_cell_starts_at_the_part_that_names_the_bundle():
     # At a fixed width the ellipsis cut every bundle to "Humble...", the
-    # one word they all share, so the column no longer told rows apart
-    # (#46). The cell starts at the part that differs; the title and the
-    # link keep the full name.
+    # one word they all share (#46); dropping that still left "Book Bu...",
+    # the kind of bundle rather than which one (#76). The cell starts after
+    # both; the title and the link keep the full name.
     html = _rendered(_item(bundles=[{
         "name": "Humble Book Bundle: Example Harbor Tales",
         "url": "https://example.invalid/b2"}]))
     assert ('title="Humble Book Bundle: Example Harbor Tales">'
-            'Book Bundle: Example Harbor Tales</a>') in html
+            'Example Harbor Tales</a>') in html
 
 
-def test_a_bundle_named_only_the_prefix_keeps_its_name():
-    assert eval_js('app.bundleLabel("Humble")') == "Humble"
-    assert eval_js('app.bundleLabel("Example Press Omnibus")') == \
-        "Example Press Omnibus"
+def test_bundle_label_drops_only_what_every_bundle_shares():
+    label = lambda name: eval_js("app.bundleLabel(%s)" % json.dumps(name))
+    assert label("Humble Audiobook Bundle: Epic Tales 2020") == \
+        "Epic Tales 2020"
+    # No kind prefix: only the shared word goes.
+    assert label("Humble Comics Samples") == "Comics Samples"
+    # A colon that does not follow "Bundle" is part of the name.
+    assert label("Humble Choice: March") == "Choice: March"
+    # Nothing left after a prefix: the name is kept rather than blanked.
+    assert label("Humble") == "Humble"
+    assert label("Humble Book Bundle:") == "Humble Book Bundle:"
+    assert label("Example Press Omnibus") == "Example Press Omnibus"
 
 
 def test_re_enriched_row_renders_a_revert_button_not_an_edited_badge():
